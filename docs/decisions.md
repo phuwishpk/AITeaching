@@ -86,14 +86,14 @@
   - Reward = ผ่านข้อ (+) หรือออกจากระบบ (−)
 - **AI Tutor:** Authored Hint เป็นข้อมูลหลัก LLM แค่ปรับถ้อยคำ ทุกข้อความต้องผ่าน Answer-Leak Guard และ LLM ไม่ตัดสินถูกผิด ([ADR-0001](adr/0001-authored-hints-and-answer-leak-guard.md))
 - **prompt 4 กรอบ:** Role & Persona, Context & Environment (เติมตัวแปรจาก Student Model), Task & Intent (ระดับคำใบ้) และ Constraints & Fallback
-- **Provider:** เลือก Claude, Gemini หรือ Offline ในหน้า Admin มีลำดับสำรองเมื่อตัวที่เลือกใช้ไม่ได้ ค่าเริ่มต้นฝั่ง Claude คือ `claude-haiku-5-5` ส่วนชื่อโมเดล Gemini ให้เช็กตอนติดตั้ง
+- **Provider:** เลือก Claude, Gemini หรือ Offline ในหน้า Admin มีลำดับสำรองเมื่อตัวที่เลือกใช้ไม่ได้ ค่าเริ่มต้นฝั่ง Claude คือ `claude-opus-5-5` (เปลี่ยนเป็นโมเดลที่ถูกกว่า เช่น `claude-haiku-5-5` ได้ในหน้าตั้งค่า) ส่วนชื่อโมเดล Gemini ให้กด "ทดสอบการเชื่อมต่อ" แล้วเลือกจากรายการที่ key นั้นใช้ได้
 - **RAG:** ดึงรายการ Bug Library ตามแท็ก และย่อหน้าจากเอกสารวิชา (PDF ที่มีตัวอักษร, DOCX, TXT, MD) ค้นด้วย BM25 + ตัดคำไทยด้วย PyThaiNLP ในเครื่อง ยังไม่รองรับ PDF สแกน
 - ตัดข้อมูลส่วนตัวออกจากแชตก่อนส่งให้ Provider และตรวจ Distress Message ในเครื่องก่อนเสมอ
 - นับโทเคนทุกครั้งที่เรียก Provider ใช้เป็นหลักฐานว่าภาษาไทยใช้โทเคนมากกว่า
 
 ## 5. สาธิตต้นแบบ
 
-- Simulated Cohort 30–40 คน สร้างจาก persona ของแต่ละ Student Cluster และติดป้ายข้อมูลจำลองเสมอ
+- Simulated Cohort 30–40 คน สร้างจาก persona ของแต่ละ Student Cluster และติดป้ายข้อมูลจำลองเสมอ ไม่เรียก Provider และการแจ้งเตือนของนักเรียนจำลองไม่ขึ้นในหน้าครู
 - Demo Mode ย่อเวลาของกลไกต่าง ๆ เช่น 5 นาทีเหลือ 10 วินาที
 - เล่น 3 สถานการณ์จากแท็บ 5 ของหน้า Admin: ตอบถูกและเร็ว · ตอบผิด (Slip และ Misconception) · Impasse
 - ตอนสาธิตให้วางหน้านักเรียนคู่กับหน้า Admin แล้วผังจะขยับตามทุกครั้งที่ตอบ
@@ -161,7 +161,7 @@ Admin ปรับได้ทุกค่า และ Demo Mode ย่อเ�
 | Remedial Loop | ผ่านเมื่อถูก 2 ข้อติดกัน · สูงสุด 2 รอบต่อข้อ |
 | Circuit Breaker | พัก 1 นาที แล้ว Walkthrough Example |
 | ยกเลิกคำตอบ | ภายใน 10 วินาที ข้อละ 1 ครั้ง |
-| Burnout Signal | Idle Pause 3 ครั้งต่อ Session · Rapid Guess ติดกัน 3 ครั้ง |
+| Burnout Signal | Idle Pause 3 ครั้งต่อ Session · Rapid Guess ติดกัน 3 ครั้ง · Risk Score ≥ 70 (เมื่อตอบแล้วอย่างน้อย 5 ครั้ง) |
 | ส่งซ้ำ | ภายใน 1 วินาทีนับเป็นครั้งเดียว |
 | จบชุด | Mastery ≥ 0.8 (อย่างน้อย 3 ข้อ) + Main Item ครบหรือ Challenge Item ถูก 1 ข้อ · เพดาน 20 ข้อ |
 | Student Cluster | k = 4 · เวลาคิดเฉลี่ย, สัดส่วนที่ตอบถูก, ความยาว Session เฉลี่ย |
