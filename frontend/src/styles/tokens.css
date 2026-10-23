@@ -1,0 +1,180 @@
+/*
+ * Design tokens ของ Adaptive Tutor
+ * แนวทาง: สบายตา เรียบ หรู ทันสมัย พื้นหลังไม่ขาวจ้า ตัวอักษรไม่ดำสนิท สีเน้นสีเดียว (teal เข้ม)
+ * ฝั่งนักเรียนไม่ใช้สีแดงเตือน (Anti-Labeling) สีสถานะใช้เฉพาะฝั่งครูและ Admin
+ * สีกราฟผ่านตัวตรวจ CVD แล้ว (ดู components/charts.tsx)
+ */
+:root {
+  color-scheme: light;
+  --font-sans: "IBM Plex Sans Thai", system-ui, -apple-system, "Segoe UI", "Leelawadee UI", "Thonburi", sans-serif;
+  --font-mono: "IBM Plex Mono", ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+
+  --bg: #f3f4f6;
+  --surface: #ffffff;
+  --surface-2: #f8f9fb;
+  --surface-3: #eef0f3;
+  --border: #e3e6eb;
+  --border-strong: #cdd2d9;
+  --text: #1a1f27;
+  --text-2: #4e5765;
+  --text-3: #7a8392;
+
+  --accent: #0f6e6a;
+  --accent-hover: #0c5d5a;
+  --accent-soft: #e4f2f0;
+  --accent-ink: #0b4f4c;
+  --on-accent: #ffffff;
+
+  --success: #2e7d5b;
+  --success-soft: #e6f4ed;
+  --warning: #9a6310;
+  --warning-soft: #fbf2e1;
+  --danger: #b4413c;
+  --danger-soft: #fbeae8;
+  --info: #3466b0;
+  --info-soft: #e9f0fa;
+  --calm: #5b6b80;
+  --calm-soft: #eef1f6;
+
+  --shadow-1: 0 1px 2px rgba(17, 24, 39, 0.05), 0 1px 1px rgba(17, 24, 39, 0.03);
+  --shadow-2: 0 10px 30px -12px rgba(17, 24, 39, 0.14), 0 2px 6px rgba(17, 24, 39, 0.05);
+  --shadow-3: 0 24px 60px -20px rgba(17, 24, 39, 0.25);
+  --ring: 0 0 0 3px rgba(15, 110, 106, 0.22);
+
+  --radius-sm: 8px;
+  --radius: 12px;
+  --radius-lg: 18px;
+
+  --fs-xs: 12px;
+  --fs-sm: 13px;
+  --fs-base: 15px;
+  --fs-md: 17px;
+  --fs-lg: 20px;
+  --fs-xl: 24px;
+  --fs-2xl: 30px;
+  --fs-3xl: 38px;
+
+  /* กราฟ */
+  --chart-surface: #ffffff;
+  --grid: #e8eaee;
+  --axis: #c9ced6;
+  --series-1: #2a78d6;
+  --series-2: #eb6834;
+  --series-3: #1baf7a;
+  --cluster-fast: #2a78d6;
+  --cluster-guesser: #eda100;
+  --cluster-struggling: #e87ba4;
+  --cluster-bite: #008300;
+
+  /* ผังตรรกะ */
+  --node-position: #ffffff;
+  --node-gate: #f4f6f9;
+  --node-step: #f8f9fb;
+  --lane-correct: #2e7d5b;
+  --lane-wrong: #9a6310;
+  --lane-help: #3466b0;
+  --lane-care: #6a59ae;
+  --lane-human: #b4413c;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    color-scheme: dark;
+    --bg: #0e1115;
+    --surface: #171b21;
+    --surface-2: #1c2128;
+    --surface-3: #232932;
+    --border: #2a313b;
+    --border-strong: #38414d;
+    --text: #e7eaee;
+    --text-2: #a9b1bd;
+    --text-3: #7d8693;
+    --accent: #4fb3ac;
+    --accent-hover: #67c2bb;
+    --accent-soft: #15302f;
+    --accent-ink: #8ed6d0;
+    --on-accent: #0e1115;
+    --success: #4cb787;
+    --success-soft: #16291f;
+    --warning: #e0a74a;
+    --warning-soft: #2c2415;
+    --danger: #e6736d;
+    --danger-soft: #331b1a;
+    --info: #79a6ec;
+    --info-soft: #172338;
+    --calm: #9aa7b8;
+    --calm-soft: #1e242d;
+    --shadow-1: 0 1px 2px rgba(0, 0, 0, 0.4);
+    --shadow-2: 0 12px 32px -12px rgba(0, 0, 0, 0.6), 0 2px 6px rgba(0, 0, 0, 0.3);
+    --shadow-3: 0 24px 60px -20px rgba(0, 0, 0, 0.7);
+    --ring: 0 0 0 3px rgba(79, 179, 172, 0.3);
+    --chart-surface: #171b21;
+    --grid: #262c35;
+    --axis: #3a424d;
+    --series-1: #3987e5;
+    --series-2: #d95926;
+    --series-3: #199e70;
+    --cluster-fast: #3987e5;
+    --cluster-guesser: #c98500;
+    --cluster-struggling: #d55181;
+    --cluster-bite: #008300;
+    --node-position: #1c2128;
+    --node-gate: #20262e;
+    --node-step: #1a1f26;
+    --lane-correct: #4cb787;
+    --lane-wrong: #e0a74a;
+    --lane-help: #79a6ec;
+    --lane-care: #a99ae6;
+    --lane-human: #e6736d;
+  }
+}
+
+:root[data-theme="dark"] {
+  color-scheme: dark;
+  --bg: #0e1115;
+  --surface: #171b21;
+  --surface-2: #1c2128;
+  --surface-3: #232932;
+  --border: #2a313b;
+  --border-strong: #38414d;
+  --text: #e7eaee;
+  --text-2: #a9b1bd;
+  --text-3: #7d8693;
+  --accent: #4fb3ac;
+  --accent-hover: #67c2bb;
+  --accent-soft: #15302f;
+  --accent-ink: #8ed6d0;
+  --on-accent: #0e1115;
+  --success: #4cb787;
+  --success-soft: #16291f;
+  --warning: #e0a74a;
+  --warning-soft: #2c2415;
+  --danger: #e6736d;
+  --danger-soft: #331b1a;
+  --info: #79a6ec;
+  --info-soft: #172338;
+  --calm: #9aa7b8;
+  --calm-soft: #1e242d;
+  --shadow-1: 0 1px 2px rgba(0, 0, 0, 0.4);
+  --shadow-2: 0 12px 32px -12px rgba(0, 0, 0, 0.6), 0 2px 6px rgba(0, 0, 0, 0.3);
+  --shadow-3: 0 24px 60px -20px rgba(0, 0, 0, 0.7);
+  --ring: 0 0 0 3px rgba(79, 179, 172, 0.3);
+  --chart-surface: #171b21;
+  --grid: #262c35;
+  --axis: #3a424d;
+  --series-1: #3987e5;
+  --series-2: #d95926;
+  --series-3: #199e70;
+  --cluster-fast: #3987e5;
+  --cluster-guesser: #c98500;
+  --cluster-struggling: #d55181;
+  --cluster-bite: #008300;
+  --node-position: #1c2128;
+  --node-gate: #20262e;
+  --node-step: #1a1f26;
+  --lane-correct: #4cb787;
+  --lane-wrong: #e0a74a;
+  --lane-help: #79a6ec;
+  --lane-care: #a99ae6;
+  --lane-human: #e6736d;
+}
