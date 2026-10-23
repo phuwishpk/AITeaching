@@ -1,0 +1,34 @@
+# repo นี้เป็นสาธารณะ: ห้ามมี API key ข้อมูลนักเรียน หรือเอกสารลิขสิทธิ์ของบทเรียน
+
+# API key และค่าตั้งค่าในเครื่อง
+.env
+.env.*
+!.env.example
+*.key
+
+# ข้อมูลที่ระบบสร้างตอนทำงาน (ฐานข้อมูล ร่องรอยนักเรียน ไฟล์อัปโหลด)
+runtime/
+*.db
+*.sqlite
+*.sqlite3
+
+# เอกสารบทเรียนของอาจารย์ วางไว้อ่านในเครื่องได้ แต่ไม่ขึ้น repo
+reference/
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+.pytest_cache/
+
+# Frontend
+node_modules/
+dist/
+
+# เครื่องมือและระบบปฏิบัติการ (.markdown-collab มี token ของ extension)
+.claude/settings.local.json
+.markdown-collab/
+.DS_Store
+.idea/
+.vscode/
