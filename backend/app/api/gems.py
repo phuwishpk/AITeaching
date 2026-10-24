@@ -9,7 +9,7 @@ from pydantic import BaseModel
 
 from .. import db, seed, services
 from ..gems import alerts as gem_alerts
-from ..gems import builder, manage, versions
+from ..gems import builder, design, manage, versions
 from ..tutor import rag, service
 from .deps import require
 
@@ -73,6 +73,13 @@ def gem_meta(auth: dict = Depends(viewer)):
 @router.get("/{gem_id}")
 def get_gem(gem_id: str, auth: dict = Depends(viewer)):
     return manage.detail(_load(gem_id))
+
+
+@router.get("/{gem_id}/design")
+def gem_design(gem_id: str, auth: dict = Depends(viewer)):
+    """Flow ที่ครูออกแบบ (หน้า Admin): ผังตามเครื่องมือและ Alert Rule, prompt 4 กรอบ, ไฟล์ คลังโจทย์ และเวอร์ชัน"""
+    _load(gem_id)
+    return design.build(gem_id)
 
 
 @router.post("")

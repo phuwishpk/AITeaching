@@ -6,6 +6,7 @@
 """
 
 from . import db, rules
+from .gems import versions
 from .engine import flow as F
 
 EDGES = {e["id"]: e for e in F.EDGES}
@@ -154,13 +155,18 @@ def _runs(code: str) -> list[dict]:
         # ต่อจาก Session ที่จบเพราะครบเพดานหรือหยุดเอง = ทำต่อจากความคืบหน้าเดิม ไม่ใช่เริ่มชุดใหม่
         resumed = bool(prev and prev["ended_at"] is not None and prev["end_reason"] != "completed")
         try:
-            set_name = find_set(row["set_id"])[1]["name"]
+            subject, qs = find_set(row["set_id"])
+            set_name = qs["name"]
+            gem = subject.get("gem")
         except NotFound:
-            set_name = row["set_id"]
+            set_name, gem = row["set_id"], None
+        # เรียนกับ Gem ตัวไหน คลังรุ่นไหน และ Gem Version ไหน (เวอร์ชันล่าสุดก่อนเริ่ม Session)
+        gem_info = {"id": gem["id"], "name": gem.get("name"), "bank_version": gem.get("bank_version"),
+                    "version": versions.at(gem["id"], row["started_at"])} if gem else None
         runs.append({
             "id": row["id"], "set_id": row["set_id"], "set_name": set_name,
             "started": row["started_at"], "ended": row["ended_at"], "until": until,
-            "end_reason": row["end_reason"], "resumed": resumed,
+            "end_reason": row["end_reason"], "resumed": resumed, "gem": gem_info,
             "outcome": END_LABELS.get(row["end_reason"], "จบ Session"),
         })
         last_of_set[row["set_id"]] = row
@@ -188,13 +194,15 @@ def journey(code: str, session_id: int | None = None) -> dict:
                              "completed" if step["position"] == F.DONE else
                              "ended" if step["position"] == F.ENDED else None)
 
+    teacher = teacher_timeline(code, run["started"] - 0.001, run["until"])
     answers = [i for s in steps for i in s["inputs"] if i["action"] == "answer"]
     hints = sorted({d["to"] for s in steps for d in s["decisions"] if d["to"] in F.HINT_POSITIONS.values()})
     last = next((s["position"] for s in reversed(steps) if s["position"]), None)
     return {
-        "runs": [{k: r[k] for k in ("id", "set_name", "started", "ended", "outcome", "resumed")} for r in reversed(runs)],
+        "runs": [{k: r[k] for k in ("id", "set_name", "started", "ended", "outcome", "resumed", "gem")} for r in reversed(runs)],
         "run": run,
         "steps": steps,
+        "teacher": teacher,
         "summary": {
             "steps": len(steps),
             "answers": len(answers),
@@ -206,5 +214,52 @@ def journey(code: str, session_id: int | None = None) -> dict:
             "position": last,
             "position_label": NODE_LABELS.get(last, last) if last else None,
             "finished": run["ended"] is not None,
+            "alerts": sum(1 for t in teacher if t["kind"] == "alert"),
+            "responses": sum(1 for t in teacher if t.get("after_alert") is not None),
         },
     }
+
+
+# ---------------------------------------------------------------- การทำงานของครูต่อนักเรียนหนึ่งคน (Q4)
+
+TEACHER_TEXT = {
+    "viewed": "ครูเปิดดูนักเรียนคนนี้",
+    "ack": "ครูรับทราบแจ้งเตือน",
+    "message": "ครูพิมพ์ตอบในแชต",
+    "draft_sent": "ครูอนุมัติร่างคำตอบของ AI",
+    "draft_discarded": "ครูทิ้งร่างคำตอบของ AI",
+    "chat_mode": "ครูเปลี่ยนโหมดแชต",
+}
+RESPONSES = {"viewed", "ack", "message", "draft_sent", "override"}
+
+
+def teacher_timeline(code: str, start: float, until: float | None) -> list[dict]:
+    """แจ้งเตือนที่ส่งถึงครู และสิ่งที่ครูทำหลังจากนั้น เรียงตามเวลา พร้อมเวลาที่ครูใช้ตอบสนองต่อแจ้งเตือน"""
+    window = "code = ? AND ts >= ?" + (" AND ts <= ?" if until is not None else "")
+    params = (code, start) + ((until,) if until is not None else ())
+    rows = [{"ts": r["ts"], "kind": "alert", "level": r["level"], "alert_kind": r["kind"], "text": r["message"]}
+            for r in db.query(f"SELECT ts, level, kind, message FROM alerts WHERE {window}", params)]
+    for r in db.query(f"SELECT ts, kind, detail FROM teacher_actions WHERE {window}", params):
+        detail = db.loads(r["detail"], {})
+        text = TEACHER_TEXT.get(r["kind"], r["kind"])
+        if r["kind"] == "message":
+            text += f": \"{detail.get('text', '')}\""
+        elif r["kind"] == "draft_sent":
+            text = ("ครูแก้ร่างของ AI แล้วส่ง" if detail.get("edited") else "ครูอนุมัติร่างของ AI ตามเดิม") + f": \"{detail.get('sent', '')}\""
+        elif r["kind"] == "chat_mode":
+            text = "ครูเข้าร่วมแชต (AI ร่างให้ครูตรวจ)" if detail.get("mode") == "teacher" else "ครูออกจากแชต ให้ AI ตอบต่อ"
+        elif r["kind"] == "ack":
+            text += f": {detail.get('message', '')}"
+        rows.append({"ts": r["ts"], "kind": r["kind"], "text": text, "detail": detail})
+    for r in db.query(f"SELECT ts, action, reason FROM overrides WHERE {window}", params):
+        rows.append({"ts": r["ts"], "kind": "override", "text": f"ครูสั่ง Manual Override: {r['action']}"
+                     + (f" · เหตุผล: {r['reason']}" if r["reason"] else "")})
+    rows.sort(key=lambda r: r["ts"])
+    pending = None  # แจ้งเตือนที่ครูยังไม่ได้ตอบสนอง
+    for row in rows:
+        if row["kind"] == "alert" and row["level"] != "silent":
+            pending = pending if pending is not None else row["ts"]
+        elif row["kind"] in RESPONSES and pending is not None:
+            row["after_alert"] = round(row["ts"] - pending, 1)
+            pending = None
+    return rows

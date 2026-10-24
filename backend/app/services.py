@@ -581,7 +581,15 @@ async def send_draft(draft_id: int, text: str | None) -> dict:
     if not draft:
         raise NotFound("ไม่พบร่างนี้ อาจถูกส่งหรือลบไปแล้ว")
     db.execute("DELETE FROM messages WHERE id = ?", (draft_id,))
-    return await post_message(draft["code"], draft["set_id"], "teacher", (text or draft["text"]).strip())
+    sent = (text or draft["text"]).strip()
+    log_teacher(draft["code"], "draft_sent", {"draft": draft["text"], "sent": sent, "edited": sent != draft["text"].strip()})
+    return await post_message(draft["code"], draft["set_id"], "teacher", sent)
+
+
+def log_teacher(code: str, kind: str, detail: dict | None = None) -> None:
+    """บันทึกการทำงานของครูต่อนักเรียนหนึ่งคน (เปิดดู ตอบแชต อนุมัติร่าง ฯลฯ) ให้ Admin เห็นในไทม์ไลน์ (Q4)"""
+    db.execute("INSERT INTO teacher_actions (ts, code, kind, detail) VALUES (?,?,?,?)",
+               (time.time(), code, kind, db.dumps(detail or {})))
 
 
 def inbox() -> list[dict]:

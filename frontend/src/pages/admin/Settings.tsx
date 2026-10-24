@@ -19,9 +19,10 @@ interface SettingsData {
   demo: { enabled: boolean; time_scale: number };
 }
 
+// Gemini เป็นผู้ให้บริการหลัก (Q26) Claude เป็นตัวสำรองที่พับไว้
 const PROVIDERS = [
-  { id: "claude" as const, name: "Claude (Anthropic)", env: "ANTHROPIC_API_KEY", placeholder: "sk-ant-…", console: "console.anthropic.com" },
   { id: "gemini" as const, name: "Gemini (Google)", env: "GEMINI_API_KEY", placeholder: "AIza…", console: "aistudio.google.com" },
+  { id: "claude" as const, name: "Claude (Anthropic)", env: "ANTHROPIC_API_KEY", placeholder: "sk-ant-…", console: "console.anthropic.com" },
 ];
 
 // กลุ่มพารามิเตอร์ตามขั้นในผัง ให้ปรับได้โดยรู้ว่ากระทบส่วนไหน
@@ -71,7 +72,7 @@ export default function Settings() {
         <p className="eyebrow">ตั้งค่า</p>
         <h1 className="title-xl">ผู้ให้บริการ AI และพารามิเตอร์ของระบบ</h1>
         <p className="lead">
-          ระบบทำงานได้ครบโดยไม่ต้องมี API key (Offline Mode ใช้คำใบ้ที่ครูเขียน) เมื่อใส่ key แล้ว AI จะช่วยปรับถ้อยคำคำใบ้และตอบแชตแบบ Socratic
+          ใส่ Gemini API key ที่นี่ ครูต้องใช้ AI สร้างคลังโจทย์ของ Gem ครูผู้ช่วยตอบแชต และสร้างโจทย์สด Claude เป็นตัวสำรองเมื่อ Gemini ล่มหรือติดโควตา
         </p>
       </header>
 
@@ -83,8 +84,8 @@ export default function Settings() {
             value={s.ai.active}
             onChange={(active) => saveAi({ active, order: active === "offline" ? s.ai.order : [active, ...s.ai.order.filter((p) => p !== active)] })}
             options={[
-              { id: "claude", label: "Claude" },
               { id: "gemini", label: "Gemini" },
+              { id: "claude", label: "Claude" },
               { id: "offline", label: "Offline (ไม่เรียก AI)" },
             ]}
           />
@@ -94,16 +95,27 @@ export default function Settings() {
         </div>
       </Card>
 
-      {PROVIDERS.map((p) => (
+      <ProviderCard
+        provider={PROVIDERS[0]}
+        info={s.keys.gemini}
+        model={s.ai.gemini_model}
+        onModel={(model) => saveAi({ gemini_model: model })}
+        onKeyChange={settings.reload}
+      />
+
+      <details className="provider-backup" open={s.ai.active === "claude" || undefined}>
+        <summary>
+          ตัวสำรอง: Claude (Anthropic)
+          <span className="xsmall muted">{s.keys.claude?.configured ? "ใส่ key แล้ว" : "ยังไม่ได้ใส่ key"}</span>
+        </summary>
         <ProviderCard
-          key={p.id}
-          provider={p}
-          info={s.keys[p.id]}
-          model={p.id === "claude" ? s.ai.claude_model : s.ai.gemini_model}
-          onModel={(model) => saveAi(p.id === "claude" ? { claude_model: model } : { gemini_model: model })}
+          provider={PROVIDERS[1]}
+          info={s.keys.claude}
+          model={s.ai.claude_model}
+          onModel={(model) => saveAi({ claude_model: model })}
           onKeyChange={settings.reload}
         />
-      ))}
+      </details>
 
       <Card>
         <CardHead title="Demo Mode" sub="ย่อเวลาที่ต้องรอ (Deliberate Delay, ล็อก, พักสายตา, Idle) ให้สาธิตในเวลาสั้นได้ กฎเหมือนเดิมทุกอย่าง" />

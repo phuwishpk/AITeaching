@@ -82,6 +82,10 @@ CREATE TABLE IF NOT EXISTS gem_versions (
     id INTEGER PRIMARY KEY AUTOINCREMENT, gem_id TEXT, n INTEGER, ts REAL, actor TEXT, note TEXT, data TEXT
 );
 CREATE INDEX IF NOT EXISTS idx_gem_versions ON gem_versions (gem_id, n);
+CREATE TABLE IF NOT EXISTS teacher_actions (
+    id INTEGER PRIMARY KEY AUTOINCREMENT, ts REAL, code TEXT, kind TEXT, detail TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_teacher_actions ON teacher_actions (code, ts);
 """
 
 _lock = threading.RLock()

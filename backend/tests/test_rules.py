@@ -147,15 +147,18 @@ def test_param_validation():
     assert node_info.validate_params({"standard_mastery": 0.9, "fast_track_mastery": 0.8})
 
 
-def test_admin_can_author_content_but_not_see_roster(subject):
+def test_only_teachers_author_content(subject):
+    """ครูสร้างและแก้เนื้อหา Admin ดู Gem ได้อย่างเดียว (ADR-0003) และไม่เห็น Roster"""
     from app import db
 
     db.save_subject(subject)
     client = TestClient(app)
     admin = {"Authorization": f"Bearer {issue_token('admin')}"}
+    teacher = {"Authorization": f"Bearer {issue_token('teacher')}"}
     new = {**subject, "id": "math-x", "name": "วิชาทดลอง", "question_sets": []}
-    assert client.post("/api/teacher/subjects", json=new, headers=admin).status_code == 200
-    assert client.get("/api/teacher/subjects/math-x", headers=admin).json()["name"] == "วิชาทดลอง"
+    assert client.post("/api/teacher/subjects", json=new, headers=admin).status_code == 403
+    assert client.post("/api/teacher/subjects", json=new, headers=teacher).status_code == 200
+    assert client.get("/api/teacher/subjects/math-x", headers=teacher).json()["name"] == "วิชาทดลอง"
     assert client.get("/api/teacher/roster", headers=admin).status_code == 403
 
 

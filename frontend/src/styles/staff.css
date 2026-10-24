@@ -2875,7 +2875,7 @@ button.route-node:hover {
 
 .journey-stats {
   display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
+  grid-template-columns: repeat(auto-fill, minmax(84px, 1fr));
   gap: 6px;
   margin: 0;
 }
@@ -3712,4 +3712,162 @@ button.route-node:hover {
 .flag-banner > svg {
   color: var(--warning);
   flex: none;
+}
+
+/* ---------- Flow ที่ครูออกแบบ: กล่องที่ปิดและเครื่องหมายแจ้งเตือน ---------- */
+.fnode.is-off .fnode-box {
+  fill: var(--surface-2);
+  stroke-dasharray: 4 3;
+}
+
+.fnode.is-off .fnode-text,
+.fnode.is-off .fnode-mark {
+  opacity: 0.4;
+}
+
+.fnode-off-text {
+  font-size: 9px;
+  fill: var(--text-3);
+}
+
+.fnode-alert rect {
+  fill: var(--warning-soft);
+  stroke: var(--warning);
+  stroke-width: 1;
+}
+
+.fnode-alert text {
+  font-size: 9.5px;
+  font-weight: 600;
+  fill: var(--text);
+}
+
+.fnode-alert.is-pause rect {
+  fill: var(--danger-soft);
+  stroke: var(--danger);
+}
+
+/* ---------- หน้า Admin: Gem ที่ครูออกแบบ ---------- */
+.gem-picker {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.gem-picker-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  max-width: 280px;
+  padding: 8px 14px 8px 8px;
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  background: var(--surface);
+  color: var(--text);
+  text-align: left;
+  cursor: pointer;
+}
+
+.gem-picker-item.on {
+  border-color: var(--accent);
+  background: var(--accent-soft);
+}
+
+.gem-picker-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.lg-off {
+  display: inline-block;
+  width: 18px;
+  height: 11px;
+  margin-right: 6px;
+  border: 1px dashed var(--border-strong);
+  border-radius: 4px;
+  background: var(--surface-2);
+  vertical-align: -1px;
+}
+
+.tool-state {
+  list-style: none;
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.tool-state li {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--success);
+}
+
+.tool-state li span:first-of-type {
+  color: var(--text);
+}
+
+.tool-state li.is-off {
+  color: var(--text-3);
+}
+
+.gem-student-code {
+  padding: 3px 10px;
+  border-radius: 999px;
+  background: var(--surface-3);
+}
+
+.admin-gem-grid {
+  align-items: start;
+}
+
+/* การทำงานของครูในไทม์ไลน์ */
+.journey-teacher {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  padding: 8px 10px;
+}
+
+.journey-teacher .journey-n {
+  border-color: var(--lane-human);
+  color: var(--lane-human);
+}
+
+.journey-teacher.is-alert .journey-n {
+  border-color: var(--warning);
+  color: var(--warning);
+}
+
+.journey-teacher.level-silent .journey-n {
+  border-style: dashed;
+  color: var(--text-3);
+  border-color: var(--border-strong);
+}
+
+.journey-response {
+  align-self: flex-start;
+  padding: 1px 8px;
+  border-radius: 999px;
+  background: var(--accent-soft);
+  color: var(--accent-ink);
+  font-weight: 600;
+}
+
+.provider-backup > summary {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 12px 16px;
+  border: 1px dashed var(--border-strong);
+  border-radius: var(--radius);
+  color: var(--text-2);
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.provider-backup[open] > summary {
+  margin-bottom: 12px;
 }

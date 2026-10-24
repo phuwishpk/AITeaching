@@ -175,6 +175,8 @@ export default function FlowMap({
   onSelectStudent,
   highlightEdges,
   focusLane,
+  disabled,
+  marks,
 }: {
   nodes: FlowNode[];
   edges: FlowEdge[];
@@ -187,6 +189,9 @@ export default function FlowMap({
   highlightEdges?: string[];
   // กลุ่มที่กำลังดูคำอธิบาย: กล่องและเส้นของกลุ่มอื่นจะจางลง
   focusLane?: string | null;
+  // Flow ที่ครูออกแบบใน Gem: กล่องที่ครูปิด (พร้อมเหตุผล) และกล่องที่ส่งแจ้งเตือนถึงครู
+  disabled?: Record<string, string>;
+  marks?: Record<string, { label: string; level: string; mode: "notify" | "pause" }[]>;
 }) {
   const [hover, setHover] = useState<string | null>(null);
   const nodeMap = useMemo(() => new Map(nodes.map((n) => [n.id, n])), [nodes]);
@@ -273,7 +278,10 @@ export default function FlowMap({
             selected?.position === node.id ? "has-student" : "",
             students.length ? "occupied" : "",
             inFocus(node.id) ? "" : "is-dim",
+            disabled?.[node.id] ? "is-off" : "",
           ].join(" ");
+          const nodeMarks = marks?.[node.id] ?? [];
+          const pause = nodeMarks.some((m) => m.mode === "pause");
           return (
             <g
               key={node.id}
@@ -286,6 +294,21 @@ export default function FlowMap({
               onKeyDown={(e) => e.key === "Enter" && onSelectNode?.(node.id)}
             >
               <rect width={W} height={box.h} rx={node.kind === "gate" ? 14 : 11} className="fnode-box" />
+              {disabled?.[node.id] && <title>{disabled[node.id]}</title>}
+              {nodeMarks.length > 0 && (
+                <g className={`fnode-alert ${pause ? "is-pause" : ""}`} transform="translate(0, -9)">
+                  <title>{nodeMarks.map((m) => `${m.label}: ${m.mode === "pause" ? "หยุดรอครู" : "แจ้งครู"} (${m.level === "urgent" ? "ด่วน" : m.level === "normal" ? "ปกติ" : "เงียบ"})`).join("\n")}</title>
+                  <rect width={pause ? 58 : 46} height={16} rx={8} />
+                  <text x={pause ? 29 : 23} y={11.5} textAnchor="middle">
+                    {pause ? "✋ รอครู" : "🔔 แจ้ง"}
+                  </text>
+                </g>
+              )}
+              {disabled?.[node.id] && (
+                <text x={W - 8} y={box.h - 5} textAnchor="end" className="fnode-off-text">
+                  ครูปิดไว้
+                </text>
+              )}
               {node.kind === "gate" ? (
                 <rect x={9} y={box.h / 2 - 3.5} width={7} height={7} transform={`rotate(45 12.5 ${box.h / 2})`} className="fnode-mark" />
               ) : (

@@ -12,7 +12,8 @@ from .deps import require
 router = APIRouter(prefix="/api/teacher", tags=["teacher"])
 teacher = require("teacher")
 # จัดการวิชา โจทย์ และเอกสาร ทำได้ทั้งครูและ Admin (ไม่มีข้อมูลนักเรียน) ส่วนอื่นของหน้าครูยังเป็นของครูคนเดียว
-content_editor = require("teacher", "admin")
+# ครูคนเดียวแก้คลังโจทย์ได้ Admin ดู Gem และคลังโจทย์ได้อย่างเดียวผ่าน /api/gems (ADR-0003)
+content_editor = require("teacher")
 
 
 class Override(BaseModel):
@@ -125,6 +126,7 @@ def student_messages(code: str, auth: dict = Depends(teacher)):
 async def chat_mode(code: str, body: ChatMode, auth: dict = Depends(teacher)):
     if body.mode not in ("ai", "teacher"):
         raise HTTPException(400, "โหมดแชตไม่ถูกต้อง")
+    services.log_teacher(code, "chat_mode", {"mode": body.mode})
     return await services.set_chat_mode(code, body.mode)
 
 
@@ -135,7 +137,17 @@ async def send_draft(draft_id: int, body: DraftSend, auth: dict = Depends(teache
 
 @router.delete("/drafts/{draft_id}")
 def delete_draft(draft_id: int, auth: dict = Depends(teacher)):
+    draft = db.query_one("SELECT code, text FROM messages WHERE id = ? AND sender = 'draft'", (draft_id,))
     db.execute("DELETE FROM messages WHERE id = ? AND sender = 'draft'", (draft_id,))
+    if draft:
+        services.log_teacher(draft["code"], "draft_discarded", {"draft": draft["text"]})
+    return {"ok": True}
+
+
+@router.post("/students/{code}/viewed")
+def viewed(code: str, auth: dict = Depends(teacher)):
+    """หน้าครูเปิดดูนักเรียนคนนี้ ใช้วัดว่าครูเข้ามาดูหลังแจ้งเตือนกี่นาที"""
+    services.log_teacher(code, "viewed")
     return {"ok": True}
 
 
@@ -160,6 +172,7 @@ async def send_message(code: str, body: TeacherMessage, auth: dict = Depends(tea
         raise HTTPException(404, "ไม่พบนักเรียนรหัสนี้")
     states = db.states_for(code)
     set_id = max(states, key=lambda s: s["last_activity"])["set_id"] if states else None
+    services.log_teacher(code, "message", {"text": text})
     return await services.post_message(code, set_id, "teacher", text)
 
 
@@ -176,6 +189,9 @@ def alerts(auth: dict = Depends(teacher)):
 @router.post("/alerts/{alert_id}/ack")
 def ack(alert_id: int, auth: dict = Depends(teacher)):
     db.execute("UPDATE alerts SET acknowledged = 1 WHERE id = ?", (alert_id,))
+    alert = db.query_one("SELECT code, kind, message FROM alerts WHERE id = ?", (alert_id,))
+    if alert:
+        services.log_teacher(alert["code"], "ack", {"alert_id": alert_id, "kind": alert["kind"], "message": alert["message"]})
     return {"ok": True}
 
 

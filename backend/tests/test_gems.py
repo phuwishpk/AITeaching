@@ -407,3 +407,43 @@ def test_live_generation_adds_checked_items_to_the_bank(monkeypatch):
     assert subject["gem"]["live_cap"] == 10
     again = asyncio.run(builder.generate_live(gem["subject_id"], {"difficulty": 50, "count": 1}))
     assert again == ["L-02"]  # รหัสต่อจากข้อเดิม ไม่นับรหัสของข้อคู่ขนาน
+
+
+def test_admin_sees_the_flow_the_teacher_designed(monkeypatch):
+    fake_llm(monkeypatch)
+    gem = manage.create({"name": "ออกแบบ", "instructions": "สอนแบบเกม",
+                         "tools": {"hints": False, "walkthrough": False},
+                         "alert_rules": {"stress": {"mode": "pause"}, "quit": {"enabled": False}}}, "teacher")
+    asyncio.run(builder.build(gem["id"]))
+    client = TestClient(app)
+    admin = {"Authorization": f"Bearer {issue_token('admin')}"}
+    design = client.get(f"/api/gems/{gem['id']}/design", headers=admin).json()
+    assert {"HINT_L1", "DELIBERATE_DELAY", "WALKTHROUGH"} <= set(design["flow"]["disabled"])
+    assert "ISOMORPHIC_TEST" not in design["flow"]["disabled"]
+    assert design["flow"]["alerts"]["CIRCUIT_BREAKER"][0]["mode"] == "pause"
+    assert "CHOOSING_PATH" not in design["flow"]["alerts"]  # ครูปิดสถานการณ์นี้
+    assert design["flow"]["alerts"]["SAFETY_STOP"][0]["mode"] == "pause"
+    assert "สอนแบบเกม" in design["frames"]["role"] and "ห้ามบอกคำตอบสุดท้าย" in design["frames"]["constraints"]
+    assert design["bank"]["stats"]["main"] == 4 and design["versions"]
+
+
+def test_journey_shows_teacher_response_time(monkeypatch):
+    from app import activity
+
+    gem, client, headers = _student_on_gem(monkeypatch, code="S-40")
+    client.post(f"/api/student/sets/{gem['set_id']}/chat", headers=headers, json={"message": "ขอคุยกับครูหน่อย"})
+    teacher = {"Authorization": f"Bearer {issue_token('teacher')}"}
+    client.post("/api/teacher/students/S-40/viewed", headers=teacher)
+    draft = db.query_one("SELECT id FROM messages WHERE code = 'S-40' AND sender = 'draft'")
+    client.post(f"/api/teacher/drafts/{draft['id']}/send", headers=teacher, json={"text": "ครูมาแล้วจ้า"})
+
+    trip = activity.journey("S-40")
+    alerts = [t["alert_kind"] for t in trip["teacher"] if t["kind"] == "alert"]
+    actions = [t for t in trip["teacher"] if t["kind"] != "alert"]
+    # ในเทสต์ไม่มี API key แชตของ AI จึงล้มด้วย: แจ้งทั้งขอคุยกับครูและ AI ขัดข้อง
+    assert alerts == ["ask_teacher", "ai_outage"]
+    assert [a["kind"] for a in actions] == ["viewed", "draft_sent"]
+    assert actions[0]["after_alert"] is not None and "after_alert" not in actions[1]
+    assert "แก้ร่าง" in actions[1]["text"]
+    assert trip["run"]["gem"]["id"] == gem["id"] and trip["run"]["gem"]["version"]
+    assert trip["summary"]["alerts"] == 2 and trip["summary"]["responses"] == 1

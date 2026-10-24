@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { Link } from "react-router";
-import { ArrowRight, Bot, Check, ChevronRight, Flag, Hand, Hourglass, MousePointerClick, Play, Timer, UserRound, X } from "lucide-react";
+import { ArrowRight, Bell, Bot, Check, ChevronRight, Flag, Hand, Hourglass, MousePointerClick, Play, Timer, UserRound, X } from "lucide-react";
 import { api } from "../../lib/api";
 import { useLoad, useNow } from "../../lib/hooks";
 import { ago, clock, mmss, num } from "../../lib/format";
@@ -51,12 +51,24 @@ interface JourneyRun {
   ended: number | null;
   outcome: string;
   resumed: boolean;
+  // เรียนกับ Gem ตัวไหน Gem Version ไหน และคลังรุ่นไหน (null = ชุดคำถามที่ไม่ใช่ Gem)
+  gem: { id: string; name: string; version: number | null; bank_version: number | null } | null;
+}
+
+// การทำงานของครูต่อนักเรียนคนนี้ (Q4): แจ้งเตือนที่ส่งถึงครู และสิ่งที่ครูทำ พร้อมเวลาที่ใช้ตอบสนอง
+interface TeacherEntry {
+  ts: number;
+  kind: string;
+  text: string;
+  level?: string;
+  after_alert?: number;
 }
 
 interface JourneyData {
   runs: JourneyRun[];
   run: (JourneyRun & { set_id: string }) | null;
   steps: ActivityEvent[];
+  teacher: TeacherEntry[];
   summary: {
     steps: number;
     answers: number;
@@ -67,6 +79,8 @@ interface JourneyData {
     position: string | null;
     position_label: string | null;
     finished: boolean;
+    alerts: number;
+    responses: number;
   } | null;
 }
 
@@ -351,6 +365,11 @@ function JourneyCard({
 }) {
   const sum = trip?.summary;
   const steps = trip?.steps ?? [];
+  // ขั้นของนักเรียนกับการทำงานของครู เรียงตามเวลาเดียวกัน ขั้นของนักเรียนมีเลข ส่วนของครูไม่นับเป็นขั้น
+  const timeline: ({ step: ActivityEvent; ts: number } | { teacher: TeacherEntry; ts: number })[] = [
+    ...steps.map((step) => ({ step, ts: step.ts })),
+    ...(trip?.teacher ?? []).map((teacher) => ({ teacher, ts: teacher.ts })),
+  ].sort((a, b) => a.ts - b.ts);
   return (
     <Card className="activity-list-card">
       <CardHead
@@ -379,6 +398,11 @@ function JourneyCard({
           ) : (
             <span className="small strong">{trip.run.set_name}</span>
           )}
+          {trip.run.gem && (
+            <span className="xsmall muted">
+              เรียนกับ Gem เวอร์ชัน {trip.run.gem.version ?? "–"} · คลังโจทย์รุ่นที่ {trip.run.gem.bank_version ?? "–"}
+            </span>
+          )}
           <dl className="journey-stats">
             <div>
               <dt>ทั้งหมด</dt>
@@ -398,11 +422,19 @@ function JourneyCard({
               <dt>ใช้เวลา</dt>
               <dd>{mmss(sum.duration)}{sum.duration < 60 ? " วินาที" : " นาที"}</dd>
             </div>
+            <div>
+              <dt>แจ้งครู / ครูตอบ</dt>
+              <dd>
+                {sum.alerts} / {sum.responses}
+              </dd>
+            </div>
           </dl>
         </div>
       )}
       <ol className="journey">
-        {steps.map((e) => {
+        {timeline.map((entry) => {
+          if ("teacher" in entry) return <TeacherRow key={`t-${entry.teacher.ts}-${entry.teacher.kind}`} entry={entry.teacher} />;
+          const e = entry.step;
           const s = summary(e);
           const k = keyOf(e);
           const ms = e.milestone ? MILESTONE[e.milestone] : null;
@@ -445,6 +477,25 @@ function JourneyCard({
         )}
       </ol>
     </Card>
+  );
+}
+
+function TeacherRow({ entry }: { entry: TeacherEntry }) {
+  const alert = entry.kind === "alert";
+  return (
+    <li className={`journey-step journey-teacher ${alert ? `is-alert level-${entry.level}` : ""}`}>
+      <span className="journey-n">{alert ? <Bell size={13} /> : <Hand size={13} />}</span>
+      <span className="stack grow" style={{ gap: 2, minWidth: 0 }}>
+        <span className="row row-sm xsmall">
+          <span className="strong">{alert ? `แจ้งครู${entry.level === "urgent" ? " (ด่วน)" : entry.level === "silent" ? " (เงียบ)" : ""}` : "ครู"}</span>
+          <span className="faint num">{clock(entry.ts)}</span>
+        </span>
+        <span className="small activity-text">{entry.text}</span>
+        {entry.after_alert != null && (
+          <span className="xsmall journey-response">ครูตอบสนองหลังแจ้งเตือน {entry.after_alert < 60 ? `${Math.round(entry.after_alert)} วินาที` : `${mmss(entry.after_alert)} นาที`}</span>
+        )}
+      </span>
+    </li>
   );
 }
 
