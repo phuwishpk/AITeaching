@@ -135,6 +135,35 @@ def test_answer_sheet_shows_question_and_answer(content):
     assert first["diagnosis"]["class"] == "misconception"
 
 
+def test_every_box_and_lane_has_a_walkthrough():
+    from app import flow_guide, node_info
+
+    for node in F.NODES:
+        info = node_info.describe(node["id"], [])
+        assert len(info["steps"]) >= 3 and info["example"], node["id"]
+        assert all("{" not in text for text in [*info["steps"], info["example"]]), node["id"]
+        assert info["outgoing"] or node["id"] in ("COMPLETED", "SESSION_ENDED"), node["id"]
+    # ทุกกล่องอยู่ในลำดับของกลุ่มตัวเองพอดีหนึ่งครั้ง
+    listed = [node_id for lane in flow_guide.LANES.values() for node_id in lane["order"]]
+    assert sorted(listed) == sorted(n["id"] for n in F.NODES)
+    for node in F.NODES:
+        assert node["id"] in flow_guide.LANES[node["lane"]]["order"], node["id"]
+    for lane_id in flow_guide.LANES:
+        lane = node_info.describe_lane(lane_id, [])
+        assert lane["entries"] or lane_id == "main", lane_id
+        assert "{" not in lane["summary"] + lane["example"] + "".join(lane["enter"] + lane["exit"])
+    assert node_info.describe_lane("nope", []) is None
+
+
+def test_lane_endpoint_is_admin_only():
+    client = TestClient(app)
+    admin = {"Authorization": f"Bearer {issue_token('admin')}"}
+    teacher = {"Authorization": f"Bearer {issue_token('teacher')}"}
+    assert client.get("/api/admin/flow/lanes/wrong", headers=admin).json()["nodes"][0]["id"] == "G_ISOCHK"
+    assert client.get("/api/admin/flow/lanes/nope", headers=admin).status_code == 404
+    assert client.get("/api/admin/flow/lanes/wrong", headers=teacher).status_code in (401, 403)
+
+
 def test_end_boxes_explain_the_difference():
     from app import node_info
 

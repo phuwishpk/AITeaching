@@ -4,7 +4,7 @@
 PARAM_GUIDE บอกผลของการปรับแต่ละค่าและช่วงที่ยอมให้ตั้ง หน้า Admin ใช้ช่วยตัดสินใจก่อนปรับ
 """
 
-from . import principles, rules, settings_store
+from . import flow_guide, principles, rules, settings_store
 from .config import PARAM_LABELS
 from .engine import flow as F
 
@@ -158,12 +158,20 @@ def describe(node_id: str, positions: list[dict]) -> dict | None:
                        "min": low, "max": high, "step": step})
     related = [{"id": r["id"], "title": r["title"]} for g in rules.GROUPS for r in g["rules"]
                if r.get("node") == node_id or set(r.get("params", [])) & set(info.get("params", []))]
+    fill = flow_guide.fill_values(values)
+    guide = flow_guide.NODE_GUIDE.get(node_id, {})
+    lane = flow_guide.LANES[node["lane"]]
     return {
         "id": node_id,
         "label": node["label"].replace("\n", " "),
         "kind": node["kind"],
         "lane": node["lane"],
+        "lane_info": {"id": node["lane"], "name": lane["name"], "color": lane["color"]},
         "card": principles.NODE_CARDS.get(node_id),
+        "steps": [step.format(**fill) for step in guide.get("steps", [])],
+        "example": guide["example"].format(**fill) if guide.get("example") else None,
+        "incoming": _routes(node_id, "target", "source"),
+        "outgoing": _routes(node_id, "source", "target"),
         "uses": info.get("uses", []),
         "params": params,
         "content": info.get("content"),
@@ -174,3 +182,60 @@ def describe(node_id: str, positions: list[dict]) -> dict | None:
             "rows": [[cell.format(**values) for cell in row] for row in END_COMPARE["rows"]],
         } if node_id in COMPARE_NODES else None,
     }
+
+
+
+_NODES = {n["id"]: n for n in F.NODES}
+
+
+def _label(node_id: str) -> str:
+    return _NODES[node_id]["label"].replace("\n", " ") if node_id in _NODES else node_id
+
+
+def _routes(node_id: str, here: str, there: str) -> list[dict]:
+    """เส้นที่เข้าหรือออกจากกล่องนี้ พร้อมเงื่อนไขบนเส้น (ไม่รวมเส้นที่ซ่อนและเส้นที่วนเข้าตัวเอง)"""
+    return [{"edge": e["id"], "node": e[there], "label": _label(e[there]), "when": e["label"],
+             "lane": _NODES[e[there]]["lane"] if e[there] in _NODES else None}
+            for e in F.EDGES if e[here] == node_id and e[there] != node_id and not e.get("hidden")]
+
+
+def _crossing(members: set[str], inward: bool) -> list[dict]:
+    """เส้นที่ข้ามขอบกลุ่ม: inward = เข้ามาในกลุ่ม ไม่งั้นคือออกจากกลุ่ม"""
+    return [{"edge": e["id"], "from": e["source"], "from_label": _label(e["source"]),
+             "to": e["target"], "to_label": _label(e["target"]), "when": e["label"]}
+            for e in F.EDGES if not e.get("hidden")
+            and (e["target"] in members) == inward and (e["source"] in members) != inward]
+
+
+def describe_lane(lane_id: str, positions: list[dict]) -> dict | None:
+    """กลุ่มของกล่องในผัง: ดูแลเรื่องอะไร เข้าและออกทางไหน และมีกล่องอะไรตามลำดับ"""
+    lane = flow_guide.LANES.get(lane_id)
+    if lane is None:
+        return None
+    fill = flow_guide.fill_values({k: float(v) for k, v in settings_store.params().items()})
+    nodes = [{"id": node_id, "label": _label(node_id), "kind": _NODES[node_id]["kind"],
+              "text": (principles.NODE_CARDS.get(node_id) or {}).get("principle", ""),
+              "students": sum(1 for p in positions if p["position"] == node_id)}
+             for node_id in lane["order"]]
+    members = set(lane["order"])
+    return {
+        "id": lane_id,
+        "name": lane["name"],
+        "color": lane["color"],
+        "question": lane["question"],
+        "summary": lane["summary"].format(**fill),
+        "enter": [x.format(**fill) for x in lane["enter"]],
+        "exit": [x.format(**fill) for x in lane["exit"]],
+        "principles": lane["principles"],
+        "example": lane["example"].format(**fill),
+        "nodes": nodes,
+        "entries": _crossing(members, inward=True),
+        "exits": _crossing(members, inward=False),
+        "students": sum(n["students"] for n in nodes),
+    }
+
+
+def lanes() -> list[dict]:
+    """รายชื่อกลุ่มสำหรับแถบสัญลักษณ์บนผัง"""
+    return [{"id": k, "name": v["name"], "color": v["color"], "count": len(v["order"])}
+            for k, v in flow_guide.LANES.items()]

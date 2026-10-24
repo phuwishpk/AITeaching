@@ -1,13 +1,13 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 import { Link } from "react-router";
-import { Database, FileText, RotateCcw, Save, SlidersHorizontal, Timer, UsersRound } from "lucide-react";
+import { ArrowLeft, ArrowRight, Database, FileText, Lightbulb, ListOrdered, RotateCcw, Route, Save, SlidersHorizontal, Timer, UsersRound } from "lucide-react";
 import { api } from "../../lib/api";
 import { useLoad } from "../../lib/hooks";
 import { num } from "../../lib/format";
 import PrincipleCard, { type Principle } from "../../components/PrincipleCard";
 import { Badge, Button, Drawer, Empty, Spinner, useToast } from "../../components/ui";
 
-// แผงข้อมูลของกล่องหนึ่งในผังตรรกะ: คืออะไร ทำหน้าที่อะไร ใช้ข้อมูลอะไร และปรับค่าอะไรได้ (ปรับได้ทันทีจากแผงนี้)
+// แผงข้อมูลของกล่องหนึ่งในผังตรรกะ: คืออะไร ทำงานอย่างไรทีละขั้น มาจากไหนไปไหน ใช้ข้อมูลอะไร และปรับค่าอะไรได้ (ปรับได้ทันทีจากแผงนี้)
 
 interface NodeParam {
   key: string;
@@ -24,11 +24,24 @@ interface NodeParam {
   step: number;
 }
 
+interface FlowRoute {
+  edge: string;
+  node: string;
+  label: string;
+  when: string;
+  lane: string | null;
+}
+
 interface NodeDetail {
   id: string;
   label: string;
   kind: "position" | "gate" | "step" | "event";
+  lane_info: { id: string; name: string; color: string };
   card: Principle | null;
+  steps: string[];
+  example: string | null;
+  incoming: FlowRoute[];
+  outgoing: FlowRoute[];
   uses: string[];
   params: NodeParam[];
   content: string | null;
@@ -44,11 +57,28 @@ const KIND: Record<NodeDetail["kind"], { label: string; text: string }> = {
   event: { label: "เหตุการณ์", text: "จุดที่การกระทำของนักเรียนเข้ามาในระบบ" },
 };
 
-export default function NodeInspector({ nodeId, onClose, version }: { nodeId: string | null; onClose: () => void; version?: number }) {
+export default function NodeInspector({
+  nodeId,
+  onClose,
+  version,
+  onNavigate,
+  onOpenLane,
+}: {
+  nodeId: string | null;
+  onClose: () => void;
+  version?: number;
+  // กดชื่อกล่องในส่วน "มาจากไหน ไปต่อที่ไหน" เพื่อเปิดกล่องนั้นแทน
+  onNavigate?: (id: string) => void;
+  onOpenLane?: (lane: string) => void;
+}) {
   const toast = useToast();
   const node = useLoad(() => (nodeId ? api<NodeDetail>("admin", `/api/admin/flow/nodes/${nodeId}`) : Promise.resolve(null)), [nodeId, version]);
   const [draft, setDraft] = useState<Record<string, string>>({});
   const [saving, setSaving] = useState(false);
+
+  useEffect(() => {
+    document.querySelector(".drawer")?.scrollTo({ top: 0 });
+  }, [nodeId]);
 
   useEffect(() => {
     if (node.data) setDraft(Object.fromEntries(node.data.params.map((p) => [p.key, String(p.value)])));
@@ -81,6 +111,7 @@ export default function NodeInspector({ nodeId, onClose, version }: { nodeId: st
           <div className="stack" style={{ gap: 2 }}>
             <span className="row row-sm">
               <Badge tone={data.kind === "gate" ? "info" : data.kind === "position" ? "accent" : "neutral"}>{KIND[data.kind].label}</Badge>
+              <LaneTag lane={data.lane_info} onOpen={onOpenLane} />
               <span className="mono xsmall faint">{data.id}</span>
             </span>
             <span className="subtitle">{data.label}</span>
@@ -98,6 +129,47 @@ export default function NodeInspector({ nodeId, onClose, version }: { nodeId: st
             <h4 className="inspector-title">คืออะไร ทำหน้าที่อะไร</h4>
             <p className="small muted">{KIND[data.kind].text}</p>
             {data.card && <PrincipleCard card={data.card} compact />}
+          </section>
+
+          {data.steps.length > 0 && (
+            <section className="stack stack-sm">
+              <h4 className="inspector-title">
+                <ListOrdered size={16} />
+                ระบบทำอะไรทีละขั้น
+              </h4>
+              <ol className="step-list">
+                {data.steps.map((step) => (
+                  <li key={step}>{step}</li>
+                ))}
+              </ol>
+            </section>
+          )}
+
+          {data.example && (
+            <section className="stack stack-sm">
+              <h4 className="inspector-title">
+                <Lightbulb size={16} />
+                ตัวอย่างจากโจทย์ 2x + 3 = 11
+              </h4>
+              <p className="example-box small">{data.example}</p>
+            </section>
+          )}
+
+          <section className="stack stack-sm">
+            <h4 className="inspector-title">
+              <Route size={16} />
+              มาจากไหน ไปต่อที่ไหน
+            </h4>
+            <div className="route-grid">
+              <RouteList title="เข้ามาจาก" icon={<ArrowLeft size={14} />} routes={data.incoming} onNavigate={onNavigate} empty="จุดเริ่มต้น" />
+              <RouteList
+                title="ไปต่อเมื่อ"
+                icon={<ArrowRight size={14} />}
+                routes={data.outgoing}
+                onNavigate={onNavigate}
+                empty="ปลายทาง นักเรียนจบที่นี่"
+              />
+            </div>
           </section>
 
           {data.compare && (
@@ -276,5 +348,62 @@ export default function NodeInspector({ nodeId, onClose, version }: { nodeId: st
         </div>
       )}
     </Drawer>
+  );
+}
+
+function LaneTag({ lane, onOpen }: { lane: { id: string; name: string; color: string }; onOpen?: (lane: string) => void }) {
+  const content = (
+    <>
+      <span className="lane-dot" style={{ background: lane.color }} />
+      {lane.name}
+    </>
+  );
+  return onOpen ? (
+    <button type="button" className="lane-tag" onClick={() => onOpen(lane.id)} title="ดูคำอธิบายของกลุ่มนี้">
+      {content}
+    </button>
+  ) : (
+    <span className="lane-tag">{content}</span>
+  );
+}
+
+function RouteList({
+  title,
+  icon,
+  routes,
+  onNavigate,
+  empty,
+}: {
+  title: string;
+  icon: ReactNode;
+  routes: FlowRoute[];
+  onNavigate?: (id: string) => void;
+  empty: string;
+}) {
+  return (
+    <div className="stack stack-sm">
+      <span className="xsmall strong muted row row-sm">
+        {icon}
+        {title}
+      </span>
+      {routes.length ? (
+        <ul className="route-list">
+          {routes.map((r) => (
+            <li key={r.edge}>
+              {r.when && <span className="route-when">{r.when}</span>}
+              {onNavigate ? (
+                <button type="button" className="route-node" onClick={() => onNavigate(r.node)}>
+                  {r.label}
+                </button>
+              ) : (
+                <span className="route-node">{r.label}</span>
+              )}
+            </li>
+          ))}
+        </ul>
+      ) : (
+        <p className="small faint">{empty}</p>
+      )}
+    </div>
   );
 }

@@ -165,6 +165,7 @@ export default function FlowMap({
   onSelectNode,
   onSelectStudent,
   highlightEdges,
+  focusLane,
 }: {
   nodes: FlowNode[];
   edges: FlowEdge[];
@@ -175,6 +176,8 @@ export default function FlowMap({
   onSelectStudent?: (code: string) => void;
   // เส้นที่จะเน้นแทนเส้นทางล่าสุดของนักเรียนที่เลือก เช่น เส้นทางของเหตุการณ์ในอดีต
   highlightEdges?: string[];
+  // กลุ่มที่กำลังดูคำอธิบาย: กล่องและเส้นของกลุ่มอื่นจะจางลง
+  focusLane?: string | null;
 }) {
   const [hover, setHover] = useState<string | null>(null);
   const nodeMap = useMemo(() => new Map(nodes.map((n) => [n.id, n])), [nodes]);
@@ -198,10 +201,11 @@ export default function FlowMap({
 
   const selected = positions.find((p) => p.code === selectedStudent);
   const activeEdges = new Set(highlightEdges ?? selected?.last_edges ?? []);
+  const inFocus = (id: string) => !focusLane || nodeMap.get(id)?.lane === focusLane;
   const activeReturn = new Set(edges.filter((e) => activeEdges.has(e.id) && isReturn(e)).map((e) => e.source));
 
   return (
-    <div className="flowmap">
+    <div className={focusLane ? "flowmap has-focus" : "flowmap"}>
       <svg viewBox={`0 0 ${WIDTH} ${HEIGHT}`} role="img" aria-label="ผังตรรกะของระบบ พร้อมตำแหน่งนักเรียนแต่ละคน">
         <defs>
           <marker id="fm-arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
@@ -228,7 +232,7 @@ export default function FlowMap({
           const ly = cramped ? baseY - 34 : baseY;
           const d = pathFrom(points);
           return (
-            <g key={edge.id} className={on ? "edge edge-on" : "edge"}>
+            <g key={edge.id} className={`edge ${on ? "edge-on" : ""} ${inFocus(edge.source) || inFocus(edge.target) ? "" : "is-dim"}`}>
               <path d={d} markerEnd={on ? "url(#fm-arrow-on)" : "url(#fm-arrow)"} />
               {showLabel && (
                 <g className="edge-label">
@@ -259,6 +263,7 @@ export default function FlowMap({
             selectedNode === node.id ? "is-selected" : "",
             selected?.position === node.id ? "has-student" : "",
             students.length ? "occupied" : "",
+            inFocus(node.id) ? "" : "is-dim",
           ].join(" ");
           return (
             <g

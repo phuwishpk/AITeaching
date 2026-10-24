@@ -24,11 +24,19 @@ import ContentStudio from "../teacher/ContentStudio";
 import SubjectEditor from "../teacher/SubjectEditor";
 import { ContentScopeContext } from "../teacher/contentScope";
 
+export interface FlowLane {
+  id: string;
+  name: string;
+  color: string;
+  count: number;
+}
+
 export interface FlowData {
   nodes: FlowNode[];
   edges: FlowEdge[];
   labels: Record<string, string>;
   cards: Record<string, Principle>;
+  lanes: FlowLane[];
   positions: (FlowPosition & { set_id: string; hint_level: number; remedial_round: number | null; since: number })[];
   now: number;
 }

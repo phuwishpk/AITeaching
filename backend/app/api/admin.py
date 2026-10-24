@@ -73,6 +73,7 @@ def flow(auth: dict = Depends(admin)):
         "edges": [e for e in F.EDGES if not e.get("hidden")],
         "labels": F.POSITION_LABELS,
         "cards": principles.NODE_CARDS,
+        "lanes": node_info.lanes(),
         "positions": services.all_positions(),
         "now": time.time(),
     }
@@ -84,6 +85,15 @@ def flow_node(node_id: str, auth: dict = Depends(admin)):
     info = node_info.describe(node_id, services.all_positions())
     if info is None:
         raise HTTPException(404, "ไม่พบขั้นนี้ในผัง")
+    return info
+
+
+@router.get("/flow/lanes/{lane_id}")
+def flow_lane(lane_id: str, auth: dict = Depends(admin)):
+    """กลุ่มของกล่องในผัง: ดูแลเรื่องอะไร นักเรียนเข้าและออกทางไหน และมีขั้นอะไรบ้างตามลำดับ"""
+    info = node_info.describe_lane(lane_id, services.all_positions())
+    if info is None:
+        raise HTTPException(404, "ไม่พบกลุ่มนี้ในผัง")
     return info
 
 

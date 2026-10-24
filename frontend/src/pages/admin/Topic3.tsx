@@ -12,6 +12,7 @@ import { TopicHeader, useAdmin } from "./AdminApp";
 import { useStudentPicker } from "./Topic2";
 import { CodePicker, Section, TopicLink } from "./shared";
 import NodeInspector from "./NodeInspector";
+import LaneInspector from "./LaneInspector";
 import AnswerSheet from "../../components/AnswerSheet";
 import { Button } from "../../components/ui";
 
@@ -47,6 +48,17 @@ export default function Topic3() {
   const now = useNow(5000);
   const node = params.get("node") ?? "G3";
   const [inspect, setInspect] = useState<string | null>(null);
+  const [lane, setLane] = useState<string | null>(null);
+  // เปิดได้ทีละแผง: กดกล่องในแผงกลุ่มจะสลับไปแผงของกล่อง และกลับกัน
+  const openNode = (id: string) => {
+    setLane(null);
+    setInspect(id);
+    setParams({ node: id }, { replace: true });
+  };
+  const openLane = (id: string) => {
+    setInspect(null);
+    setLane(id);
+  };
 
   useEffect(() => {
     if (params.get("node")) document.getElementById("flow-card")?.scrollIntoView({ block: "start" });
@@ -111,6 +123,22 @@ export default function Topic3() {
             </li>
             <li className="strong">กดกล่องเพื่อดูว่าทำอะไรและปรับแต่ง</li>
           </ul>
+          <div className="lane-bar" role="group" aria-label="กลุ่มในผัง">
+            <span className="xsmall strong muted">กลุ่มในผัง กดเพื่อดูคำอธิบาย</span>
+            {flow.lanes.map((l) => (
+              <button
+                key={l.id}
+                type="button"
+                className={`lane-button ${lane === l.id ? "on" : ""}`}
+                aria-pressed={lane === l.id}
+                onClick={() => (lane === l.id ? setLane(null) : openLane(l.id))}
+              >
+                <span className="lane-dot" style={{ background: l.color }} />
+                {l.name}
+                <span className="xsmall faint">{l.count}</span>
+              </button>
+            ))}
+          </div>
         </div>
         <FlowMap
           nodes={flow.nodes}
@@ -118,10 +146,8 @@ export default function Topic3() {
           positions={positions}
           selectedNode={node}
           selectedStudent={code}
-          onSelectNode={(id) => {
-            setParams({ node: id }, { replace: true });
-            setInspect(id);
-          }}
+          focusLane={lane}
+          onSelectNode={openNode}
           onSelectStudent={setCode}
         />
       </Card>
@@ -339,7 +365,8 @@ export default function Topic3() {
           </table>
         </div>
       </Card>
-      <NodeInspector nodeId={inspect} onClose={() => setInspect(null)} />
+      <NodeInspector nodeId={inspect} onClose={() => setInspect(null)} onNavigate={openNode} onOpenLane={openLane} />
+      <LaneInspector laneId={lane} onClose={() => setLane(null)} onOpenNode={openNode} />
     </div>
   );
 }

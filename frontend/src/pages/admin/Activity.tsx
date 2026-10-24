@@ -263,7 +263,7 @@ export default function Activity() {
           </Card>
         </div>
       </div>
-      <NodeInspector nodeId={inspect} onClose={() => setInspect(null)} />
+      <NodeInspector nodeId={inspect} onClose={() => setInspect(null)} onNavigate={setInspect} />
     </div>
   );
 }
