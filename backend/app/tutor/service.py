@@ -18,8 +18,11 @@ LEVEL_FALLBACK = {
 }
 
 
-async def _call(system: str, user: str) -> tuple[providers.LLMResult | None, list[str]]:
-    """เรียก Provider ตามที่ตั้งไว้ ถ้าตัวแรกใช้ไม่ได้ลองตัวถัดไป คืน (ผล, รายการข้อผิดพลาด)"""
+async def _call(system: str, user: str, **options) -> tuple[providers.LLMResult | None, list[str]]:
+    """เรียก Provider ตามที่ตั้งไว้ ถ้าตัวแรกใช้ไม่ได้ลองตัวถัดไป คืน (ผล, รายการข้อผิดพลาด)
+
+    options ส่งต่อให้ Provider เช่น max_tokens, json_mode, timeout (ใช้ตอนสร้าง Item Bank ของ Gem)
+    """
     ai = settings_store.ai_settings()
     if ai["active"] == "offline":
         return None, ["Offline Mode"]
@@ -32,9 +35,10 @@ async def _call(system: str, user: str) -> tuple[providers.LLMResult | None, lis
             continue
         try:
             if provider == "claude":
-                return await providers.call_claude(key, ai["claude_model"], system, user), errors
+                claude_options = {k: v for k, v in options.items() if k != "backup_models"}
+                return await providers.call_claude(key, ai["claude_model"], system, user, **claude_options), errors
             if provider == "gemini":
-                return await providers.call_gemini(key, ai["gemini_model"], system, user), errors
+                return await providers.call_gemini(key, ai["gemini_model"], system, user, **options), errors
         except providers.ProviderError as error:
             errors.append(f"{provider}: {error}")
     return None, errors
@@ -59,8 +63,9 @@ def _log(code: str | None, purpose: str, frames: dict | None, retrieved: list | 
     return cursor.lastrowid
 
 
-def _retrieve(subject_id: str, query: str, k: int = 2) -> tuple[list[str], list[dict]]:
-    index = rag.get_index(subject_id)
+def _retrieve(subject: dict, query: str, k: int = 2) -> tuple[list[str], list[dict]]:
+    # Knowledge File ของ Gem ผูกกับตัว Gem ใช้ร่วมกันทุกรุ่นของคลังโจทย์
+    index = rag.get_index((subject.get("gem") or {}).get("id") or subject["id"])
     if not index:
         return [], []
     return index.search(query, k)
@@ -75,7 +80,7 @@ async def generate_hint(subject: dict, item: dict, concept_name: str, level: int
                         tag: dict | None, code: str | None) -> dict:
     authored = item.get("hints", {}).get(str(level)) or LEVEL_FALLBACK[level]
     query = " ".join(filter(None, [item.get("prompt"), item.get("math"), concept_name, tag["name"] if tag else None, authored]))
-    terms, docs = _retrieve(subject["id"], query)
+    terms, docs = _retrieve(subject, query)
     built = prompt.hint_prompt(subject, item, concept_name, level, student, tag, docs, authored)
     result, errors = await _call(built["system"], built["user"])
     retrieved = {"query_terms": terms[:30], "documents": docs, "tag": tag["id"] if tag else None}
@@ -96,7 +101,7 @@ async def generate_hint(subject: dict, item: dict, concept_name: str, level: int
 async def chat_reply(subject: dict, item: dict | None, concept_name: str, student: dict, message: str,
                      tag: dict | None, hints_shown: list[str], fallback: str, code: str | None) -> dict:
     query = " ".join(filter(None, [message, item.get("prompt") if item else None, concept_name]))
-    terms, docs = _retrieve(subject["id"], query)
+    terms, docs = _retrieve(subject, query)
     built = prompt.chat_prompt(subject, item, concept_name, student, message, tag, docs, hints_shown)
     result, errors = await _call(built["system"], built["user"])
     retrieved = {"query_terms": terms[:30], "documents": docs, "tag": tag["id"] if tag else None}

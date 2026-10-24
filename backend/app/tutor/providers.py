@@ -21,6 +21,10 @@ class ProviderError(Exception):
     pass
 
 
+class ProviderBusy(ProviderError):
+    """Provider รับงานไม่ไหวชั่วคราว (429, 503) ลองรุ่นสำรองหรือรอแล้วลองใหม่ได้"""
+
+
 @dataclass
 class LLMResult:
     text: str
@@ -47,7 +51,9 @@ def _claude_error(error: Exception) -> ProviderError:
     return ProviderError(str(error))
 
 
-async def call_claude(api_key: str, model: str, system: str, user: str, max_tokens: int = 4096) -> LLMResult:
+async def call_claude(api_key: str, model: str, system: str, user: str, max_tokens: int = 4096,
+                      json_mode: bool = False, timeout: float = TIMEOUT) -> LLMResult:
+    """json_mode ของ Claude บอกผ่าน prompt อย่างเดียว ผู้เรียกต้องแยก JSON ออกจากข้อความเอง"""
     started = time.perf_counter()
     kwargs = {
         "model": model,
@@ -57,7 +63,7 @@ async def call_claude(api_key: str, model: str, system: str, user: str, max_toke
         "output_config": {"effort": "low"},
     }
     try:
-        async with anthropic.AsyncAnthropic(api_key=api_key, timeout=TIMEOUT, max_retries=1) as client:
+        async with anthropic.AsyncAnthropic(api_key=api_key, timeout=timeout, max_retries=1) as client:
             try:
                 if model in CLAUDE_FALLBACK_MODELS:
                     response = await client.beta.messages.create(
@@ -99,11 +105,11 @@ def _gemini_model(model: str) -> str:
     return model.removeprefix("models/")
 
 
-async def _post_gemini(url: str, body: dict, api_key: str) -> httpx.Response:
+async def _post_gemini(url: str, body: dict, api_key: str, timeout: float = TIMEOUT) -> httpx.Response:
     """ส่งคำขอหนึ่งครั้ง ถ้า Google ตอบว่าคิวเต็มชั่วคราว (429, 500, 503) รอสั้น ๆ แล้วลองอีกครั้งเดียว"""
     for attempt in range(2):
         try:
-            async with httpx.AsyncClient(timeout=TIMEOUT) as client:
+            async with httpx.AsyncClient(timeout=timeout) as client:
                 response = await client.post(url, json=body, headers={"x-goog-api-key": api_key})
         except httpx.HTTPError as error:
             raise ProviderError("เชื่อมต่อ Gemini ไม่ได้ หรือรอนานเกินไป") from error
@@ -113,7 +119,19 @@ async def _post_gemini(url: str, body: dict, api_key: str) -> httpx.Response:
     return response
 
 
-async def call_gemini(api_key: str, model: str, system: str, user: str, max_tokens: int = 1024) -> LLMResult:
+async def call_gemini(api_key: str, model: str, system: str, user: str, max_tokens: int = 1024,
+                      json_mode: bool = False, timeout: float = TIMEOUT, backup_models: tuple[str, ...] = ()) -> LLMResult:
+    """backup_models: รุ่นที่ลองต่อเมื่อรุ่นหลักรับงานไม่ไหว (ใช้ตอนสร้าง Item Bank ซึ่งยาวและพลาดไม่ได้)"""
+    for candidate in [model, *[m for m in backup_models if m != model]]:
+        try:
+            return await _call_gemini_once(api_key, candidate, system, user, max_tokens, json_mode, timeout)
+        except ProviderBusy as error:
+            busy = error
+    raise busy
+
+
+async def _call_gemini_once(api_key: str, model: str, system: str, user: str, max_tokens: int,
+                            json_mode: bool, timeout: float) -> LLMResult:
     started = time.perf_counter()
     body = {
         "systemInstruction": {"parts": [{"text": system}]},
@@ -121,19 +139,21 @@ async def call_gemini(api_key: str, model: str, system: str, user: str, max_toke
         # คำใบ้ยาวแค่ 2–3 ประโยค ให้โมเดลคิดน้อยที่สุด: ลดโทเคนที่ใช้คิดจากหลายร้อยเหลือศูนย์และตอบเร็วขึ้น
         "generationConfig": {"maxOutputTokens": max_tokens, "thinkingConfig": {"thinkingLevel": "minimal"}},
     }
+    if json_mode:
+        body["generationConfig"]["responseMimeType"] = "application/json"
     url = f"{GEMINI_BASE}/models/{_gemini_model(model)}:generateContent"
-    response = await _post_gemini(url, body, api_key)
+    response = await _post_gemini(url, body, api_key, timeout)
     if response.status_code == 400 and "thinking" in response.text.lower():
         # โมเดลรุ่นที่ไม่รองรับการตั้งระดับการคิด: ส่งใหม่แบบไม่ตั้ง
         body["generationConfig"].pop("thinkingConfig")
-        response = await _post_gemini(url, body, api_key)
+        response = await _post_gemini(url, body, api_key, timeout)
     if response.status_code in (400, 401, 403):
         message = response.json().get("error", {}).get("message", "") if response.content else ""
         raise ProviderError(f"Gemini ไม่รับคำขอ: {message[:120] or response.status_code}")
     if response.status_code == 404:
         raise ProviderError("ไม่พบโมเดล Gemini ที่เลือก")
     if response.status_code in (429, 503):
-        raise ProviderError("Gemini มีผู้ใช้มากชั่วคราว ลองโมเดลอื่นหรือรอสักครู่")
+        raise ProviderBusy("Gemini มีผู้ใช้มากชั่วคราว ลองโมเดลอื่นหรือรอสักครู่")
     if response.status_code >= 300:
         raise ProviderError(f"Gemini ตอบกลับสถานะ {response.status_code}")
     data = response.json()

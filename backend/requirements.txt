@@ -6,4 +6,5 @@ pythainlp>=5.0
 pypdf>=5.0
 python-docx>=1.1
 python-multipart>=0.0.9
+sympy>=1.13
 pytest>=8.0

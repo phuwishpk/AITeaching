@@ -39,6 +39,8 @@ def ensure_seed():
         add_document(subject["id"], SAMPLE_DOCUMENT_NAME, SAMPLE_DOCUMENT)
     for subject in db.list_subjects():
         rebuild_index(subject["id"])
+    for gem in db.list_gems():
+        rebuild_index(gem["id"])
     now = time.time()
     if not db.query_one("SELECT code FROM students WHERE kind = 'real'"):
         for code, name in DEMO_STUDENTS:

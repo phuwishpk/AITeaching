@@ -8,6 +8,7 @@ import asyncio
 import time
 
 from . import analytics, db, settings_store
+from .gems import builder as gem_builder
 from .engine import core as engine
 from .engine import flow as F
 from .engine.answers import answer_display
@@ -55,7 +56,8 @@ def content_for(subject_id: str, set_id: str) -> Content:
         subject = db.get_subject(subject_id)
         if not subject:
             raise NotFound(f"ไม่พบวิชา {subject_id}")
-        _content[key] = Content(subject, set_id)
+        # Flagged Item ของ Gem ไม่ถูกส่งให้นักเรียนจนกว่าครูยืนยัน (ADR-0003)
+        _content[key] = Content(gem_builder.usable(subject), set_id)
     return _content[key]
 
 

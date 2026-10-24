@@ -75,6 +75,9 @@ CREATE INDEX IF NOT EXISTS idx_messages_code ON messages (code, ts);
 CREATE TABLE IF NOT EXISTS chat_modes (
     code TEXT PRIMARY KEY, mode TEXT, since REAL
 );
+CREATE TABLE IF NOT EXISTS gems (
+    id TEXT PRIMARY KEY, data TEXT NOT NULL, updated_at REAL
+);
 """
 
 _lock = threading.RLock()
@@ -170,6 +173,29 @@ def save_subject(subject: dict) -> None:
 
 def delete_subject(subject_id: str) -> None:
     execute("DELETE FROM subjects WHERE id = ?", (subject_id,))
+
+
+# ---------- gems ----------
+
+def get_gem(gem_id: str) -> dict | None:
+    row = query_one("SELECT data FROM gems WHERE id = ?", (gem_id,))
+    return loads(row["data"]) if row else None
+
+
+def list_gems() -> list[dict]:
+    return [loads(r["data"]) for r in query("SELECT data FROM gems ORDER BY updated_at DESC")]
+
+
+def save_gem(gem: dict) -> None:
+    execute(
+        "INSERT INTO gems (id, data, updated_at) VALUES (?, ?, ?) "
+        "ON CONFLICT(id) DO UPDATE SET data = excluded.data, updated_at = excluded.updated_at",
+        (gem["id"], dumps(gem), time.time()),
+    )
+
+
+def delete_gem(gem_id: str) -> None:
+    execute("DELETE FROM gems WHERE id = ?", (gem_id,))
 
 
 # ---------- student states ----------

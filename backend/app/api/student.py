@@ -2,6 +2,7 @@ from fastapi import APIRouter, Depends
 from pydantic import BaseModel
 
 from .. import db, services
+from ..gems import builder as gem_builder
 from ..content.readiness import check_set
 from ..engine import core as engine
 from .deps import require
@@ -36,17 +37,19 @@ def list_sets(auth: dict = Depends(student)):
     states = {s["set_id"]: s for s in db.states_for(auth["code"])}
     for subject in db.list_subjects():
         for qs in subject.get("question_sets", []):
-            if not qs.get("published") or not check_set(subject, qs["id"])["ok"]:
+            if not qs.get("published") or not check_set(gem_builder.usable(subject), qs["id"])["ok"]:
                 continue
             state = states.get(qs["id"])
             status = "new"
             if state:
                 status = "completed" if state["end_reason"] == "completed" else ("paused" if state["ended"] else "in_progress")
             concept = next((c for c in subject["concepts"] if c["id"] == qs["target_concept"]), {})
+            gem = subject.get("gem") or {}
             result.append({
                 "id": qs["id"], "name": qs["name"], "description": qs.get("description", ""),
                 "subject": subject["name"], "grade": subject.get("grade", ""), "target": concept.get("name", ""),
                 "status": status,
+                "gem": {"icon": gem.get("icon"), "color": gem.get("color")} if gem else None,
             })
     return result
 

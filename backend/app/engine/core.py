@@ -1192,6 +1192,13 @@ def item_payload(it: dict) -> dict:
     }
 
 
+def _gem_view(gem: dict | None) -> dict | None:
+    if not gem:
+        return None
+    return {"id": gem["id"], "name": gem["name"], "icon": gem.get("icon"), "color": gem.get("color"),
+            "tools": gem.get("tools", {}), "starter_prompts": gem.get("starter_prompts", [])}
+
+
 def student_view(state: dict, ctx: Ctx) -> dict:
     """สิ่งที่นักเรียนเห็น: ไม่มีตัวเลขความเสี่ยง ไม่มีชื่อกลุ่ม (Anti-Labeling)"""
     now = ctx.now
@@ -1215,6 +1222,8 @@ def student_view(state: dict, ctx: Ctx) -> dict:
         "position": state["position"],
         "label": STUDENT_LABELS.get(state["position"], ""),
         "set": {"id": content.qs["id"], "name": content.qs["name"], "subject": content.subject["name"]},
+        # เครื่องมือเริ่มต้นและคำถามเริ่มต้นที่ครูตั้งใน Gem (วิชาที่ครูเขียนเองไม่มีส่วนนี้)
+        "gem": _gem_view(content.subject.get("gem")),
         "target": {"id": target, "name": content.concept_name(target)},
         "mastery": mastery_value(state, ctx, target) or 0.0,
         "item": item_payload(it) if it else None,

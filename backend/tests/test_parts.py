@@ -143,7 +143,7 @@ def _fake_gemini(monkeypatch, payloads):
 
     sent = []
 
-    async def fake_post(url, body, api_key):
+    async def fake_post(url, body, api_key, timeout=None):
         sent.append(body)
         status, data = payloads.pop(0)
         return httpx.Response(status, json=data)
@@ -161,6 +161,12 @@ def test_gemini_minimal_thinking_and_truncation(monkeypatch):
     result = run(providers.call_gemini("k", "gemini-x", "sys", "user"))
     assert result.text == "ลองดูฝั่งซ้ายนะ"
     assert sent[0]["generationConfig"]["thinkingConfig"] == {"thinkingLevel": "minimal"}
+    assert "responseMimeType" not in sent[0]["generationConfig"]
+
+    # การสร้าง Item Bank ของ Gem ขอผลเป็น JSON
+    providers, sent, run = _fake_gemini(monkeypatch, [(200, ok)])
+    run(providers.call_gemini("k", "gemini-x", "sys", "user", json_mode=True))
+    assert sent[0]["generationConfig"]["responseMimeType"] == "application/json"
 
     cut = {"candidates": [{"finishReason": "MAX_TOKENS", "content": {"parts": [{"text": "ลองดูฝั่ง"}]}}]}
     providers, _, run = _fake_gemini(monkeypatch, [(200, cut)])
