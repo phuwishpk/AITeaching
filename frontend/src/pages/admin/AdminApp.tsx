@@ -143,7 +143,7 @@ function AdminShell({ onLogout }: { onLogout: () => void }) {
     return () => window.removeEventListener("keydown", handler);
   }, [present, location.pathname, navigate]);
 
-  const connected = useLive("admin", (message) => {
+  useLive("admin", (message) => {
     if (message.code) setLastEvent((e) => ({ code: message.code, n: (e?.n ?? 0) + 1 }));
     if (message.type === "update") {
       const view = message.view as StaffView;
@@ -184,9 +184,6 @@ function AdminShell({ onLogout }: { onLogout: () => void }) {
           onLogout={onLogout}
           right={
             <>
-              <span className={`live-dot ${connected ? "on" : ""}`} title={connected ? "รับข้อมูลสดอยู่" : "กำลังเชื่อมต่อใหม่"}>
-                <span className="btn-label">{connected ? "สด" : "ออฟไลน์"}</span>
-              </span>
               <Button
                 variant={present ? "soft" : "ghost"}
                 size="sm"

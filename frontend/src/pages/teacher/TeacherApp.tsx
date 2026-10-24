@@ -105,7 +105,7 @@ function TeacherShell({ onLogout }: { onLogout: () => void }) {
     };
   }, [reload]);
 
-  const connected = useLive("teacher", (message) => {
+  useLive("teacher", (message) => {
     if (message.code) setLastEvent((e) => ({ code: message.code, n: (e?.n ?? 0) + 1 }));
     if (message.type === "message" && message.message?.sender === "student") {
       const reading = openTab.current?.code === message.code && openTab.current?.tab === "messages";
@@ -166,11 +166,6 @@ function TeacherShell({ onLogout }: { onLogout: () => void }) {
         <TopBar
           role="ครู"
           onLogout={onLogout}
-          right={
-            <span className={`live-dot ${connected ? "on" : ""}`} title={connected ? "รับข้อมูลสดอยู่" : "กำลังเชื่อมต่อใหม่"}>
-              <span className="btn-label">{connected ? "สด" : "ออฟไลน์"}</span>
-            </span>
-          }
         />
         <div className="side-layout">
           <SideNav

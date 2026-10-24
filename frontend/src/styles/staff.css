@@ -19,43 +19,6 @@
   border-radius: 8px;
 }
 
-/* ---------- สถานะเชื่อมต่อสด ---------- */
-.live-dot {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  font-size: var(--fs-xs);
-  font-weight: 600;
-  color: var(--text-3);
-}
-
-.live-dot::before {
-  content: "";
-  width: 8px;
-  height: 8px;
-  border-radius: 50%;
-  background: var(--text-3);
-}
-
-.live-dot.on {
-  color: var(--success);
-}
-
-.live-dot.on::before {
-  background: var(--success);
-  animation: live 2.4s ease-in-out infinite;
-}
-
-@keyframes live {
-  0%,
-  100% {
-    box-shadow: 0 0 0 0 color-mix(in srgb, var(--success) 45%, transparent);
-  }
-  50% {
-    box-shadow: 0 0 0 5px transparent;
-  }
-}
-
 /* ---------- เลย์เอาต์หน้าครู ---------- */
 .side-main {
   min-width: 0;
