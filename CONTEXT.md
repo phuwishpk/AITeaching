@@ -84,8 +84,41 @@ _Avoid_: File, Material, ไฟล์แนบ
 **Readiness Check** (การตรวจความพร้อม):
 การตรวจ Question Set ก่อนเปิดใช้ว่ามีองค์ประกอบครบตามที่ตรรกะของระบบต้องใช้
 
-**AI Draft** (ร่างจาก AI):
-เนื้อหาที่ LLM ร่างจาก Source Document ซึ่งยังใช้งานไม่ได้จนกว่าครูจะตรวจและอนุมัติ
+**Gem** (เจม):
+บทเรียนที่ครูสร้างแบบ Gemini Gem จากชื่อ คำอธิบาย Gem Instructions, Starter Tools และ Knowledge File แล้ว LLM สร้าง Item Bank ให้ ข้างในระบบ Gem หนึ่งตัวคือ Subject หนึ่งวิชากับ Question Set หนึ่งชุด
+_Avoid_: Bot, Assistant, AI Draft
+
+**Gem Instructions** (คำสั่งของ Gem):
+ข้อความที่ครูเขียนกำหนดบุคลิกและวิธีสอนของ Gem ใช้เป็นกรอบ Role & Persona และกฎเพิ่มเติมของครู แก้ Constraints & Fallback ไม่ได้
+_Avoid_: System prompt (prompt ที่ส่งจริงรวม 4 กรอบ)
+
+**Starter Tools** (เครื่องมือเริ่มต้น):
+สวิตช์เปิดปิดเครื่องมือการสอนของ Gem (แชต, บันไดคำใบ้, Isomorphic Test, Walkthrough, ทบทวนพื้นฐาน) และ Starter Prompt
+
+**Starter Prompt** (คำถามเริ่มต้น):
+ปุ่มคำถามที่ครูเตรียมไว้ให้นักเรียนกดถามครูผู้ช่วยได้ทันที
+
+**Knowledge File** (ไฟล์ความรู้):
+Source Document ที่แนบกับ Gem ตัวใดตัวหนึ่ง ใช้ทั้งตอนสร้าง Item Bank และตอน RAG ค้นระหว่างสอน
+
+**Item Bank** (คลังโจทย์):
+Knowledge Map, Item, Authored Hint, Bug Library และ Walkthrough Example ทั้งหมดที่ LLM สร้างให้ Gem ครูตรวจและแก้ได้
+_Avoid_: Question pool
+
+**Answer Key** (เฉลยแบบมีโครงสร้าง):
+Answer Format, คำตอบที่ถูก และคำตอบที่ยอมรับของ Item หนึ่งข้อ engine ใช้ตรวจคำตอบด้วยกฎ
+
+**Answer Key Check** (การตรวจเฉลย):
+การตรวจ Answer Key ที่ LLM สร้าง สองชั้น คือ LLM แก้โจทย์ซ้ำโดยไม่เห็นเฉลย และ sympy คำนวณเฉลยจริงเมื่อเป็นสมการหรือเลขคณิต
+
+**Flagged Item** (โจทย์ติดธง):
+Item ที่ไม่ผ่าน Answer Key Check ไม่ถูกส่งให้นักเรียนจนกว่าครูจะยืนยันหรือแก้
+
+**Live Generation** (การสร้างโจทย์สด):
+การให้ LLM สร้าง Item เพิ่มระหว่างเรียนเมื่อ Item Bank ใกล้หมดหรือต้องการ Isomorphic Item เพิ่ม มีเพดานต่อนักเรียนต่อ Session
+
+**Gem Version** (เวอร์ชันของ Gem):
+สำเนาของ Gem ที่เกิดทุกครั้งที่ครูบันทึก Session หนึ่งใช้ Gem Version เดียวตั้งแต่เริ่มจนจบ
 
 ### นักเรียนและร่องรอย (Student Model)
 
@@ -264,16 +297,19 @@ _Avoid_: Filter, Moderation
 _Avoid_: Model (โมเดลเป็นตัวเลือกย่อยภายใน Provider), Vendor
 
 **Offline Mode** (โหมดออฟไลน์):
-โหมดที่ AI Tutor ใช้เฉพาะ Authored Hint โดยไม่เรียก Provider ใดเลย
+โหมดที่ AI Tutor ใช้เฉพาะ Authored Hint โดยไม่เรียก Provider ใดเลย สร้าง Gem และ Live Generation ไม่ได้ในโหมดนี้
+
+**AI Outage** (AI ขัดข้อง):
+สถานะที่ Provider เรียกไม่สำเร็จระหว่างเรียน ระบบหยุดเฉพาะเมื่อขั้นนั้นขาด AI ไม่ได้ (Live Generation ล้มและคลังหมด) แล้วลองใหม่เองเป็นระยะ
 
 ### บทบาทและการควบคุม (Human-in-the-Loop)
 
 **Teacher** (ครู):
-ผู้สอนที่ดูแลนักเรียนรายคน เห็น Roster, Risk Score และ Teacher Alert สร้าง Question Set และสั่ง Manual Override ได้
+ผู้สอนที่สร้างและแก้ Gem ดูแลนักเรียนรายคน เห็น Roster, Risk Score และ Teacher Alert และสั่ง Manual Override ได้
 _Avoid_: Instructor
 
 **Admin** (ผู้ดูแลระบบ):
-ผู้ที่ดูการทำงานภายในของระบบและตั้งค่าระบบ เห็น Flow Position, Decision Trace และตัวแปรทุกตัวผ่าน Student Code แต่ไม่เห็น Roster
+ผู้ที่ดู flow ที่ครูออกแบบใน Gem แต่ละตัวและการทำงานภายในของระบบ ตั้งค่าระบบและ API key เห็น Flow Position, Decision Trace และตัวแปรทุกตัวผ่าน Student Code แต่ไม่เห็น Roster และแก้ Gem ไม่ได้
 _Avoid_: Super user, Developer
 
 **Manual Override** (การแทรกแซงโดยครู):
@@ -281,6 +317,9 @@ _Avoid_: Super user, Developer
 
 **Teacher Alert** (การแจ้งเตือนครู):
 ข้อความที่ระบบส่งให้ครูเมื่อถึงจุดที่มนุษย์ต้องตัดสินใจ มี 3 ระดับ คือ ด่วน ปกติ และเงียบ (แสดงบนแดชบอร์ดโดยไม่เด้งเตือน)
+
+**Alert Rule** (กฎแจ้งเตือนของ Gem):
+การตั้งค่าต่อ Gem ว่าสถานการณ์ใดส่ง Teacher Alert ระดับใด และโหมด "แจ้งอย่างเดียว" หรือ "หยุดรอครู" สถานการณ์ทำร้ายตนเองปิดไม่ได้และหยุดรอครูเสมอ
 
 **Principle Card** (การ์ดหลักการ):
 การ์ดในหน้า Admin ที่อธิบายแนวคิดเบื้องหลังขั้นตอนหนึ่ง พร้อมที่มาในสเปกและตำแหน่งในโค้ดที่ทำหน้าที่นั้น
