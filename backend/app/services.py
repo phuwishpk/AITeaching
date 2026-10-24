@@ -327,6 +327,11 @@ async def chat(code: str, set_id: str, message: str) -> dict:
         await post_message(code, set_id, "system", DISTRESS_REPLY["stress"])
         return {"reply": DISTRESS_REPLY["stress"], "source": "safety", "distress": "stress",
                 "view": engine.student_view(state, ctx)}
+    if chat_mode(code) == "teacher":
+        # ครูอยู่ในแชต: คำตอบของ AI เป็นแค่ร่างให้ครูตรวจ แก้ หรือทิ้ง ก่อนถึงนักเรียน (Human-in-the-Loop)
+        await post_message(code, set_id, "draft", reply["text"])
+        await hub.to_staff({"type": "chat", "code": code, "log_id": reply.get("log_id")})
+        return {"reply": None, "to_teacher": True, "view": engine.student_view(state, ctx)}
     await post_message(code, set_id, "tutor", reply["text"])
     await hub.to_staff({"type": "chat", "code": code, "log_id": reply.get("log_id")})
     return {"reply": reply["text"], "source": reply["source"], "view": engine.student_view(state, ctx)}
@@ -454,6 +459,48 @@ async def post_message(code: str, set_id: str | None, sender: str, text: str) ->
     return row
 
 
-def messages_for(code: str, limit: int = 80) -> list[dict]:
-    rows = db.query("SELECT * FROM messages WHERE code = ? ORDER BY ts DESC, id DESC LIMIT ?", (code, limit))
+def messages_for(code: str, limit: int = 80, include_drafts: bool = False) -> list[dict]:
+    """บทสนทนาของนักเรียนหนึ่งคน ร่างคำตอบของ AI เห็นได้เฉพาะครู"""
+    hide = "" if include_drafts else "AND sender != 'draft'"
+    rows = db.query(f"SELECT * FROM messages WHERE code = ? {hide} ORDER BY ts DESC, id DESC LIMIT ?", (code, limit))
     return list(reversed(rows))
+
+
+def chat_mode(code: str) -> str:
+    """ai = AI Tutor ตอบเอง · teacher = ครูเข้าร่วมแชต AI ร่างคำตอบให้ครูตรวจก่อน"""
+    row = db.query_one("SELECT mode FROM chat_modes WHERE code = ?", (code,))
+    return row["mode"] if row else "ai"
+
+
+async def set_chat_mode(code: str, mode: str) -> dict:
+    db.execute("INSERT OR REPLACE INTO chat_modes (code, mode, since) VALUES (?,?,?)", (code, mode, time.time()))
+    states = db.states_for(code)
+    set_id = max(states, key=lambda s: s["last_activity"])["set_id"] if states else None
+    text = ("ครูเข้ามาในแชตแล้ว ถามครูได้เลย" if mode == "teacher"
+            else "ครูออกจากแชตแล้ว ครูผู้ช่วย (AI) จะตอบต่อ ครูยังอ่านข้อความได้เสมอ")
+    message = await post_message(code, set_id, "system", text)
+    await hub.to_student(code, {"type": "message", "message": message})
+    await hub.to_student(code, {"type": "chat_mode", "mode": mode})
+    return {"mode": mode}
+
+
+async def send_draft(draft_id: int, text: str | None) -> dict:
+    """ครูส่งร่างของ AI ตามเดิมหรือแก้แล้ว ข้อความที่ส่งเป็นของครู (ครูรับผิดชอบเนื้อหา)"""
+    draft = db.query_one("SELECT * FROM messages WHERE id = ? AND sender = 'draft'", (draft_id,))
+    if not draft:
+        raise NotFound("ไม่พบร่างนี้ อาจถูกส่งหรือลบไปแล้ว")
+    db.execute("DELETE FROM messages WHERE id = ?", (draft_id,))
+    return await post_message(draft["code"], draft["set_id"], "teacher", (text or draft["text"]).strip())
+
+
+def inbox() -> list[dict]:
+    """ทุกคนที่มีบทสนทนา พร้อมข้อความล่าสุด จำนวนร่างที่รอครู และโหมดแชต"""
+    rows = db.query(
+        "SELECT m.* FROM messages m JOIN (SELECT code, MAX(id) AS id FROM messages WHERE sender != 'draft' GROUP BY code) "
+        "latest ON latest.id = m.id ORDER BY m.ts DESC"
+    )
+    drafts = {r["code"]: r["n"] for r in db.query(
+        "SELECT code, COUNT(*) AS n FROM messages WHERE sender = 'draft' GROUP BY code")}
+    modes = {r["code"]: r["mode"] for r in db.query("SELECT code, mode FROM chat_modes")}
+    return [{"code": r["code"], "last": r, "drafts": drafts.get(r["code"], 0), "mode": modes.get(r["code"], "ai")}
+            for r in rows]

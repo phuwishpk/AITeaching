@@ -113,8 +113,8 @@ async def chat(set_id: str, body: Chat, auth: dict = Depends(student)):
 
 @router.get("/sets/{set_id}/messages")
 def messages(set_id: str, auth: dict = Depends(student)):
-    """บทสนทนาในกล่องแชต: ข้อความของเรา AI Tutor และครู"""
-    return services.messages_for(auth["code"])
+    """บทสนทนาในกล่องแชต: ข้อความของเรา AI Tutor และครู พร้อมบอกว่าตอนนี้ครูอยู่ในแชตหรือไม่"""
+    return {"messages": services.messages_for(auth["code"]), "mode": services.chat_mode(auth["code"])}
 
 
 @router.get("/sets/{set_id}/notes")

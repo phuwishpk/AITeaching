@@ -12,7 +12,7 @@ import { TopicHeader, useAdmin } from "./AdminApp";
 import { useStudentPicker } from "./Topic2";
 import { CodePicker, Section, TopicLink } from "./shared";
 import NodeInspector from "./NodeInspector";
-import AnswerSheet from "./AnswerSheet";
+import AnswerSheet from "../../components/AnswerSheet";
 import { Button } from "../../components/ui";
 
 const KINDS = [
@@ -39,7 +39,7 @@ interface BugRow {
 }
 
 export default function Topic3() {
-  const { flow, liveVersion } = useAdmin();
+  const { flow, liveVersion, lastEvent } = useAdmin();
   const [params, setParams] = useSearchParams();
   const [kinds, setKinds] = useState<string[]>(["real", "demo", "sim"]);
   const { students, code, setCode, detail } = useStudentPicker();
@@ -218,7 +218,7 @@ export default function Topic3() {
         </Card>
       </div>
 
-      <AnswerSheet code={code} />
+      <AnswerSheet code={code} lastEvent={lastEvent} />
 
       <Section num="3.2" title="บันไดคำใบ้และการสับราง (Scaffolding Logic)" sub="กฎเหล็ก: ไม่เฉลยคำตอบสำเร็จรูป ทุกระดับเป็นคำถามนำให้คิดต่อ และคำใบ้ระดับ 3 แสดงแค่ขั้นแรก">
         <div className="grid grid-2">

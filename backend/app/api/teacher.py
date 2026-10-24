@@ -108,9 +108,47 @@ class TeacherMessage(BaseModel):
     text: str
 
 
+class ChatMode(BaseModel):
+    mode: str
+
+
+class DraftSend(BaseModel):
+    text: str | None = None
+
+
 @router.get("/students/{code}/messages")
 def student_messages(code: str, auth: dict = Depends(teacher)):
-    return services.messages_for(code)
+    return {"messages": services.messages_for(code, include_drafts=True), "mode": services.chat_mode(code)}
+
+
+@router.post("/students/{code}/chat-mode")
+async def chat_mode(code: str, body: ChatMode, auth: dict = Depends(teacher)):
+    if body.mode not in ("ai", "teacher"):
+        raise HTTPException(400, "โหมดแชตไม่ถูกต้อง")
+    return await services.set_chat_mode(code, body.mode)
+
+
+@router.post("/drafts/{draft_id}/send")
+async def send_draft(draft_id: int, body: DraftSend, auth: dict = Depends(teacher)):
+    return await services.send_draft(draft_id, body.text)
+
+
+@router.delete("/drafts/{draft_id}")
+def delete_draft(draft_id: int, auth: dict = Depends(teacher)):
+    db.execute("DELETE FROM messages WHERE id = ? AND sender = 'draft'", (draft_id,))
+    return {"ok": True}
+
+
+@router.get("/inbox")
+def inbox(auth: dict = Depends(teacher)):
+    names = roster_map()
+    return [{**row, "name": names.get(row["code"])} for row in services.inbox()]
+
+
+@router.get("/students/{code}/answers")
+def student_answers(code: str, auth: dict = Depends(teacher)):
+    """โจทย์ที่กำลังทำและคำตอบแต่ละครั้ง ใช้ตรวจกิจกรรมข้างกล่องแชต"""
+    return services.answer_sheet(code)
 
 
 @router.post("/students/{code}/messages")

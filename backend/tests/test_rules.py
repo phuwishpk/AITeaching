@@ -166,6 +166,36 @@ def test_teacher_and_student_exchange_messages(content):
     sent = client.post("/api/teacher/students/S-07/messages", json={"text": "ครูกำลังไปหานะ"}, headers=teacher)
     assert sent.status_code == 200 and sent.json()["sender"] == "teacher"
 
-    thread = client.get("/api/student/sets/QS-1/messages", headers=student).json()
+    thread = client.get("/api/student/sets/QS-1/messages", headers=student).json()["messages"]
     assert [m["sender"] for m in thread] == ["student", "teacher"]
     assert client.get("/api/teacher/students/S-07/messages", headers=student).status_code == 403
+
+
+
+def test_teacher_joins_chat_and_reviews_ai_draft(content):
+    from app import db, services
+    from app.engine import core as engine
+    from app.engine.core import Ctx
+
+    db.save_subject(content.subject)
+    db.execute("INSERT INTO students (code, kind, persona, created_at) VALUES ('S-10', 'real', NULL, 0)")
+    state = engine.new_state("S-10", content.subject["id"], "QS-1", 1, 1000.0)
+    services.persist(state, engine.begin(state, Ctx(content, settings_store.params(), 1.0, 1000.0)), 1000.0)
+    client = TestClient(app)
+    student = {"Authorization": f"Bearer {issue_token('student', 'S-10')}"}
+    teacher = {"Authorization": f"Bearer {issue_token('teacher')}"}
+
+    assert client.post("/api/teacher/students/S-10/chat-mode", json={"mode": "teacher"}, headers=teacher).json()["mode"] == "teacher"
+    reply = client.post("/api/student/sets/QS-1/chat", json={"message": "ทำไมต้องลบ 3"}, headers=student).json()
+    assert reply["reply"] is None and reply["to_teacher"]  # AI ไม่ตอบเอง
+
+    seen_by_teacher = client.get("/api/teacher/students/S-10/messages", headers=teacher).json()
+    draft = next(m for m in seen_by_teacher["messages"] if m["sender"] == "draft")
+    student_view = client.get("/api/student/sets/QS-1/messages", headers=student).json()
+    assert all(m["sender"] != "draft" for m in student_view["messages"]) and student_view["mode"] == "teacher"
+
+    sent = client.post(f"/api/teacher/drafts/{draft['id']}/send", json={"text": "ลองนึกถึงตาชั่งดูนะ"}, headers=teacher).json()
+    assert sent["sender"] == "teacher" and sent["text"] == "ลองนึกถึงตาชั่งดูนะ"
+    senders = [m["sender"] for m in client.get("/api/student/sets/QS-1/messages", headers=student).json()["messages"]]
+    assert senders[-2:] == ["student", "teacher"] and "draft" not in senders
+    assert client.get("/api/teacher/inbox", headers=teacher).json()[0]["code"] == "S-10"

@@ -2435,3 +2435,121 @@
   font-weight: 700;
   cursor: pointer;
 }
+
+/* ---------- แชตกับนักเรียน (หน้าครู) ---------- */
+.chat-mode {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 14px;
+  border-radius: var(--radius);
+  border: 1px solid var(--border);
+  background: var(--surface-2);
+}
+
+.chat-mode.on {
+  border-color: var(--accent);
+  background: var(--accent-soft);
+}
+
+.chat-mode-icon {
+  flex: none;
+  width: 34px;
+  height: 34px;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  background: var(--surface);
+  color: var(--accent);
+}
+
+.tmsg-draft {
+  align-self: stretch;
+  max-width: none;
+  background: var(--info-soft);
+  border: 1.5px dashed color-mix(in srgb, var(--info) 55%, transparent);
+}
+
+.tmsg-draft .tmsg-meta {
+  color: var(--info);
+}
+
+.draft-actions {
+  margin-top: 6px;
+}
+
+.inbox-grid {
+  display: grid;
+  grid-template-columns: minmax(260px, 340px) minmax(0, 1fr);
+  gap: 18px;
+  align-items: start;
+}
+
+@media (max-width: 1000px) {
+  .inbox-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+.inbox-list-card {
+  position: sticky;
+  top: 76px;
+  padding: 12px;
+}
+
+.inbox-search {
+  width: 100%;
+  margin-bottom: 8px;
+}
+
+.inbox-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  max-height: calc(100vh - 220px);
+  overflow-y: auto;
+}
+
+.inbox-list button {
+  width: 100%;
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 10px;
+  border: none;
+  border-radius: 10px;
+  background: none;
+  color: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.inbox-list button:hover {
+  background: var(--surface-2);
+}
+
+.inbox-list button.is-on {
+  background: var(--accent-soft);
+}
+
+.inbox-avatar {
+  flex: none;
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  background: var(--surface-3);
+  color: var(--text-2);
+}
+
+.inbox-last {
+  display: -webkit-box;
+  -webkit-line-clamp: 1;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+.answer-sheet-compact {
+  grid-template-columns: minmax(0, 1fr);
+}

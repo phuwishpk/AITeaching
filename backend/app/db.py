@@ -72,6 +72,9 @@ CREATE TABLE IF NOT EXISTS messages (
     id INTEGER PRIMARY KEY AUTOINCREMENT, ts REAL, code TEXT, set_id TEXT, sender TEXT, text TEXT
 );
 CREATE INDEX IF NOT EXISTS idx_messages_code ON messages (code, ts);
+CREATE TABLE IF NOT EXISTS chat_modes (
+    code TEXT PRIMARY KEY, mode TEXT, since REAL
+);
 """
 
 _lock = threading.RLock()

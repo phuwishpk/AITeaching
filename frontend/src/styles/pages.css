@@ -612,3 +612,20 @@
 .q-progress .xsmall {
   flex-basis: 100%;
 }
+
+.teacher-in {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 3px 10px;
+  border-radius: 999px;
+  background: var(--accent-soft);
+  color: var(--accent-ink);
+  font-size: var(--fs-xs);
+  font-weight: 600;
+}
+
+.bubble-tutor .bubble-from,
+.bubble-system .bubble-from {
+  color: var(--text-3);
+}

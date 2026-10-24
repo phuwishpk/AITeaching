@@ -10,7 +10,7 @@ import { useAdmin } from "./AdminApp";
 import { useStudentPicker } from "./Topic2";
 import { CodePicker } from "./shared";
 import NodeInspector from "./NodeInspector";
-import { answerText, ItemView, type ItemBrief } from "./AnswerSheet";
+import { answerText, ItemView, type ItemBrief } from "../../components/AnswerSheet";
 
 interface ActivityInput {
   action: string;

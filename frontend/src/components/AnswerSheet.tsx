@@ -1,10 +1,9 @@
 import { useEffect } from "react";
 import { Check, X } from "lucide-react";
-import { api } from "../../lib/api";
-import { useLoad } from "../../lib/hooks";
-import { clock, num } from "../../lib/format";
-import { Badge, Card, CardHead, Empty, Spinner } from "../../components/ui";
-import { useAdmin } from "./AdminApp";
+import { api } from "../lib/api";
+import { useLoad } from "../lib/hooks";
+import { clock, num } from "../lib/format";
+import { Badge, Card, CardHead, Empty, Spinner } from "./ui";
 
 // โจทย์ที่นักเรียนกำลังทำ และคำตอบที่ส่งมาแต่ละครั้ง เทียบกับคำตอบที่ถูก (ใช้ในผังตรรกะและหน้าสาธิต)
 
@@ -98,9 +97,21 @@ export function ItemView({ item, chosen }: { item: ItemBrief; chosen?: string[] 
   );
 }
 
-export default function AnswerSheet({ code, title }: { code: string | null; title?: string }) {
-  const { lastEvent } = useAdmin();
-  const sheet = useLoad(() => (code ? api<Sheet>("admin", `/api/admin/students/${code}/answers`) : Promise.resolve(null)), [code]);
+export default function AnswerSheet({
+  code,
+  title,
+  role = "admin",
+  lastEvent,
+  compact,
+}: {
+  code: string | null;
+  title?: string;
+  role?: "admin" | "teacher";
+  lastEvent?: { code: string; n: number } | null;
+  compact?: boolean;
+}) {
+  const path = role === "admin" ? `/api/admin/students/${code}/answers` : `/api/teacher/students/${code}/answers`;
+  const sheet = useLoad(() => (code ? api<Sheet>(role, path) : Promise.resolve(null)), [code]);
 
   // นักเรียนคนนี้ตอบหรือเปลี่ยนสถานะ: โหลดใหม่
   useEffect(() => {
@@ -118,7 +129,7 @@ export default function AnswerSheet({ code, title }: { code: string | null; titl
         {!code && <Empty>เลือกนักเรียนก่อน</Empty>}
         {code && sheet.loading && !sheet.data && <Spinner />}
         {sheet.data && (
-          <div className="answer-sheet">
+          <div className={compact ? "answer-sheet answer-sheet-compact" : "answer-sheet"}>
             <section className="stack stack-sm">
               <span className="row row-sm">
                 <span className="small strong">กำลังทำ</span>

@@ -1,6 +1,6 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
 import { Route, Routes } from "react-router";
-import { Bell, BookMarked, Bot, LayoutDashboard, ListChecks, Sparkles, UsersRound } from "lucide-react";
+import { Bell, BookMarked, Bot, LayoutDashboard, ListChecks, MessagesSquare, Sparkles, UsersRound } from "lucide-react";
 import { api, clearAuth, getAuth } from "../../lib/api";
 import { useLive } from "../../lib/hooks";
 import type { Alert, Decision, StaffView, Telemetry } from "../../lib/types";
@@ -15,6 +15,7 @@ import SubjectEditor from "./SubjectEditor";
 import Roster from "./Roster";
 import TagReview from "./TagReview";
 import AiReview from "./AiReview";
+import Inbox from "./Inbox";
 import StudentDrawer, { type DrawerTab } from "./StudentDrawer";
 import RulesPage from "../shared/RulesPage";
 
@@ -39,6 +40,7 @@ interface TeacherContextValue {
   reload: () => Promise<void>;
   openStudent: (code: string, tab?: DrawerTab) => void;
   unread: Record<string, number>;
+  markRead: (code: string) => void;
   nameOf: (code: string) => string | null;
   ackAlert: (id: number) => Promise<void>;
   liveVersion: number;
@@ -75,6 +77,7 @@ function TeacherShell({ onLogout }: { onLogout: () => void }) {
   // ข้อความจากนักเรียนที่ครูยังไม่ได้เปิดอ่าน
   const [unread, setUnread] = useState<Record<string, number>>({});
   const openTab = useRef<{ code: string; tab: DrawerTab } | null>(null);
+  const markRead = useCallback((code: string) => setUnread((u) => (u[code] ? { ...u, [code]: 0 } : u)), []);
   openTab.current = student;
   const [liveVersion, setLiveVersion] = useState(0);
   const [lastEvent, setLastEvent] = useState<{ code: string; n: number } | null>(null);
@@ -148,6 +151,7 @@ function TeacherShell({ onLogout }: { onLogout: () => void }) {
     reload,
     openStudent: (code, tab = "now") => setStudent({ code, tab }),
     unread,
+    markRead,
     nameOf: (code) => names.get(code) ?? null,
     ackAlert,
     liveVersion,
@@ -177,6 +181,13 @@ function TeacherShell({ onLogout }: { onLogout: () => void }) {
                 items: [
                   { to: "/teacher", end: true, label: "ภาพรวมห้องเรียน", icon: <LayoutDashboard size={17} /> },
                   { to: "/teacher/alerts", label: "การแจ้งเตือน", icon: <Bell size={17} />, count: openAlerts },
+                  {
+                    to: "/teacher/inbox",
+                    label: "แชตกับนักเรียน",
+                    icon: <MessagesSquare size={17} />,
+                    count: Object.values(unread).reduce((a, b) => a + b, 0),
+                    tone: "calm",
+                  },
                 ],
               },
               {
@@ -204,6 +215,7 @@ function TeacherShell({ onLogout }: { onLogout: () => void }) {
             <Routes>
               <Route index element={<Overview />} />
               <Route path="alerts" element={<AlertsPage />} />
+              <Route path="inbox" element={<Inbox />} />
               <Route path="content" element={<ContentStudio />} />
               <Route path="content/:subjectId" element={<SubjectEditor />} />
               <Route path="roster" element={<Roster />} />

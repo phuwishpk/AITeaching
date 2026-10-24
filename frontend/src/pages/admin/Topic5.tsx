@@ -6,7 +6,7 @@ import FlowMap from "../../components/FlowMap";
 import { Badge, Button, Card, CardHead, Empty, Spinner, useToast } from "../../components/ui";
 import { TopicHeader, useAdmin, type ScenarioEvent } from "./AdminApp";
 import { Section } from "./shared";
-import AnswerSheet from "./AnswerSheet";
+import AnswerSheet from "../../components/AnswerSheet";
 
 interface Scenario {
   id: string;
@@ -18,7 +18,7 @@ interface Scenario {
 
 export default function Topic5() {
   const toast = useToast();
-  const { flow, scenarios: events } = useAdmin();
+  const { flow, scenarios: events, lastEvent } = useAdmin();
   const list = useLoad(() => api<Scenario[]>("admin", "/api/admin/scenarios"));
   const settings = useLoad(() => api<any>("admin", "/api/admin/settings"));
   const [focus, setFocus] = useState<string>("hints");
@@ -166,7 +166,7 @@ export default function Topic5() {
         />
       </Card>
 
-      <AnswerSheet code={code} title={`โจทย์และคำตอบของ ${code} ในสถานการณ์นี้`} />
+      <AnswerSheet code={code} lastEvent={lastEvent} title={`โจทย์และคำตอบของ ${code} ในสถานการณ์นี้`} />
 
       <div className="grid grid-2">
         <Card>

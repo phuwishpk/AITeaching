@@ -103,6 +103,7 @@ function Room({ code, onLogout }: { code: string; onLogout: () => void }) {
   const [feedback, setFeedback] = useState<Result | null>(null);
   const [solved, setSolved] = useState<Solved | null>(null);
   const [chat, setChat] = useState<ChatMessage[]>([]);
+  const [teacherIn, setTeacherIn] = useState(false);
   const [socratic, setSocratic] = useState<string | null>(null);
   const [notesOpen, setNotesOpen] = useState(false);
   const previousMastery = useRef<number | null>(null);
@@ -129,8 +130,11 @@ function Room({ code, onLogout }: { code: string; onLogout: () => void }) {
     api<View>("student", `${base}/start`, { body: { restart: false } })
       .then(applyView)
       .catch((err) => setError(err.message));
-    api<StoredMessage[]>("student", `${base}/messages`)
-      .then((rows) => setChat(rows.map(fromSender)))
+    api<{ messages: StoredMessage[]; mode: string }>("student", `${base}/messages`)
+      .then((data) => {
+        setChat(data.messages.map(fromSender));
+        setTeacherIn(data.mode === "teacher");
+      })
       .catch(() => {});
   }, [base, applyView]);
 
@@ -143,7 +147,9 @@ function Room({ code, onLogout }: { code: string; onLogout: () => void }) {
   // ครูปลดล็อก หรือคำใบ้จาก AI พร้อมแล้ว: เซิร์ฟเวอร์ส่งสถานะใหม่มาทาง WebSocket
   useLive("student", (message) => {
     if (message.type === "state" && message.view?.set?.id === setId) applyView(message.view);
-    if (message.type === "message" && message.message?.sender === "teacher") setChat((list) => [...list, fromSender(message.message)]);
+    if (message.type === "message" && ["teacher", "system"].includes(message.message?.sender))
+      setChat((list) => [...list, fromSender(message.message)]);
+    if (message.type === "chat_mode") setTeacherIn(message.mode === "teacher");
   });
 
   const act = useCallback(
@@ -297,12 +303,13 @@ function Room({ code, onLogout }: { code: string; onLogout: () => void }) {
             <TutorChat
               messages={chat}
               toTeacher={!answering}
+              teacherIn={teacherIn}
               onSend={async (message) => {
                 setChat((list) => [...list, { from: "me", text: message }]);
                 const response = await act("chat", { message });
                 if (!response) return;
                 if (response.to_teacher) {
-                  setChat((list) => list.map((m, i) => (i === list.length - 1 ? { ...m, note: "ส่งถึงครูแล้ว" } : m)));
+                  setChat((list) => list.map((m, i) => (i === list.length - 1 ? { ...m, note: "ส่งถึงครูแล้ว รอครูตอบนะ" } : m)));
                 } else if (response.reply) {
                   const reply = response.reply;
                   setChat((list) => [...list, { from: response.source === "safety" ? "system" : "tutor", text: reply }]);
@@ -726,15 +733,20 @@ function HintPanel({
 
 // ---------------------------------------------------------------- ครูผู้ช่วย
 
+const ROLE: Record<ChatMessage["from"], string | null> = { me: null, tutor: "ครูผู้ช่วย (AI)", teacher: "ครู", system: "ระบบ" };
+
 function TutorChat({
   messages,
   onSend,
   toTeacher,
+  teacherIn,
 }: {
   messages: ChatMessage[];
   onSend: (text: string) => Promise<void>;
   toTeacher: boolean;
+  teacherIn: boolean;
 }) {
+  const direct = toTeacher || teacherIn;
   const [text, setText] = useState("");
   const [busy, setBusy] = useState(false);
   const listRef = useRef<HTMLDivElement>(null);
@@ -748,25 +760,33 @@ function TutorChat({
     const message = text.trim();
     if (!message || busy) return;
     setText("");
-    setBusy(!toTeacher);
+    setBusy(!direct);
     await onSend(message);
     setBusy(false);
   };
 
   return (
     <section className="card chat-card">
-      <div className="row row-sm">
-        <MessageCircle size={18} color="var(--accent)" />
-        <h2 className="subtitle">{toTeacher ? "ส่งข้อความถึงครู" : "ถามครูผู้ช่วย"}</h2>
+      <div className="spread">
+        <div className="row row-sm">
+          <MessageCircle size={18} color="var(--accent)" />
+          <h2 className="subtitle">{direct ? "คุยกับครู" : "ถามครูผู้ช่วย"}</h2>
+        </div>
+        {teacherIn && (
+          <span className="teacher-in">
+            <span className="dot" />
+            ครูอยู่ในแชต
+          </span>
+        )}
       </div>
-      {toTeacher && <p className="xsmall muted">ตอนนี้ข้อความจะส่งถึงครูโดยตรง ครูจะตอบกลับในกล่องนี้</p>}
+      {direct && <p className="xsmall muted">ตอนนี้ข้อความจะส่งถึงครูโดยตรง ครูจะตอบกลับในกล่องนี้</p>}
       <div className="chat-list" ref={listRef}>
         {messages.length === 0 && (
           <p className="small faint">พิมพ์บอกได้ว่าติดตรงไหน ครูผู้ช่วยจะถามกลับให้คิดต่อ ไม่บอกคำตอบ</p>
         )}
         {messages.map((m, index) => (
           <div key={index} className={`bubble bubble-${m.from === "me" ? "me" : m.from}`}>
-            {m.from === "teacher" && <span className="bubble-from">ครู</span>}
+            {ROLE[m.from] && <span className="bubble-from">{ROLE[m.from]}</span>}
             {m.text}
             {m.note && <span className="bubble-note">{m.note}</span>}
           </div>
@@ -784,9 +804,9 @@ function TutorChat({
           className="input"
           value={text}
           onChange={(e) => setText(e.target.value)}
-          placeholder={toTeacher ? "พิมพ์ถึงครู" : "เช่น ไม่แน่ใจว่าต้องย้ายเลข 3 ยังไง"}
+          placeholder={direct ? "พิมพ์ถึงครู" : "เช่น ไม่แน่ใจว่าต้องย้ายเลข 3 ยังไง"}
           maxLength={600}
-          aria-label={toTeacher ? "ข้อความถึงครู" : "ข้อความถึงครูผู้ช่วย"}
+          aria-label={direct ? "ข้อความถึงครู" : "ข้อความถึงครูผู้ช่วย"}
         />
         <Button variant="primary" className="btn-icon" type="submit" disabled={!text.trim()} aria-label="ส่ง" icon={<Send size={16} />} />
       </form>
