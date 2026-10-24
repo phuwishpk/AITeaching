@@ -204,3 +204,10 @@ def test_high_risk_sends_silent_alert_only(fresh):
     assert [a["kind"] for a in fx.alerts] == ["burnout_risk"]
     assert fx.alerts[0]["level"] == "silent"
     assert state["position"] == position
+
+
+def test_student_view_counts_main_items(fresh, content):
+    state, ctx = fresh
+    engine.submit(state, at(ctx, 1010), demo.correct_raw(current(content, state)))
+    progress = engine.student_view(state, ctx)["progress"]
+    assert progress == {"main_done": 1, "main_total": 6, "max_items": 20}

@@ -1221,6 +1221,12 @@ def student_view(state: dict, ctx: Ctx) -> dict:
         "item_mode": item["mode"] if item else None,
         "concept_name": content.concept_name(it["concept"]) if it else None,
         "item_number": state["items_count"],
+        # ความคืบหน้าแบบนับข้อ: ชุดคำถามปรับตามผู้เรียน จำนวนข้อจริงจึงไม่ตายตัว บอกโจทย์หลักที่ผ่านกับเพดานแทน
+        "progress": {
+            "main_done": len([i for i in state["main_done"] if i in {m["id"] for m in content.main_items()}]),
+            "main_total": len(content.main_items()),
+            "max_items": int(content.qs.get("max_items") or ctx.p("max_items")),
+        },
         "error_count": item["error_count"] if item else 0,
         "hints": hints,
         "hint_button": {

@@ -37,6 +37,7 @@ interface View {
   item_mode: string | null;
   concept_name: string | null;
   item_number: number;
+  progress: { main_done: number; main_total: number; max_items: number };
   error_count: number;
   hints: Hint[];
   hint_button: { visible: boolean; cooldown: number | null; unlock_in: number };
@@ -205,6 +206,7 @@ function Room({ code, onLogout }: { code: string; onLogout: () => void }) {
             <div className="mastery" role="img" aria-label="แถบความชำนาญ">
               <div className="mastery-fill" style={{ width: `${Math.max(4, view.mastery * 100)}%` }} />
             </div>
+            <QuestionProgress view={view} />
           </div>
         </section>
 
@@ -289,6 +291,26 @@ function Room({ code, onLogout }: { code: string; onLogout: () => void }) {
   );
 }
 
+// ---------------------------------------------------------------- จำนวนข้อ
+
+// ระบบปรับลำดับและเพิ่มข้อทบทวนตามผู้เรียน จำนวนข้อจริงจึงไม่ตายตัว แสดงโจทย์หลักที่ผ่านแล้วแทน
+function QuestionProgress({ view }: { view: View }) {
+  const { main_done, main_total, max_items } = view.progress;
+  return (
+    <div className="q-progress">
+      <ol className="q-dots" aria-label={`ผ่านโจทย์หลักแล้ว ${main_done} จาก ${main_total} ข้อ`}>
+        {Array.from({ length: main_total }, (_, i) => (
+          <li key={i} className={i < main_done ? "done" : ""} />
+        ))}
+      </ol>
+      <span className="small muted">
+        โจทย์หลัก {main_done} จาก {main_total} ข้อ
+      </span>
+      <span className="xsmall faint">ทำได้ไม่เกิน {max_items} ข้อต่อรอบ รวมข้อทบทวน</span>
+    </div>
+  );
+}
+
 // ---------------------------------------------------------------- ตอบถูกแล้ว ก่อนไปข้อถัดไป
 
 function SolvedCard({ solved, onNext }: { solved: Solved; onNext: () => void }) {
@@ -365,7 +387,10 @@ function ProblemCard({
     <article className="card problem-card fade-in" key={`${item.id}-${view.item_number}`}>
       <div className="spread">
         <div className="row row-sm">
-          <span className="eyebrow">ข้อที่ {view.item_number}</span>
+          <span className="eyebrow">
+            ข้อที่ {view.item_number}
+            <span className="faint"> / ไม่เกิน {view.progress.max_items}</span>
+          </span>
           {iso && <Badge tone="accent">ข้อทดสอบความเข้าใจ · ไม่มีคำใบ้</Badge>}
           {remedial && view.remedial && <Badge tone="calm">ทบทวนพื้นฐาน · {view.remedial.concept_name}</Badge>}
           {!iso && !remedial && view.concept_name && <Badge>{view.concept_name}</Badge>}

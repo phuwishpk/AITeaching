@@ -552,3 +552,35 @@
   font-size: var(--fs-xl);
   margin-left: 6px;
 }
+
+/* ---------- จำนวนข้อ ---------- */
+.q-progress {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 4px 10px;
+}
+
+.q-dots {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  gap: 4px;
+}
+
+.q-dots li {
+  width: 18px;
+  height: 6px;
+  border-radius: 999px;
+  background: var(--surface-3);
+  transition: background 0.3s ease;
+}
+
+.q-dots li.done {
+  background: var(--accent);
+}
+
+.q-progress .xsmall {
+  flex-basis: 100%;
+}
