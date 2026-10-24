@@ -3646,3 +3646,70 @@ button.route-node:hover {
   border-style: dashed;
   color: var(--text-2);
 }
+
+/* ---------- Alert Rule ของ Gem ---------- */
+.gem-alerts {
+  display: flex;
+  flex-direction: column;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: var(--surface);
+}
+
+.gem-alert {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 92px 132px;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px;
+}
+
+.gem-alert + .gem-alert {
+  border-top: 1px solid var(--border);
+}
+
+.gem-alert.is-off .gem-alert-name span {
+  color: var(--text-3);
+}
+
+.gem-alert-name {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  cursor: pointer;
+}
+
+.gem-alert-name input {
+  accent-color: var(--accent);
+}
+
+.gem-alert .input-sm {
+  padding: 5px 8px;
+  font-size: var(--fs-sm);
+}
+
+@media (max-width: 560px) {
+  .gem-alert {
+    grid-template-columns: 1fr 1fr;
+  }
+
+  .gem-alert-name {
+    grid-column: 1 / -1;
+  }
+}
+
+.flag-banner {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 16px;
+  border-radius: var(--radius);
+  border: 1px solid color-mix(in srgb, var(--warning) 40%, var(--border));
+  background: var(--warning-soft);
+  color: var(--text);
+}
+
+.flag-banner > svg {
+  color: var(--warning);
+  flex: none;
+}

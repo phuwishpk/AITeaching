@@ -11,12 +11,12 @@ from .. import db, settings_store
 from ..content.readiness import check_set
 from ..engine.answers import answer_display
 from ..tutor.prompt import constraints_frame
-from . import builder, versions
+from . import alerts, builder, versions
 
 ICONS = ["sparkles", "calculator", "book", "flask", "globe", "code", "palette", "music"]
 COLORS = ["teal", "blue", "violet", "amber", "rose", "green"]
 TOOLS = {"chat": True, "hints": True, "isomorphic": True, "walkthrough": True, "remedial": True}
-EDITABLE = ("name", "description", "instructions", "icon", "color", "tools", "starter_prompts")
+EDITABLE = ("name", "description", "instructions", "icon", "color", "tools", "starter_prompts", "alert_rules")
 
 
 class GemError(Exception):
@@ -40,6 +40,8 @@ def clean_fields(data: dict) -> dict:
         out["tools"] = {key: bool(tools.get(key, default)) for key, default in TOOLS.items()}
     if "starter_prompts" in data:
         out["starter_prompts"] = [str(p).strip()[:120] for p in data["starter_prompts"] or [] if str(p).strip()][:4]
+    if "alert_rules" in data:
+        out["alert_rules"] = alerts.normalize(data["alert_rules"])
     return out
 
 
@@ -51,7 +53,7 @@ def create(data: dict, actor: str) -> dict:
     gem = {
         "id": f"gem-{secrets.token_hex(3)}",
         "name": fields["name"], "description": "", "instructions": "", "icon": ICONS[0], "color": COLORS[0],
-        "tools": dict(TOOLS), "starter_prompts": [],
+        "tools": dict(TOOLS), "starter_prompts": [], "alert_rules": alerts.defaults(),
         "bank_version": 0, "subject_id": None, "set_id": None,
         "build": {"status": "idle"}, "created_at": now, "created_by": actor,
     }
@@ -66,7 +68,7 @@ def update(gem_id: str, data: dict, actor: str = "teacher") -> dict:
     fields = clean_fields(data)
     if "name" in fields and not fields["name"]:
         raise GemError("Gem ต้องมีชื่อ")
-    before = dict(gem)
+    before = {**gem, "alert_rules": alerts.normalize(gem.get("alert_rules"))}
     gem.update(fields)
     db.save_gem(gem)
     changed = versions.changes(before, gem)
@@ -189,11 +191,12 @@ def detail(gem: dict) -> dict:
         }
     return {
         **{k: gem.get(k) for k in ("id", "bank_version", "build", "created_at") + EDITABLE},
+        "alert_rules": alerts.normalize(gem.get("alert_rules")),
         "files": files(gem["id"]),
         "bank": bank,
         "versions": versions.history(gem["id"]) or _first_version(gem),
         "locked_constraints": constraints_frame(),
-        "options": {"icons": ICONS, "colors": COLORS},
+        "options": {"icons": ICONS, "colors": COLORS, "alert_situations": alerts.catalog()},
     }
 
 

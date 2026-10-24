@@ -110,7 +110,8 @@ async def chat_reply(subject: dict, item: dict | None, concept_name: str, studen
     if result is None:
         log_id = _log(code, "chat", built["frames"], retrieved, None, fallback, None, errors)
         return {"text": fallback, "source": "authored", "log_id": log_id, "errors": errors}
-    text = _clean(result.text)
+    off_topic = prompt.OFF_TOPIC in result.text
+    text = _clean(result.text.replace(prompt.OFF_TOPIC, ""))
     checked = guard.check(text, item) if item else guard.GuardResult(guard.TRIGGER in text, trigger=guard.TRIGGER in text)
     if checked.trigger:
         log_id = _log(code, "chat", built["frames"], retrieved, result, "", checked.to_dict(), errors)
@@ -119,7 +120,8 @@ async def chat_reply(subject: dict, item: dict | None, concept_name: str, studen
         log_id = _log(code, "chat", built["frames"], retrieved, result, fallback, checked.to_dict(), errors)
         return {"text": fallback, "source": "authored", "guard": checked.to_dict(), "log_id": log_id, "errors": errors}
     log_id = _log(code, "chat", built["frames"], retrieved, result, text, checked.to_dict(), errors)
-    return {"text": text, "source": result.provider, "guard": checked.to_dict(), "log_id": log_id, "errors": errors}
+    return {"text": text, "source": result.provider, "guard": checked.to_dict(), "log_id": log_id, "errors": errors,
+            "off_topic": off_topic}
 
 
 async def suggest_tag(subject: dict, item: dict, answer: str, code: str | None) -> dict | None:

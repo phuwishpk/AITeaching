@@ -447,6 +447,7 @@ def gem_meta(gem: dict, version: int) -> dict:
         "id": gem["id"], "bank_version": version, "name": gem["name"], "icon": gem.get("icon"),
         "color": gem.get("color"), "instructions": gem.get("instructions", ""),
         "tools": gem.get("tools", {}), "starter_prompts": gem.get("starter_prompts", []),
+        "alert_rules": gem.get("alert_rules", {}),
     }
 
 

@@ -5,9 +5,11 @@
 """
 
 import asyncio
+import re
 import time
 
 from . import analytics, db, settings_store
+from .gems import alerts as gem_alerts
 from .gems import builder as gem_builder
 from .engine import core as engine
 from .engine import flow as F
@@ -87,6 +89,36 @@ def roster_names() -> list[str]:
 
 # ---------------------------------------------------------------- บันทึกและส่งต่อ
 
+# ขอคุยกับครูจริง ๆ ไม่นับการเรียกครูอย่างสุภาพ เช่น "ครูครับ"
+ASK_TEACHER = re.compile(r"(ขอ|อยาก)(คุย|ถาม|ปรึกษา)(กับ)?ครู|เรียกครู|ครูช่วย(หน่อย|ด้วย)")
+
+
+def ai_failed(result: dict) -> bool:
+    """AI ถูกเรียกแต่ไม่สำเร็จทุก Provider (ไม่นับ Offline Mode ที่ตั้งใจปิด AI)"""
+    errors = result.get("errors") or []
+    return result.get("source") == "authored" and bool(errors) and errors != ["Offline Mode"]
+
+
+async def raise_alert(code: str, set_id: str, kind: str, message: str, level: str = "normal", dedupe: bool = True):
+    """แจ้งเตือนที่เกิดนอก engine (แชต AI) ผ่านเส้นทางเดียวกับ engine จึงใช้ Alert Rule ของ Gem เหมือนกัน"""
+    def make(state: dict, ctx: Ctx) -> Fx:
+        fx = Fx()
+        engine.alert(fx, state, level, kind, message, dedupe=dedupe)
+        return fx
+
+    try:
+        await run_event(code, set_id, make)
+    except NotFound:
+        pass
+
+
+def _gem_of(state: dict) -> dict | None:
+    try:
+        return content_for(state["subject_id"], state["set_id"]).subject.get("gem")
+    except (NotFound, StopIteration):
+        return None
+
+
 def persist(state: dict, fx: Fx, now: float | None = None) -> list[dict]:
     code = state["code"]
     now = now or time.time()
@@ -103,7 +135,13 @@ def persist(state: dict, fx: Fx, now: float | None = None) -> list[dict]:
         )
     alerts = []
     # นักเรียนทดสอบ (พรีวิวของครูในหน้าสร้าง Gem) ไม่ส่งแจ้งเตือนถึงครู
+    gem = _gem_of(state) if fx.alerts else None
     for a in fx.alerts if student_kind(code) != "test" else []:
+        # Alert Rule ของ Gem: ครูปิดสถานการณ์นี้ไว้ หรือเปลี่ยนระดับ หรือให้หยุดรอครู
+        rule = gem_alerts.resolve(gem, a["kind"])
+        if rule is None:
+            continue
+        a = {**a, "level": rule["level"], "pause": rule["mode"] == "pause"}
         cursor = db.execute(
             "INSERT INTO alerts (ts, code, level, kind, message) VALUES (?,?,?,?,?)",
             (now, code, a["level"], a["kind"], a["message"]),
@@ -135,6 +173,9 @@ async def broadcast(state: dict, content: Content, ctx: Ctx, fx: Fx, alerts: lis
     if student_kind(state["code"]) == "test":
         await hub.to_student(state["code"], {"type": "state", "view": engine.student_view(state, ctx)})
         return
+    if any(a.get("pause") for a in alerts) and chat_mode(state["code"]) != "teacher":
+        # Alert Rule แบบ "หยุดรอครู": คำตอบของ AI กลายเป็นร่างรอครูอนุมัติก่อนถึงนักเรียน
+        await set_chat_mode(state["code"], "teacher", PAUSE_TEXT)
     await hub.to_staff({
         "type": "update",
         "code": state["code"],
@@ -184,6 +225,11 @@ def ai_enabled_for(code: str) -> bool:
 
 async def fill_hint(code: str, set_id: str, content: Content, it: dict, level: int, student: dict, tag: dict | None):
     result = await tutor.generate_hint(content.subject, it, content.concept_name(it["concept"]), level, student, tag, code)
+    if ai_failed(result):
+        # เกลาคำใบ้ไม่สำเร็จ นักเรียนได้คำใบ้ต้นฉบับอยู่แล้ว แค่แจ้งครู
+        await raise_alert(code, set_id, "ai_outage", f"AI ขัดข้องตอนเขียนคำใบ้ ใช้คำใบ้ต้นฉบับแทน: {'; '.join(result['errors'])}")
+    elif (result.get("guard") or {}).get("blocked") and not result.get("trigger"):
+        await raise_alert(code, set_id, "guard_blocked", f"Answer-Leak Guard บล็อกคำใบ้ระดับ {level} ของ AI ใช้คำใบ้ต้นฉบับแทน")
     async with lock(code):
         state = db.load_state(code, set_id)
         if state and state.get("item") and state["item"]["id"] == it["id"]:
@@ -217,6 +263,9 @@ async def run_event(code: str, set_id: str, action, *args) -> tuple[dict, Conten
         content = content_for(state["subject_id"], set_id)
         ctx = make_ctx(content)
         fx = action(state, ctx, *args)
+        for request in fx.tag_requests:
+            engine.alert(fx, state, "silent", "new_misconception",
+                         f"คำตอบผิดแบบใหม่ที่ยังไม่อยู่ใน Bug Library: ข้อ {request['item_id']} ตอบ {request['answer']}")
         use_ai = ai_enabled_for(code)
         jobs = plan_hints(state, content, fx, use_ai)
         alerts = persist(state, fx, ctx.now)
@@ -289,6 +338,9 @@ async def chat(code: str, set_id: str, message: str) -> dict:
     scrubbed, found = pii.scrub(message, roster_names())
     detected = distress.detect(message)
     await post_message(code, set_id, "student", scrubbed)
+    if ASK_TEACHER.search(message):
+        # นักเรียนขอคุยกับครู: แจ้งครูตาม Alert Rule (ค่าเริ่มต้นคือหยุดรอครู คำตอบ AI เป็นร่างให้ครูตรวจ)
+        await raise_alert(code, set_id, "ask_teacher", f"นักเรียนขอคุยกับครู: \"{scrubbed[:80]}\"", dedupe=False)
     if detected["level"]:
         state, content, ctx, fx = await run_event(
             code, set_id, lambda s, c: _distress_with_trace(s, c, detected, scrubbed, found)
@@ -327,6 +379,19 @@ async def chat(code: str, set_id: str, message: str) -> dict:
                                        student, scrubbed, tag, [h for h in hints_shown if h], fallback, code)
     else:
         reply = {"text": fallback, "source": "authored"}
+    if ai_failed(reply):
+        await raise_alert(code, set_id, "ai_outage", f"AI ขัดข้องตอนตอบแชต: {'; '.join(reply['errors'])}")
+    if ai_failed(reply) and chat_mode(code) != "teacher":
+        # AI Outage: แชตบอก error ตรง ๆ แต่ทำโจทย์ต่อได้ และแจ้งครูพร้อมข้อความ error (Q22)
+        # ถ้าครูอยู่ในแชตแล้ว ครูเป็นคนตอบ นักเรียนไม่ต้องเห็น error
+        reason = reply["errors"][0].split(": ", 1)[-1]
+        text = f"ครูผู้ช่วยตอบไม่ได้ชั่วคราว ({reason}) ทำโจทย์ต่อได้เลย ครูได้รับแจ้งแล้ว"
+        await post_message(code, set_id, "system", text)
+        return {"reply": text, "source": "error", "view": engine.student_view(state, ctx)}
+    if reply.get("off_topic"):
+        await raise_alert(code, set_id, "off_topic", f"ถามนอกบทเรียน: \"{scrubbed[:80]}\"")
+    if (reply.get("guard") or {}).get("blocked") and not reply.get("trigger"):
+        await raise_alert(code, set_id, "guard_blocked", "Answer-Leak Guard บล็อกคำตอบแชตของ AI ใช้คำถามนำต้นฉบับแทน")
     if reply.get("trigger"):
         state, content, ctx, fx = await run_event(
             code, set_id, lambda s, c: engine.on_distress(s, c, "stress", "llm")
@@ -480,12 +545,15 @@ def chat_mode(code: str) -> str:
     return row["mode"] if row else "ai"
 
 
-async def set_chat_mode(code: str, mode: str) -> dict:
+PAUSE_TEXT = "ครูได้รับแจ้งแล้ว ต่อจากนี้ครูจะอ่านและตอบในแชตนี้เอง ทำโจทย์ต่อได้ตามปกตินะ"
+
+
+async def set_chat_mode(code: str, mode: str, text: str | None = None) -> dict:
     db.execute("INSERT OR REPLACE INTO chat_modes (code, mode, since) VALUES (?,?,?)", (code, mode, time.time()))
     states = db.states_for(code)
     set_id = max(states, key=lambda s: s["last_activity"])["set_id"] if states else None
-    text = ("ครูเข้ามาในแชตแล้ว ถามครูได้เลย" if mode == "teacher"
-            else "ครูออกจากแชตแล้ว ครูผู้ช่วย (AI) จะตอบต่อ ครูยังอ่านข้อความได้เสมอ")
+    text = text or ("ครูเข้ามาในแชตแล้ว ถามครูได้เลย" if mode == "teacher"
+                    else "ครูออกจากแชตแล้ว ครูผู้ช่วย (AI) จะตอบต่อ ครูยังอ่านข้อความได้เสมอ")
     message = await post_message(code, set_id, "system", text)
     await hub.to_student(code, {"type": "message", "message": message})
     await hub.to_student(code, {"type": "chat_mode", "mode": mode})

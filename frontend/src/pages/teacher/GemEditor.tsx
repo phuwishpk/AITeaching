@@ -24,7 +24,7 @@ import { mmss } from "../../lib/format";
 import GemIcon, { GEM_COLORS, GEM_ICONS } from "../../components/GemIcon";
 import { Badge, Button, Modal, Spinner, Tabs, useToast } from "../../components/ui";
 import { PreviewTry, Versions } from "./GemPreview";
-import { STATUS_TEXT, TOOL_LABELS, type BankItem, type GemDetail, type GemTools } from "./gemTypes";
+import { STATUS_TEXT, TOOL_LABELS, type AlertLevel, type AlertRule, type BankItem, type GemDetail, type GemMeta, type GemTools } from "./gemTypes";
 
 // หน้าสร้างและแก้ Gem แบบ Gemini: ฟอร์มด้านซ้าย พรีวิวด้านขวา กดบันทึกแล้ว AI สร้างคลังโจทย์ให้
 
@@ -36,6 +36,7 @@ interface Form {
   color: string;
   tools: GemTools;
   starter_prompts: string[];
+  alert_rules: Record<string, AlertRule>;
 }
 
 const EMPTY: Form = {
@@ -46,6 +47,7 @@ const EMPTY: Form = {
   color: "teal",
   tools: { chat: true, hints: true, isomorphic: true, walkthrough: true, remedial: true },
   starter_prompts: [],
+  alert_rules: {},
 };
 
 const PLACEHOLDER =
@@ -63,6 +65,7 @@ function toForm(gem: GemDetail): Form {
     color: gem.color,
     tools: gem.tools,
     starter_prompts: gem.starter_prompts,
+    alert_rules: gem.alert_rules,
   };
 }
 
@@ -78,6 +81,11 @@ export default function GemEditor() {
   const [saving, setSaving] = useState(false);
   const [askRebuild, setAskRebuild] = useState(false);
   const [loading, setLoading] = useState(!isNew);
+  const [meta, setMeta] = useState<GemMeta | null>(null);
+
+  useEffect(() => {
+    api<GemMeta>("teacher", "/api/gems/meta").then(setMeta).catch(() => {});
+  }, []);
 
   const load = async () => {
     if (isNew) return null;
@@ -253,6 +261,8 @@ export default function GemEditor() {
           </GemField>
 
           <StarterTools form={form} onTools={(tools) => set("tools", tools)} onPrompts={(p) => set("starter_prompts", p)} />
+
+          <AlertRules meta={meta} rules={form.alert_rules} onChange={(r) => set("alert_rules", r)} />
 
           <GemField label="ความรู้" info="ไฟล์ที่ AI ใช้สร้างโจทย์ และ RAG ใช้ค้นตอนสอน (PDF, DOCX, TXT, MD) AI อ้างอิงเฉพาะเนื้อหาในไฟล์และคำสั่ง">
             <Knowledge
@@ -446,6 +456,51 @@ function StarterTools({ form, onTools, onPrompts }: { form: Form; onTools: (t: G
             </Button>
           </div>
         )}
+      </div>
+    </GemField>
+  );
+}
+
+const LEVELS: { id: AlertLevel; label: string }[] = [
+  { id: "urgent", label: "ด่วน" },
+  { id: "normal", label: "ปกติ" },
+  { id: "silent", label: "เงียบ" },
+];
+
+// Alert Rule: ครูเลือกเองว่าสถานการณ์ไหนแจ้งเตือน ระดับไหน และให้ AI ทำงานต่อหรือหยุดรอครู
+function AlertRules({ meta, rules, onChange }: { meta: GemMeta | null; rules: Record<string, AlertRule>; onChange: (r: Record<string, AlertRule>) => void }) {
+  if (!meta) return null;
+  const rule = (key: string) => rules[key] ?? meta.alert_defaults[key];
+  const update = (key: string, patch: Partial<AlertRule>) => onChange({ ...meta.alert_defaults, ...rules, [key]: { ...rule(key), ...patch } });
+  return (
+    <GemField
+      label="การแจ้งเตือนครู"
+      info="ด่วนและปกติเด้งแจ้งเตือนพร้อมเสียง เงียบแสดงบนแดชบอร์ดอย่างเดียว หยุดรอครู = คำตอบแชตของ AI กลายเป็นร่างรอครูอนุมัติก่อนถึงนักเรียน"
+    >
+      <div className="gem-alerts">
+        {meta.alert_situations.map((s) => {
+          const r = rule(s.key);
+          return (
+            <div key={s.key} className={`gem-alert ${r.enabled ? "" : "is-off"}`}>
+              <label className="gem-alert-name">
+                <input type="checkbox" checked={r.enabled} disabled={s.locked} onChange={(e) => update(s.key, { enabled: e.target.checked })} />
+                <span className="small">{s.label}</span>
+                {s.locked && <Lock size={13} aria-label="ปิดไม่ได้" />}
+              </label>
+              <select className="input input-sm" value={r.level} disabled={s.locked || !r.enabled} onChange={(e) => update(s.key, { level: e.target.value as AlertLevel })} aria-label={`ระดับของ ${s.label}`}>
+                {LEVELS.map((l) => (
+                  <option key={l.id} value={l.id}>
+                    {l.label}
+                  </option>
+                ))}
+              </select>
+              <select className="input input-sm" value={r.mode} disabled={s.locked || !r.enabled} onChange={(e) => update(s.key, { mode: e.target.value as AlertRule["mode"] })} aria-label={`เมื่อเกิด ${s.label}`}>
+                <option value="notify">แจ้งอย่างเดียว</option>
+                <option value="pause">หยุดรอครู</option>
+              </select>
+            </div>
+          );
+        })}
       </div>
     </GemField>
   );

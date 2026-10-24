@@ -1,5 +1,6 @@
 import { useMemo, useState } from "react";
-import { Activity, BarChart3, Check, CircleCheckBig, LifeBuoy, MessageCircle, Trophy } from "lucide-react";
+import { useNavigate } from "react-router";
+import { Activity, BarChart3, Check, CircleCheckBig, Flag, LifeBuoy, MessageCircle, Trophy } from "lucide-react";
 import { api } from "../../lib/api";
 import { useLoad, useNow } from "../../lib/hooks";
 import { ago, ALERT_LABEL, ALERT_TONE, CLUSTER_COLORS, CLUSTER_NAMES, CLUSTER_SHORT, pct, POSITION_TONE } from "../../lib/format";
@@ -7,6 +8,7 @@ import type { Alert, StaffView, Telemetry } from "../../lib/types";
 import { BarList, CLUSTER_SHAPES, ClusterScatter, shapePath, type Centroid, type ClusterPoint } from "../../components/charts";
 import { Badge, Button, Card, CardHead, Empty, Segmented, Spinner, Stat } from "../../components/ui";
 import { useTeacher } from "./TeacherApp";
+import type { GemSummary } from "./gemTypes";
 
 // ภาพรวมห้องเรียน: บนสุดคือเรื่องที่ครูต้องทำตอนนี้ ถัดมาคือนักเรียนทุกคน สถิติเชิงวิเคราะห์พับเก็บไว้ล่างสุด
 
@@ -53,6 +55,9 @@ export default function Overview() {
   const [scope, setScope] = useState<"class" | "all">("class");
   const [statsOpen, setStatsOpen] = useState(false);
   const now = useNow(15000);
+  const navigate = useNavigate();
+  const gems = useLoad(() => api<GemSummary[]>("teacher", "/api/gems"), [Math.floor(liveVersion / 20)]);
+  const flaggedGems = (gems.data ?? []).filter((g) => (g.stats?.flagged ?? 0) > 0);
 
   const students = useMemo(() => {
     const list = (data?.students ?? []).filter((s) => scope === "all" || s.kind !== "sim");
@@ -152,6 +157,19 @@ export default function Overview() {
           ไม่มีเรื่องที่ต้องรีบดู นักเรียนเรียนได้ตามปกติ
         </div>
       )}
+
+      {/* เฉลยที่ AI เขียนแล้วตรวจไม่ผ่าน ซ่อนจากนักเรียนจนครูตรวจ (ADR-0003) */}
+      {flaggedGems.map((g) => (
+        <div key={g.id} className="flag-banner fade-in">
+          <Flag size={18} />
+          <span className="grow small">
+            Gem <span className="strong">{g.name}</span> มีเฉลยติดธง {g.stats!.flagged} ข้อ นักเรียนจะยังไม่ได้ข้อเหล่านี้จนกว่าครูตรวจ
+          </span>
+          <Button size="sm" variant="secondary" onClick={() => navigate(`/teacher/gems/${g.id}`)}>
+            ตรวจเฉลย
+          </Button>
+        </div>
+      ))}
 
       <section className="grid grid-3 overview-stats">
         <Stat

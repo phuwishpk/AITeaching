@@ -8,6 +8,7 @@ from fastapi import APIRouter, Depends, File, HTTPException, UploadFile
 from pydantic import BaseModel
 
 from .. import db, seed, services
+from ..gems import alerts as gem_alerts
 from ..gems import builder, manage, versions
 from ..tutor import rag, service
 from .deps import require
@@ -25,6 +26,7 @@ class GemBody(BaseModel):
     color: str | None = None
     tools: dict[str, bool] | None = None
     starter_prompts: list[str] | None = None
+    alert_rules: dict | None = None
 
 
 class RefineBody(BaseModel):
@@ -59,6 +61,13 @@ def _load(gem_id: str) -> dict:
 @router.get("")
 def list_gems(auth: dict = Depends(viewer)):
     return [manage.summary(manage.get(g["id"])) for g in db.list_gems()]
+
+
+@router.get("/meta")
+def gem_meta(auth: dict = Depends(viewer)):
+    """ตัวเลือกของฟอร์มสร้าง Gem: สถานการณ์แจ้งเตือนพร้อมค่าเริ่มต้น ไอคอน และสี"""
+    return {"alert_situations": gem_alerts.catalog(), "alert_defaults": gem_alerts.defaults(),
+            "icons": manage.ICONS, "colors": manage.COLORS}
 
 
 @router.get("/{gem_id}")

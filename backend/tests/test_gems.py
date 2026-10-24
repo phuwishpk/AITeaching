@@ -319,3 +319,74 @@ def test_preview_uses_a_test_student_hidden_from_the_class(monkeypatch):
     assert all(e["code"] != code for e in activity.events(include_sim=True))
     assert client.post(f"/api/gems/{gem['id']}/preview/start",
                        headers={"Authorization": f"Bearer {issue_token('admin')}"}).status_code == 403
+
+
+def _student_on_gem(monkeypatch, rules=None, code="S-30"):
+    fake_llm(monkeypatch)
+    gem = manage.create({"name": "แจ้งเตือน", "alert_rules": rules or {}}, "teacher")
+    asyncio.run(builder.build(gem["id"]))
+    gem = manage.get(gem["id"])
+    db.execute("INSERT INTO students (code, kind, persona, created_at) VALUES (?, 'real', NULL, 0)", (code,))
+    client = TestClient(app)
+    headers = {"Authorization": f"Bearer {issue_token('student', code)}"}
+    client.post(f"/api/student/sets/{gem['set_id']}/start", headers=headers, json={})
+    return gem, client, headers
+
+
+def test_alert_rules_normalize_and_lock_self_harm():
+    from app.gems import alerts
+
+    rules = alerts.normalize({"self_harm": {"enabled": False}, "stress": {"level": "urgent", "mode": "bogus"}, "x": {}})
+    assert rules["self_harm"] == {"enabled": True, "level": "urgent", "mode": "pause"}
+    assert rules["stress"] == {"enabled": True, "level": "urgent", "mode": "notify"}
+    assert alerts.resolve({"alert_rules": {"deadlock": {"enabled": False}}}, "deadlock") is None
+    assert alerts.resolve(None, "burnout_idle")["level"] == "silent"  # ชุดคำถามที่ไม่ใช่ Gem ใช้ค่าเดิมของระบบ
+
+
+def test_ask_teacher_pauses_ai_into_drafts(monkeypatch):
+    gem, client, headers = _student_on_gem(monkeypatch)
+    reply = client.post(f"/api/student/sets/{gem['set_id']}/chat", headers=headers, json={"message": "ขอคุยกับครูหน่อย"}).json()
+    assert reply["to_teacher"] and reply["reply"] is None
+    alert = db.query_one("SELECT level, kind FROM alerts WHERE code = 'S-30'")
+    assert alert == {"level": "normal", "kind": "ask_teacher"}
+    assert services.chat_mode("S-30") == "teacher"
+    assert db.query_one("SELECT sender FROM messages WHERE code = 'S-30' AND sender = 'draft'")
+
+
+def test_teacher_rules_change_level_or_silence_alerts(monkeypatch):
+    rules = {"stress": {"level": "urgent"}, "deadlock": {"enabled": False}}
+    gem, client, headers = _student_on_gem(monkeypatch, rules, "S-31")
+    client.post(f"/api/student/sets/{gem['set_id']}/chat", headers=headers, json={"message": "เครียดมากเลย"})
+    assert db.query_one("SELECT level FROM alerts WHERE code = 'S-31' AND kind = 'stress'")["level"] == "urgent"
+
+    from app.engine.core import Fx
+    state = db.load_state("S-31", gem["set_id"])
+    fx = Fx()
+    fx.alerts.append({"level": "normal", "kind": "deadlock", "message": "ติด"})
+    assert services.persist(state, fx) == []  # ครูปิดสถานการณ์นี้ไว้
+
+
+def test_ai_outage_in_chat_tells_student_and_teacher(monkeypatch):
+    gem, client, headers = _student_on_gem(monkeypatch, code="S-32")
+
+    async def down(*args, **kwargs):
+        return {"text": "fallback", "source": "authored", "errors": ["gemini: Gemini มีผู้ใช้มากชั่วคราว"], "log_id": 0}
+
+    monkeypatch.setattr(services.tutor, "chat_reply", down)
+    reply = client.post(f"/api/student/sets/{gem['set_id']}/chat", headers=headers, json={"message": "ทำไมต้องลบ"}).json()
+    assert reply["source"] == "error" and "ตอบไม่ได้ชั่วคราว" in reply["reply"]
+    assert db.query_one("SELECT kind FROM alerts WHERE code = 'S-32'")["kind"] == "ai_outage"
+
+
+def test_off_topic_marker_is_stripped_and_reported(monkeypatch):
+    gem, client, headers = _student_on_gem(monkeypatch, code="S-33")
+
+    async def off(*args, **kwargs):
+        return {"text": "กลับมาที่โจทย์กันนะ", "source": "gemini", "errors": [], "off_topic": True, "log_id": 0,
+                "guard": {"blocked": False}}
+
+    monkeypatch.setattr(services.tutor, "chat_reply", off)
+    reply = client.post(f"/api/student/sets/{gem['set_id']}/chat", headers=headers, json={"message": "ฟุตบอลเมื่อคืน"}).json()
+    assert reply["reply"] == "กลับมาที่โจทย์กันนะ"
+    assert db.query_one("SELECT level, kind FROM alerts WHERE code = 'S-33'") == {"level": "silent", "kind": "off_topic"}
+    assert "[OFF_TOPIC]" in prompt.constraints_frame()

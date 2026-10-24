@@ -1,5 +1,18 @@
 // รูปข้อมูลของ Gem จาก /api/gems (backend/app/gems/manage.py)
 
+export type AlertLevel = "urgent" | "normal" | "silent";
+
+export interface AlertRule {
+  enabled: boolean;
+  level: AlertLevel;
+  mode: "notify" | "pause";
+}
+
+export interface GemMeta {
+  alert_situations: { key: string; label: string; locked: boolean }[];
+  alert_defaults: Record<string, AlertRule>;
+}
+
 export interface GemTools {
   chat: boolean;
   hints: boolean;
@@ -67,6 +80,7 @@ export interface GemDetail {
   color: string;
   tools: GemTools;
   starter_prompts: string[];
+  alert_rules: Record<string, AlertRule>;
   bank_version: number;
   build: GemBuild;
   files: GemFile[];

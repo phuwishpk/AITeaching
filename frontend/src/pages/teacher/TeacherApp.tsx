@@ -1,8 +1,10 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
 import { Route, Routes, useNavigate } from "react-router";
-import { Bell, Bot, Gem, LayoutDashboard, ListChecks, MessagesSquare, Sparkles, UsersRound } from "lucide-react";
+import { Bell, BellOff, BellRing, Bot, Gem, LayoutDashboard, ListChecks, MessagesSquare, Sparkles, UsersRound } from "lucide-react";
 import { api, clearAuth, getAuth } from "../../lib/api";
 import { useLive } from "../../lib/hooks";
+import { notifyAlert, notifyEnabled, setNotify } from "../../lib/notify";
+import { Button } from "../../components/ui";
 import type { Alert, Decision, StaffView, Telemetry } from "../../lib/types";
 import type { Centroid } from "../../components/charts";
 import { TopBar } from "../../components/Shell";
@@ -92,6 +94,8 @@ function TeacherShell({ onLogout, onExpired }: { onLogout: () => void; onExpired
   const [lastEvent, setLastEvent] = useState<{ code: string; n: number } | null>(null);
   const expire = useRef(onExpired);
   expire.current = onExpired;
+  const namesRef = useRef(new Map<string, string | null>());
+  const [sound, setSound] = useState(notifyEnabled);
 
   const reload = useCallback(async () => {
     try {
@@ -129,6 +133,7 @@ function TeacherShell({ onLogout, onExpired }: { onLogout: () => void; onExpired
         const merged = { ...previous, ...view, name: previous?.name ?? null, cluster: previous?.cluster ?? null, persona: previous?.persona };
         const students = index >= 0 ? current.students.map((s, i) => (i === index ? merged : s)) : [...current.students, merged];
         const fresh = view.kind === "sim" ? [] : ((message.alerts ?? []) as Alert[]);
+        fresh.forEach((a) => notifyAlert(a, namesRef.current.get(a.code) ?? a.code));
         const alerts = fresh.length ? [...fresh, ...current.alerts] : current.alerts;
         return { ...current, students, alerts };
       });
@@ -145,6 +150,7 @@ function TeacherShell({ onLogout, onExpired }: { onLogout: () => void; onExpired
   });
 
   const names = useMemo(() => new Map((data?.students ?? []).map((s) => [s.code, s.name ?? null])), [data?.students]);
+  namesRef.current = names;
 
   const ackAlert = useCallback(async (id: number) => {
     await api("teacher", `/api/teacher/alerts/${id}/ack`, { method: "POST" });
@@ -175,6 +181,17 @@ function TeacherShell({ onLogout, onExpired }: { onLogout: () => void; onExpired
         <TopBar
           role="ครู"
           onLogout={onLogout}
+          right={
+            <Button
+              variant="ghost"
+              size="sm"
+              icon={sound ? <BellRing size={16} /> : <BellOff size={16} />}
+              onClick={async () => setSound(await setNotify(!sound))}
+              title={sound ? "ปิดเสียงและการแจ้งเตือนของเบราว์เซอร์" : "เปิดเสียงและการแจ้งเตือนของเบราว์เซอร์ เด้งแม้ไม่ได้เปิดหน้านี้อยู่"}
+            >
+              <span className="btn-label">{sound ? "แจ้งเตือนเปิด" : "แจ้งเตือนปิด"}</span>
+            </Button>
+          }
         />
         <div className="side-layout">
           <SideNav

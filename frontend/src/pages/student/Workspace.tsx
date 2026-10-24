@@ -318,7 +318,9 @@ function Room({ code, onLogout }: { code: string; onLogout: () => void }) {
                     setChat((list) => list.map((m, i) => (i === list.length - 1 ? { ...m, note: "ส่งถึงครูแล้ว รอครูตอบนะ" } : m)));
                   } else if (response.reply) {
                     const reply = response.reply;
-                    setChat((list) => [...list, { from: response.source === "safety" ? "system" : "tutor", text: reply }]);
+                    // safety = ข้อความดูแลจิตใจ · error = AI ขัดข้อง ทั้งสองแสดงเป็นข้อความของระบบ
+                    const system = response.source === "safety" || response.source === "error";
+                    setChat((list) => [...list, { from: system ? "system" : "tutor", text: reply }]);
                   }
                 }}
               />
