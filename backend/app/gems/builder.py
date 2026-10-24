@@ -21,8 +21,8 @@ from fractions import Fraction
 from .. import db, settings_store
 from ..content.readiness import check_set
 from ..engine.answers import parse_number
-from ..tutor import service
-from . import verify
+from ..tutor import providers, service
+from . import verify, versions
 
 log = logging.getLogger(__name__)
 
@@ -141,8 +141,7 @@ def listing(payload, key: str) -> list:
 
 # Provider มักตอบ "มีผู้ใช้มากชั่วคราว" หรือส่ง JSON ไม่ครบเป็นครั้งคราว จึงลองใหม่ก่อนยอมแพ้
 RETRY_DELAYS = (5.0, 15.0)
-# Gemini รุ่นสำรองเมื่อรุ่นที่ Admin เลือกรับงานไม่ไหว
-GEMINI_BACKUPS = ("gemini-3.5-flash-lite", "gemini-2.5-flash")
+GEMINI_BACKUPS = providers.GEMINI_BACKUPS
 
 
 async def ask_json(step: str, user: str, max_tokens: int = 12000) -> dict | list:
@@ -575,6 +574,7 @@ async def build(gem_id: str) -> None:
         if flagged:
             gem["build"]["warnings"].insert(0, f"ติดธง {len(flagged)} ข้อ ซ่อนจากนักเรียนจนกว่าครูยืนยัน")
         _progress(gem, "save", "done")
+        versions.record(gem, "AI", f"สร้างคลังโจทย์รุ่นที่ {version}")
     except Exception as error:  # noqa: BLE001 งานเบื้องหลังต้องจบด้วยสถานะเสมอ ไม่ค้างที่ "กำลังสร้าง"
         message = str(error) if isinstance(error, BuildError) else f"เกิดข้อผิดพลาดที่ไม่คาดคิด: {type(error).__name__}: {error}"
         if not isinstance(error, BuildError):

@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { Link, useParams } from "react-router";
+import { Link, useParams, useSearchParams } from "react-router";
 import { ArrowLeft, CircleAlert, CircleCheck, Download, FileText, Plus, Save, Trash2, TriangleAlert, Upload } from "lucide-react";
 import { api } from "../../lib/api";
 import { useContentScope } from "./contentScope";
@@ -20,6 +20,7 @@ function syncIsomorphs(items: Item[]): Item[] {
 
 export default function SubjectEditor() {
   const { role, base } = useContentScope();
+  const [gemParam] = useSearchParams();
   const { subjectId = "" } = useParams();
   const toast = useToast();
   const [tab, setTab] = useState<Tab>("concepts");
@@ -78,13 +79,15 @@ export default function SubjectEditor() {
 
   if (loaded.error) return <Empty>{loaded.error}</Empty>;
   if (!draft) return <Spinner />;
+  const gemId = gemParam.get("gem");
 
   return (
     <div className="page stack stack-lg">
       <header className="spread fade-in">
         <div className="stack stack-sm">
-          <Link to={base} className="row row-sm small muted">
-            <ArrowLeft size={14} /> วิชาทั้งหมด
+          {/* เปิดมาจากแท็บคลังโจทย์ของ Gem: กลับไปที่ Gem นั้น */}
+          <Link to={gemId ? `/teacher/gems/${gemId}` : base} className="row row-sm small muted">
+            <ArrowLeft size={14} /> {gemId ? "กลับไปที่ Gem" : "วิชาทั้งหมด"}
           </Link>
           <h1 className="title-xl">{draft.name}</h1>
           <p className="small muted">

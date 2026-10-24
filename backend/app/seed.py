@@ -3,6 +3,7 @@
 import time
 
 from . import db, demo, services
+from .gems import manage
 from .content.sample_math_m2 import SAMPLE_DOCUMENT, SAMPLE_DOCUMENT_NAME, build_subject
 from .tutor import rag
 
@@ -37,6 +38,8 @@ def ensure_seed():
         subject = build_subject()
         db.save_subject(subject)
         add_document(subject["id"], SAMPLE_DOCUMENT_NAME, SAMPLE_DOCUMENT)
+    # ชุดคำถามแบบเดิมกลายเป็น Gem ตัวหนึ่ง (ADR-0003)
+    manage.adopt_legacy()
     for subject in db.list_subjects():
         rebuild_index(subject["id"])
     for gem in db.list_gems():

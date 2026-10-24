@@ -2,12 +2,13 @@
 
 import asyncio
 import re
+import time
 
 from fastapi import APIRouter, Depends, File, HTTPException, UploadFile
 from pydantic import BaseModel
 
-from .. import db, seed
-from ..gems import builder, manage
+from .. import db, seed, services
+from ..gems import builder, manage, versions
 from ..tutor import rag, service
 from .deps import require
 
@@ -34,6 +35,14 @@ class RefineBody(BaseModel):
 
 class FlagBody(BaseModel):
     keep: bool
+
+
+class PreviewAnswer(BaseModel):
+    answer: str
+
+
+class PreviewChat(BaseModel):
+    message: str
 
 
 def _fields(body: GemBody) -> dict:
@@ -69,7 +78,7 @@ def create_gem(body: GemBody, auth: dict = Depends(teacher)):
 def update_gem(gem_id: str, body: GemBody, auth: dict = Depends(teacher)):
     _load(gem_id)
     try:
-        return manage.detail(manage.update(gem_id, _fields(body)))
+        return manage.detail(manage.update(gem_id, _fields(body), auth["role"]))
     except manage.GemError as error:
         raise HTTPException(400, str(error)) from error
 
@@ -157,3 +166,85 @@ def resolve_flag(gem_id: str, item_id: str, body: FlagBody, auth: dict = Depends
         return manage.resolve_flag(gem_id, item_id, body.keep)
     except manage.GemError as error:
         raise HTTPException(404, str(error)) from error
+
+
+# ---------------------------------------------------------------- เวอร์ชัน
+
+@router.get("/{gem_id}/versions")
+def gem_versions(gem_id: str, auth: dict = Depends(viewer)):
+    _load(gem_id)
+    return versions.history(gem_id)
+
+
+@router.post("/{gem_id}/versions/{n}/restore")
+def restore_version(gem_id: str, n: int, auth: dict = Depends(teacher)):
+    _load(gem_id)
+    try:
+        return manage.detail(manage.restore(gem_id, n, auth["role"]))
+    except manage.GemError as error:
+        raise HTTPException(400, str(error)) from error
+
+
+# ---------------------------------------------------------------- พรีวิว: ครูลองเรียนเป็นนักเรียนทดสอบ
+
+def _preview_code(gem: dict) -> str:
+    """นักเรียนทดสอบหนึ่งคนต่อ Gem (kind = test) ไม่นับเข้าสถิติห้อง ไม่ส่งแจ้งเตือนถึงครู"""
+    code = f"TEST-{gem['id'].removeprefix('gem-').upper()}"
+    db.execute("INSERT OR IGNORE INTO students (code, kind, persona, created_at) VALUES (?, 'test', NULL, ?)",
+               (code, time.time()))
+    return code
+
+
+def _preview_set(gem: dict) -> str:
+    if not gem.get("set_id"):
+        raise HTTPException(400, "ยังไม่มีคลังโจทย์ กดบันทึกให้ AI สร้างก่อน")
+    return gem["set_id"]
+
+
+def _latest_ai(code: str) -> dict | None:
+    row = db.query_one("SELECT * FROM ai_logs WHERE code = ? ORDER BY id DESC LIMIT 1", (code,))
+    if row:
+        for key in ("frames", "retrieved", "guard"):
+            row[key] = db.loads(row[key])
+    return row
+
+
+def _preview(code: str, payload: dict) -> dict:
+    return {**payload, "code": code, "ai": _latest_ai(code)}
+
+
+@router.get("/{gem_id}/preview")
+async def preview_state(gem_id: str, auth: dict = Depends(teacher)):
+    gem = _load(gem_id)
+    code, set_id = _preview_code(gem), _preview_set(gem)
+    if not db.load_state(code, set_id):
+        return {"view": None, "code": code, "ai": None}
+    return _preview(code, {"view": await services.get_state(code, set_id)})
+
+
+@router.post("/{gem_id}/preview/start")
+async def preview_start(gem_id: str, auth: dict = Depends(teacher)):
+    gem = _load(gem_id)
+    code, set_id = _preview_code(gem), _preview_set(gem)
+    return _preview(code, {"view": await services.start(code, set_id, restart=True)})
+
+
+@router.post("/{gem_id}/preview/answer")
+async def preview_answer(gem_id: str, body: PreviewAnswer, auth: dict = Depends(teacher)):
+    gem = _load(gem_id)
+    code = _preview_code(gem)
+    return _preview(code, await services.submit(code, _preview_set(gem), body.answer))
+
+
+@router.post("/{gem_id}/preview/hint")
+async def preview_hint(gem_id: str, auth: dict = Depends(teacher)):
+    gem = _load(gem_id)
+    code = _preview_code(gem)
+    return _preview(code, await services.hint(code, _preview_set(gem)))
+
+
+@router.post("/{gem_id}/preview/chat")
+async def preview_chat(gem_id: str, body: PreviewChat, auth: dict = Depends(teacher)):
+    gem = _load(gem_id)
+    code = _preview_code(gem)
+    return _preview(code, await services.chat(code, _preview_set(gem), body.message))

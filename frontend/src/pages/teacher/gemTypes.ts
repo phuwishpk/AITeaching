@@ -82,8 +82,17 @@ export interface GemDetail {
     flagged: BankItem[];
     samples: BankItem[];
   } | null;
+  versions: GemVersion[];
   locked_constraints: string;
   options: { icons: string[]; colors: string[] };
+}
+
+export interface GemVersion {
+  n: number;
+  ts: number;
+  actor: string;
+  note: string;
+  bank_version: number | null;
 }
 
 export interface GemSummary {

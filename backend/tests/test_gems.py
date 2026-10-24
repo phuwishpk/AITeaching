@@ -267,3 +267,55 @@ def test_rounded_fraction_answers_read_as_fractions():
     from app.engine.answers import number_display
 
     assert [number_display(v) for v in (0.8333, 0.1667, 2.35, 0.125, 4, 3.0)] == ["5/6", "1/6", "2.35", "0.125", "4", "3"]
+
+
+def test_versions_record_and_restore(monkeypatch):
+    fake_llm(monkeypatch)
+    gem = manage.create({"name": "รุ่นแรก", "instructions": "สอนช้า ๆ"}, "teacher")
+    asyncio.run(builder.build(gem["id"]))
+    first_bank = manage.get(gem["id"])["subject_id"]
+    manage.update(gem["id"], {"name": "รุ่นสอง", "instructions": "สอนเร็ว"}, "teacher")
+    asyncio.run(builder.build(gem["id"]))
+    notes = [v["note"] for v in manage.versions.history(gem["id"])]
+    assert notes == ["สร้างคลังโจทย์รุ่นที่ 2", "แก้ชื่อ คำสั่ง", "สร้างคลังโจทย์รุ่นที่ 1", "สร้าง Gem"]
+
+    restored = manage.restore(gem["id"], 2, "teacher")  # เวอร์ชัน 2 = หลังสร้างคลังรุ่นที่ 1
+    assert restored["name"] == "รุ่นแรก" and restored["subject_id"] == first_bank
+    assert db.get_subject(first_bank)["question_sets"][0]["published"] is True
+    assert db.get_subject(first_bank)["gem"]["instructions"] == "สอนช้า ๆ"
+    assert manage.versions.history(gem["id"])[0]["note"] == "ย้อนกลับไปเวอร์ชัน 2"
+
+
+def test_legacy_question_set_becomes_a_gem(subject):
+    from app import seed
+
+    db.save_subject(subject)
+    seed.add_document(subject["id"], "สรุป.md", "สมบัติการเท่ากัน")
+    [gem_id] = manage.adopt_legacy()
+    gem = manage.get(gem_id)
+    assert gem["set_id"] == "QS-1" and gem["build"]["status"] == "ready" and gem["bank_version"] == 1
+    assert db.get_subject(subject["id"])["gem"]["id"] == gem_id
+    assert manage.files(gem_id)[0]["filename"] == "สรุป.md"
+    assert manage.adopt_legacy() == []  # แปลงครั้งเดียว
+
+
+def test_preview_uses_a_test_student_hidden_from_the_class(monkeypatch):
+    fake_llm(monkeypatch)
+    gem = manage.create({"name": "พรีวิว"}, "teacher")
+    asyncio.run(builder.build(gem["id"]))
+    client = TestClient(app)
+    teacher = {"Authorization": f"Bearer {issue_token('teacher')}"}
+    started = client.post(f"/api/gems/{gem['id']}/preview/start", headers=teacher).json()
+    code = started["code"]
+    assert code.startswith("TEST-") and started["view"]["item"]
+    wrong = client.post(f"/api/gems/{gem['id']}/preview/answer", headers=teacher, json={"answer": "999"}).json()
+    # ตอบทันทีหลังโจทย์ขึ้น engine จริงจับเป็น Rapid Guess เหมือนนักเรียนจริง
+    assert wrong["view"]["position"] == "RAPID_GUESS_LOCK"
+    assert client.get(f"/api/gems/{gem['id']}/preview", headers=teacher).json()["view"]["position"]
+    # ไม่โผล่ในภาพรวม ตำแหน่งในผัง และกิจกรรมของห้อง
+    assert code not in [s["code"] for s in services.staff_overview()]
+    assert code not in [p["code"] for p in services.all_positions()]
+    from app import activity
+    assert all(e["code"] != code for e in activity.events(include_sim=True))
+    assert client.post(f"/api/gems/{gem['id']}/preview/start",
+                       headers={"Authorization": f"Bearer {issue_token('admin')}"}).status_code == 403

@@ -117,7 +117,9 @@ def events(code: str | None = None, include_sim: bool = False, limit: int = 40) 
         where.append("x.code = ?")
         params.append(code)
     elif not include_sim:
-        where.append("s.kind != 'sim'")
+        where.append("s.kind NOT IN ('sim', 'test')")
+    else:
+        where.append("s.kind != 'test'")
     clause = ("WHERE " + " AND ".join(where)) if where else ""
     join = "JOIN students s ON s.code = x.code"
     fetch = limit * 4

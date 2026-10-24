@@ -38,7 +38,8 @@ async def _call(system: str, user: str, **options) -> tuple[providers.LLMResult 
                 claude_options = {k: v for k, v in options.items() if k != "backup_models"}
                 return await providers.call_claude(key, ai["claude_model"], system, user, **claude_options), errors
             if provider == "gemini":
-                return await providers.call_gemini(key, ai["gemini_model"], system, user, **options), errors
+                gemini_options = {"backup_models": providers.GEMINI_BACKUPS, **options}
+                return await providers.call_gemini(key, ai["gemini_model"], system, user, **gemini_options), errors
         except providers.ProviderError as error:
             errors.append(f"{provider}: {error}")
     return None, errors
@@ -72,7 +73,8 @@ def _retrieve(subject: dict, query: str, k: int = 2) -> tuple[list[str], list[di
 
 
 def _clean(text: str) -> str:
-    text = re.sub(r"[*#`_>]+", "", text).strip()
+    # markdown และเครื่องหมาย $ ของ LaTeX ที่ LLM ชอบใส่ หน้าจอนักเรียนแสดงข้อความธรรมดา
+    text = re.sub(r"[*#`_>$]+", "", text).strip()
     return re.sub(r"\n{2,}", "\n", text)
 
 

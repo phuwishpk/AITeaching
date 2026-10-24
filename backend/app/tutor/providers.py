@@ -15,6 +15,8 @@ import httpx
 GEMINI_BASE = "https://generativelanguage.googleapis.com/v1beta"
 CLAUDE_FALLBACK_MODELS = {"claude-opus-5-5", "claude-opus-5", "claude-sonnet-5-5", "claude-fable-5-1", "claude-fable-5"}
 TIMEOUT = 25.0
+# Gemini รุ่นสำรองเมื่อรุ่นที่ Admin เลือกรับงานไม่ไหว (503) ใช้กับทุกงาน: คำใบ้ แชต และสร้างคลังโจทย์
+GEMINI_BACKUPS = ("gemini-3.5-flash-lite", "gemini-2.5-flash")
 
 
 class ProviderError(Exception):

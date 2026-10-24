@@ -11,7 +11,7 @@ from .. import db, settings_store
 from ..content.readiness import check_set
 from ..engine.answers import answer_display
 from ..tutor.prompt import constraints_frame
-from . import builder
+from . import builder, versions
 
 ICONS = ["sparkles", "calculator", "book", "flask", "globe", "code", "palette", "music"]
 COLORS = ["teal", "blue", "violet", "amber", "rose", "green"]
@@ -57,17 +57,45 @@ def create(data: dict, actor: str) -> dict:
     }
     gem.update(fields)
     db.save_gem(gem)
+    versions.record(gem, actor, "สร้าง Gem")
     return gem
 
 
-def update(gem_id: str, data: dict) -> dict:
+def update(gem_id: str, data: dict, actor: str = "teacher") -> dict:
     gem = get(gem_id)
     fields = clean_fields(data)
     if "name" in fields and not fields["name"]:
         raise GemError("Gem ต้องมีชื่อ")
+    before = dict(gem)
     gem.update(fields)
     db.save_gem(gem)
+    changed = versions.changes(before, gem)
+    if changed:
+        versions.record(gem, actor, "แก้" + " ".join(changed))
     _sync_bank(gem)
+    return gem
+
+
+def restore(gem_id: str, n: int, actor: str) -> dict:
+    """ย้อนกลับไปเวอร์ชันเก่า: คืนชื่อ คำสั่ง เครื่องมือ และคลังโจทย์รุ่นที่ใช้ในเวอร์ชันนั้น"""
+    gem = get(gem_id)
+    if gem.get("build", {}).get("status") == "building":
+        raise GemError("กำลังสร้างคลังโจทย์อยู่ รอให้เสร็จก่อนย้อนกลับ")
+    snap = versions.get(gem_id, n)
+    if snap is None:
+        raise GemError("ไม่พบเวอร์ชันนี้")
+    gem.update({key: snap.get(key) for key in versions.FIELDS})
+    subject = db.get_subject(snap["subject_id"]) if snap.get("subject_id") else None
+    if subject:
+        gem.update({key: snap.get(key) for key in versions.BANK})
+        for qs in subject.get("question_sets", []):
+            qs["published"] = True
+        db.save_subject(subject)
+        builder._retire_old_banks(gem_id, keep=subject["id"])
+        gem.setdefault("build", {})["stats"] = builder.bank_stats(subject)
+    db.save_gem(gem)
+    _sync_bank(gem)
+    versions.record(gem, actor, f"ย้อนกลับไปเวอร์ชัน {n}")
     return gem
 
 
@@ -130,10 +158,13 @@ def files(gem_id: str) -> list[dict]:
 def summary(gem: dict) -> dict:
     """ข้อมูลสำหรับการ์ดในรายการ Gem"""
     build = gem.get("build") or {}
+    # นับจากคลังจริง ครูอาจแก้หรือลบข้อในแท็บคลังโจทย์หลังสร้างเสร็จ
+    subject = db.get_subject(gem["subject_id"]) if gem.get("subject_id") else None
     return {
         "id": gem["id"], "name": gem["name"], "description": gem.get("description", ""),
         "icon": gem.get("icon"), "color": gem.get("color"), "bank_version": gem.get("bank_version", 0),
-        "status": build.get("status", "idle"), "stats": build.get("stats"), "files": len(files(gem["id"])),
+        "status": build.get("status", "idle"), "stats": builder.bank_stats(subject) if subject else None,
+        "files": len(files(gem["id"])),
         "updated_at": db.query_one("SELECT updated_at FROM gems WHERE id = ?", (gem["id"],))["updated_at"],
     }
 
@@ -160,9 +191,16 @@ def detail(gem: dict) -> dict:
         **{k: gem.get(k) for k in ("id", "bank_version", "build", "created_at") + EDITABLE},
         "files": files(gem["id"]),
         "bank": bank,
+        "versions": versions.history(gem["id"]) or _first_version(gem),
         "locked_constraints": constraints_frame(),
         "options": {"icons": ICONS, "colors": COLORS},
     }
+
+
+def _first_version(gem: dict) -> list[dict]:
+    """Gem ที่สร้างก่อนมีประวัติเวอร์ชัน: บันทึกสภาพปัจจุบันเป็นเวอร์ชันแรก"""
+    versions.record(gem, "ระบบ", "บันทึกเวอร์ชันแรก")
+    return versions.history(gem["id"])
 
 
 def _brief(item: dict, concepts: dict) -> dict:
@@ -200,3 +238,31 @@ def resolve_flag(gem_id: str, item_id: str, keep: bool) -> dict:
 def _invalidate() -> None:
     from .. import services  # services import builder อยู่แล้ว import ตรงนี้กันวน
     services.invalidate_content()
+
+
+def adopt_legacy() -> list[str]:
+    """แปลงวิชาที่ครูเขียนเองแบบเดิม (ไม่มี Gem) เป็น Gem โดยใช้โจทย์เดิมเป็นคลังรุ่นที่ 1 (Q17)
+
+    ไฟล์เอกสารของวิชาย้ายไปผูกกับ Gem ส่วนรหัสชุดคำถามไม่เปลี่ยน Session ที่ค้างอยู่จึงทำต่อได้
+    วิชาที่มีหลายชุดคำถามข้ามไป เพราะ Gem หนึ่งตัวคือชุดคำถามหนึ่งชุด
+    """
+    adopted = []
+    for subject in db.list_subjects():
+        sets = subject.get("question_sets", [])
+        if subject.get("gem") or len(sets) != 1:
+            continue
+        qs = sets[0]
+        gem = create({"name": qs["name"], "description": qs.get("description") or subject.get("description", ""),
+                      "icon": "calculator"}, "ระบบ")
+        gem.update(bank_version=1, subject_id=subject["id"], set_id=qs["id"])
+        gem["build"] = {"status": "ready", "finished_at": time.time(), "warnings": [], "errors": [],
+                        "stats": builder.bank_stats(subject), "adopted": True}
+        db.save_gem(gem)
+        subject["gem"] = builder.gem_meta(gem, 1)
+        db.save_subject(subject)
+        db.execute("UPDATE documents SET subject_id = ? WHERE subject_id = ?", (gem["id"], subject["id"]))
+        versions.record(gem, "ระบบ", "แปลงจากชุดคำถามที่ครูเขียนเอง")
+        adopted.append(gem["id"])
+    if adopted:
+        _invalidate()
+    return adopted

@@ -78,6 +78,10 @@ CREATE TABLE IF NOT EXISTS chat_modes (
 CREATE TABLE IF NOT EXISTS gems (
     id TEXT PRIMARY KEY, data TEXT NOT NULL, updated_at REAL
 );
+CREATE TABLE IF NOT EXISTS gem_versions (
+    id INTEGER PRIMARY KEY AUTOINCREMENT, gem_id TEXT, n INTEGER, ts REAL, actor TEXT, note TEXT, data TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_gem_versions ON gem_versions (gem_id, n);
 """
 
 _lock = threading.RLock()
@@ -196,6 +200,7 @@ def save_gem(gem: dict) -> None:
 
 def delete_gem(gem_id: str) -> None:
     execute("DELETE FROM gems WHERE id = ?", (gem_id,))
+    execute("DELETE FROM gem_versions WHERE gem_id = ?", (gem_id,))
 
 
 # ---------- student states ----------

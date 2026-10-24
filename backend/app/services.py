@@ -102,7 +102,8 @@ def persist(state: dict, fx: Fx, now: float | None = None) -> list[dict]:
             [(t["ts"] or now, code, t["action"], t["target"], db.dumps(t["data"])) for t in fx.traces],
         )
     alerts = []
-    for a in fx.alerts:
+    # นักเรียนทดสอบ (พรีวิวของครูในหน้าสร้าง Gem) ไม่ส่งแจ้งเตือนถึงครู
+    for a in fx.alerts if student_kind(code) != "test" else []:
         cursor = db.execute(
             "INSERT INTO alerts (ts, code, level, kind, message) VALUES (?,?,?,?,?)",
             (now, code, a["level"], a["kind"], a["message"]),
@@ -131,6 +132,9 @@ def staff_payload(state: dict, content: Content, ctx: Ctx) -> dict:
 
 
 async def broadcast(state: dict, content: Content, ctx: Ctx, fx: Fx, alerts: list[dict]):
+    if student_kind(state["code"]) == "test":
+        await hub.to_student(state["code"], {"type": "state", "view": engine.student_view(state, ctx)})
+        return
     await hub.to_staff({
         "type": "update",
         "code": state["code"],
@@ -174,7 +178,8 @@ def plan_hints(state: dict, content: Content, fx: Fx, use_ai: bool) -> list:
 
 
 def ai_enabled_for(code: str) -> bool:
-    return settings_store.ai_settings()["active"] != "offline" and student_kind(code) == "real"
+    # นักเรียนทดสอบในพรีวิวของ Gem ใช้ AI จริง ครูจะได้เห็น prompt ที่ส่งไปจริง
+    return settings_store.ai_settings()["active"] != "offline" and student_kind(code) in ("real", "test")
 
 
 async def fill_hint(code: str, set_id: str, content: Content, it: dict, level: int, student: dict, tag: dict | None):
@@ -455,7 +460,8 @@ async def post_message(code: str, set_id: str | None, sender: str, text: str) ->
     cursor = db.execute("INSERT INTO messages (ts, code, set_id, sender, text) VALUES (?,?,?,?,?)",
                         (now, code, set_id, sender, text))
     row = {"id": cursor.lastrowid, "ts": now, "code": code, "set_id": set_id, "sender": sender, "text": text}
-    await hub.to_staff({"type": "message", "code": code, "message": row})
+    if student_kind(code) != "test":
+        await hub.to_staff({"type": "message", "code": code, "message": row})
     if sender == "teacher":
         await hub.to_student(code, {"type": "message", "message": row})
     return row
@@ -505,4 +511,4 @@ def inbox() -> list[dict]:
         "SELECT code, COUNT(*) AS n FROM messages WHERE sender = 'draft' GROUP BY code")}
     modes = {r["code"]: r["mode"] for r in db.query("SELECT code, mode FROM chat_modes")}
     return [{"code": r["code"], "last": r, "drafts": drafts.get(r["code"], 0), "mode": modes.get(r["code"], "ai")}
-            for r in rows]
+            for r in rows if student_kind(r["code"]) != "test"]

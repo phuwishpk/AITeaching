@@ -1,6 +1,6 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
 import { Route, Routes, useNavigate } from "react-router";
-import { Bell, BookMarked, Bot, Gem, LayoutDashboard, ListChecks, MessagesSquare, Sparkles, UsersRound } from "lucide-react";
+import { Bell, Bot, Gem, LayoutDashboard, ListChecks, MessagesSquare, Sparkles, UsersRound } from "lucide-react";
 import { api, clearAuth, getAuth } from "../../lib/api";
 import { useLive } from "../../lib/hooks";
 import type { Alert, Decision, StaffView, Telemetry } from "../../lib/types";
@@ -208,7 +208,6 @@ function TeacherShell({ onLogout, onExpired }: { onLogout: () => void; onExpired
               {
                 title: "จัดการชั้นเรียน",
                 items: [
-                  { to: "/teacher/content", label: "วิชาและชุดคำถาม", icon: <BookMarked size={17} /> },
                   { to: "/teacher/roster", label: "รายชื่อนักเรียน", icon: <UsersRound size={17} /> },
                 ],
               },

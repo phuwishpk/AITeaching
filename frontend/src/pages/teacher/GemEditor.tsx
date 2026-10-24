@@ -9,6 +9,7 @@ import {
   Info,
   LoaderCircle,
   Lock,
+  PencilLine,
   Plus,
   Redo2,
   RefreshCw,
@@ -21,7 +22,8 @@ import { api } from "../../lib/api";
 import { useNow } from "../../lib/hooks";
 import { mmss } from "../../lib/format";
 import GemIcon, { GEM_COLORS, GEM_ICONS } from "../../components/GemIcon";
-import { Badge, Button, Modal, Spinner, useToast } from "../../components/ui";
+import { Badge, Button, Modal, Spinner, Tabs, useToast } from "../../components/ui";
+import { PreviewTry, Versions } from "./GemPreview";
 import { STATUS_TEXT, TOOL_LABELS, type BankItem, type GemDetail, type GemTools } from "./gemTypes";
 
 // หน้าสร้างและแก้ Gem แบบ Gemini: ฟอร์มด้านซ้าย พรีวิวด้านขวา กดบันทึกแล้ว AI สร้างคลังโจทย์ให้
@@ -263,7 +265,7 @@ export default function GemEditor() {
 
         <aside className="gem-preview">
           <span className="gem-preview-label">พรีวิว</span>
-          <Preview form={form} gem={gem} onRetry={() => gem && startBuild(gem.id)} onFlag={resolveFlag} />
+          <Preview form={form} gem={gem} onRetry={() => gem && startBuild(gem.id)} onFlag={resolveFlag} onChange={setGem} />
         </aside>
       </div>
 
@@ -496,13 +498,16 @@ function Preview({
   gem,
   onRetry,
   onFlag,
+  onChange,
 }: {
   form: Form;
   gem: GemDetail | null;
   onRetry: () => void;
   onFlag: (itemId: string, keep: boolean) => void;
+  onChange: (gem: GemDetail) => void;
 }) {
   const now = useNow(1000);
+  const [tab, setTab] = useState<"bank" | "try" | "versions">("bank");
   if (!form.name.trim()) {
     return (
       <div className="gem-preview-empty">
@@ -560,7 +565,22 @@ function Preview({
         </div>
       )}
 
-      {gem?.bank && build?.status !== "building" && <Bank gem={gem} onFlag={onFlag} onRebuild={onRetry} />}
+      {gem?.bank && build?.status !== "building" && (
+        <>
+          <Tabs
+            value={tab}
+            onChange={setTab}
+            items={[
+              { id: "bank", label: "คลังโจทย์" },
+              { id: "try", label: "ลองเรียน" },
+              { id: "versions", label: `เวอร์ชัน (${gem.versions.length})` },
+            ]}
+          />
+          {tab === "bank" && <Bank gem={gem} onFlag={onFlag} onRebuild={onRetry} />}
+          {tab === "try" && <PreviewTry gem={gem} />}
+          {tab === "versions" && <Versions gem={gem} onRestored={onChange} />}
+        </>
+      )}
     </div>
   );
 }
@@ -591,18 +611,37 @@ function BuildSteps({ steps }: { steps: { id: string; label: string; status: str
 }
 
 function Bank({ gem, onFlag, onRebuild }: { gem: GemDetail; onFlag: (id: string, keep: boolean) => void; onRebuild: () => void }) {
+  const navigate = useNavigate();
   const bank = gem.bank!;
   const target = bank.concepts.find((c) => c.name === bank.target);
-  const prereqs = bank.concepts.filter((c) => c.id !== target?.id);
+  // พื้นฐานที่ต้องรู้ก่อนเป้าหมาย (ไล่ย้อนตามเส้น Prerequisite) อยู่หน้าเป้าหมาย เรื่องที่ต่อยอดอยู่หลัง
+  const byId = new Map(bank.concepts.map((c) => [c.id, c]));
+  const before = new Set<string>();
+  const walk = (id: string) =>
+    byId.get(id)?.prerequisites.forEach((p) => {
+      if (!before.has(p)) {
+        before.add(p);
+        walk(p);
+      }
+    });
+  if (target) walk(target.id);
+  const prereqs = bank.concepts.filter((c) => before.has(c.id));
+  const beyond = bank.concepts.filter((c) => c.id !== target?.id && !before.has(c.id));
   const notes = [...(gem.build.errors ?? []), ...(gem.build.warnings ?? []).filter((w) => !w.startsWith("ติดธง"))];
   return (
     <div className="stack stack-lg">
       <div className="stack stack-sm">
         <span className="spread">
           <span className="small strong">คลังโจทย์รุ่นที่ {gem.bank_version}</span>
-          <Button variant="ghost" size="sm" icon={<RefreshCw size={14} />} onClick={onRebuild}>
-            สร้างใหม่
-          </Button>
+          <span className="row row-sm">
+            {/* หน้าแก้เนื้อหาแบบเดิม ใช้ตรวจและแก้สิ่งที่ AI สร้าง (Q17) */}
+            <Button variant="ghost" size="sm" icon={<PencilLine size={14} />} onClick={() => navigate(`/teacher/content/${bank.subject_id}?gem=${gem.id}`)}>
+              แก้คลังโจทย์
+            </Button>
+            <Button variant="ghost" size="sm" icon={<RefreshCw size={14} />} onClick={onRebuild}>
+              สร้างใหม่
+            </Button>
+          </span>
         </span>
         <div className="gem-stats">
           <Stat value={bank.stats.main} label="โจทย์หลัก" />
@@ -620,6 +659,11 @@ function Bank({ gem, onFlag, onRebuild }: { gem: GemDetail; onFlag: (id: string,
             <li key={c.id}>{c.name}</li>
           ))}
           <li className="is-target">{bank.target}</li>
+          {beyond.map((c) => (
+            <li key={c.id} className="is-beyond">
+              {c.name}
+            </li>
+          ))}
         </ol>
       </div>
 
