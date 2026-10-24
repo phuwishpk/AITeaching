@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { Link } from "react-router";
-import { ArrowRight, Bot, ChevronRight, Hand, MousePointerClick, Timer, UserRound } from "lucide-react";
+import { ArrowRight, Bot, Check, ChevronRight, Hand, MousePointerClick, Timer, UserRound, X } from "lucide-react";
 import { api } from "../../lib/api";
 import { useLoad, useNow } from "../../lib/hooks";
 import { ago, clock, num } from "../../lib/format";
@@ -84,9 +84,9 @@ export function describeInput(input: ActivityInput) {
   }
 }
 
-function summary(event: ActivityEvent) {
+function summary(event: ActivityEvent): { text: string; sub: string; math?: string | null } {
   const shown = event.inputs.filter((i) => i.action !== "misconception");
-  if (shown.length) return describeInput(shown[0]);
+  if (shown.length) return { ...describeInput(shown[0]), math: shown[0].item?.math };
   if (event.source === "teacher") return { text: "ครูสั่ง Manual Override", sub: event.decisions[0]?.rule ?? "" };
   return { text: "ระบบเปลี่ยนสถานะเอง", sub: event.decisions[0]?.rule ?? "" };
 }
@@ -219,6 +219,9 @@ export default function Activity() {
                     onClick={() => {
                       setSelected(k);
                       setFollow(false);
+                      // เลือกรายการที่อยู่ล่าง ๆ แล้วเลื่อนกลับมาให้เห็นโจทย์และคำตอบตัวใหญ่
+                      const detail = document.querySelector(".event-detail");
+                      if (detail && detail.getBoundingClientRect().top < 70) detail.scrollIntoView({ block: "start", behavior: "smooth" });
                     }}
                   >
                     <span className={`activity-src src-${e.source}`} title={SOURCE_LABEL[e.source]}>
@@ -230,6 +233,7 @@ export default function Activity() {
                         <span className="faint num">{clock(e.ts)}</span>
                       </span>
                       <span className="small activity-text">{s.text}</span>
+                      {s.math && <span className="activity-math mono">{s.math}</span>}
                       {e.position && <span className="xsmall faint">→ {flow.labels[e.position] ?? e.position}</span>}
                     </span>
                     <ChevronRight size={16} className="faint" />
@@ -266,6 +270,7 @@ export default function Activity() {
 
 function EventDetail({ event, labels }: { event: ActivityEvent; labels: Record<string, string> }) {
   const inputs = event.inputs.filter((i) => i.action !== "misconception");
+  const answer = inputs.find((i) => ["answer", "invalid_answer", "duplicate_ignored"].includes(i.action));
   return (
     <Card className="card-pad stack event-detail">
       <div className="spread">
@@ -276,6 +281,8 @@ function EventDetail({ event, labels }: { event: ActivityEvent; labels: Record<s
         </span>
         <span className="xsmall faint num">{new Date(event.ts * 1000).toLocaleString("th-TH")}</span>
       </div>
+
+      {answer?.item && <AnswerHero input={answer} />}
 
       <div className="step-block">
         <span className="step-label">1 · สิ่งที่ป้อนเข้ามา</span>
@@ -288,7 +295,7 @@ function EventDetail({ event, labels }: { event: ActivityEvent; labels: Record<s
                   <span className="strong">{d.text}</span>
                   {d.sub && <span className="small muted">{d.sub}</span>}
                 </div>
-                {input.item && <ItemView item={input.item} chosen={input.data?.raw ? [input.data.raw] : []} />}
+                {input.item && input.item.format === "mcq" && <ItemView item={input.item} chosen={input.data?.raw ? [input.data.raw] : []} />}
               </div>
             );
           })
@@ -364,5 +371,46 @@ function EventDetail({ event, labels }: { event: ActivityEvent; labels: Record<s
         )}
       </div>
     </Card>
+  );
+}
+
+// โจทย์และคำตอบตัวใหญ่ อ่านได้จากหลังห้องตอนฉายจอ
+function AnswerHero({ input }: { input: ActivityInput }) {
+  const item = input.item!;
+  const d = input.data ?? {};
+  const result =
+    input.action === "invalid_answer"
+      ? { label: "ผิดรูปแบบ", tone: "neutral" }
+      : input.action === "duplicate_ignored"
+        ? { label: "ส่งซ้ำ", tone: "neutral" }
+        : d.correct
+          ? { label: "ถูก", tone: "success" }
+          : d.rapid
+            ? { label: "เร็วเกิน", tone: "warning" }
+            : { label: "ผิด", tone: "calm" };
+  return (
+    <div className="qa-hero">
+      <div className="qa-question">
+        <span className="qa-label">โจทย์ {item.id}</span>
+        <span className="qa-prompt">{item.prompt}</span>
+        {item.math && <span className="qa-math">{item.math}</span>}
+      </div>
+      <div className="qa-answers">
+        <div className={`qa-box qa-${result.tone}`}>
+          <span className="qa-label">นักเรียนตอบ</span>
+          <span className="qa-value">{answerText(item, d.raw ?? "")}</span>
+          <span className="qa-result">
+            {result.tone === "success" ? <Check size={18} /> : result.tone === "calm" ? <X size={18} /> : null}
+            {result.label}
+            {d.rt != null && <span className="qa-time">· คิด {num(d.rt, 1)} วินาที</span>}
+          </span>
+        </div>
+        <div className="qa-box">
+          <span className="qa-label">คำตอบที่ถูก</span>
+          <span className="qa-value">{item.correct}</span>
+          {d.diagnosis?.tag_name && <span className="qa-result qa-diag">{d.diagnosis.tag_name}</span>}
+        </div>
+      </div>
+    </div>
   );
 }

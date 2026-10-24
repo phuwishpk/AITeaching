@@ -1915,6 +1915,7 @@
 
 .event-detail {
   gap: 18px;
+  scroll-margin-top: 76px;
 }
 
 .step-block {
@@ -2214,4 +2215,127 @@
 .attempt-undone .mono {
   text-decoration: line-through;
   color: var(--text-3);
+}
+
+/* ---------- โจทย์และคำตอบตัวใหญ่ (กิจกรรมสด) ---------- */
+.activity-math {
+  font-size: var(--fs-md);
+  font-weight: 500;
+  color: var(--text);
+}
+
+.qa-hero {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.qa-question {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  padding: 22px 20px;
+  border-radius: var(--radius-lg);
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  text-align: center;
+}
+
+.qa-label {
+  font-size: var(--fs-sm);
+  font-weight: 600;
+  color: var(--text-3);
+}
+
+.qa-prompt {
+  font-size: var(--fs-lg);
+  color: var(--text-2);
+}
+
+.qa-math {
+  font-size: clamp(36px, 4.4vw, 56px);
+  font-weight: 600;
+  line-height: 1.2;
+  color: var(--text);
+  font-variant-numeric: lining-nums;
+}
+
+.qa-answers {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 14px;
+}
+
+@media (max-width: 640px) {
+  .qa-answers {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+.qa-box {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  padding: 18px 16px;
+  border-radius: var(--radius-lg);
+  border: 2px solid var(--border);
+  background: var(--surface);
+  text-align: center;
+}
+
+.qa-value {
+  font-size: clamp(32px, 3.8vw, 48px);
+  font-weight: 700;
+  line-height: 1.2;
+  color: var(--text);
+  overflow-wrap: anywhere;
+}
+
+.qa-result {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: var(--fs-md);
+  font-weight: 600;
+}
+
+.qa-time {
+  font-weight: 400;
+  color: var(--text-3);
+  font-size: var(--fs-sm);
+}
+
+.qa-diag {
+  font-weight: 500;
+  font-size: var(--fs-sm);
+  color: var(--text-2);
+}
+
+.qa-success {
+  border-color: var(--success);
+  background: var(--success-soft);
+}
+
+.qa-success .qa-result {
+  color: var(--success);
+}
+
+.qa-calm {
+  border-color: var(--calm);
+  background: var(--calm-soft);
+}
+
+.qa-calm .qa-result {
+  color: var(--calm);
+}
+
+.qa-warning {
+  border-color: var(--warning);
+  background: var(--warning-soft);
+}
+
+.qa-warning .qa-result {
+  color: var(--warning);
 }
