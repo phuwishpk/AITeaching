@@ -133,3 +133,13 @@ def test_answer_sheet_shows_question_and_answer(content):
     first = sheet["answers"][0]
     assert first["raw"] == "7" and first["correct"] is False and first["item"]["id"] == "T-01"
     assert first["diagnosis"]["class"] == "misconception"
+
+
+def test_end_boxes_explain_the_difference():
+    from app import node_info
+
+    for node_id in ("COMPLETED", "SESSION_ENDED"):
+        compare = node_info.describe(node_id, [])["compare"]
+        assert compare["columns"] == ["จบชุด", "จบ Session"]
+        assert all("{" not in cell for row in compare["rows"] for cell in row)
+    assert node_info.describe("G1", [])["compare"] is None

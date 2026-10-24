@@ -68,6 +68,22 @@ NODE_INFO: dict[str, dict] = {
                     "content": "รายการคำอยู่ในโค้ด backend/app/tutor/distress.py ครูปลดได้ด้วย Manual Override"},
 }
 
+# กล่องที่มักถูกถามว่าต่างกันอย่างไร: แสดงตารางเทียบในแผงข้อมูลของทั้งสองกล่อง
+END_COMPARE = {
+    "columns": ["จบชุด", "จบ Session"],
+    "rows": [
+        ["ความหมาย", "เรียนรู้ครบตามเป้าหมายแล้ว", "หยุดเรียนรอบนี้ก่อนถึงเป้าหมาย กลับมาทำต่อได้"],
+        ["เกิดเมื่อ", "Mastery ของ Target Concept ≥ {finish_mastery:g} จากอย่างน้อย {finish_min_items:g} ข้อ และทำโจทย์หลักครบหรือโจทย์ท้าทายถูก 1 ข้อ",
+         "ครบ {max_items:g} ข้อใน Session · นักเรียนเลือกหยุดวันนี้ · ครูสั่งจบ Session · โจทย์ในชุดหมด"],
+        ["นักเรียนเห็น", "ทำชุดนี้สำเร็จแล้ว พร้อมข้อความชื่นชม", "จบรอบนี้แล้ว ความคืบหน้าบันทึกไว้"],
+        ["สถานะในหน้าเลือกชุด", "ทำจบแล้ว (ปุ่ม \"ทำอีกครั้ง\")", "พักไว้ (ปุ่ม \"ทำต่อจากเดิม\")"],
+        ["เข้ามาใหม่", "เริ่มชุดใหม่ตั้งแต่ต้น Mastery นับใหม่", "เปิด Session ใหม่ Mastery และข้อที่ทำแล้วยังอยู่ จำนวนข้อใน Session นับใหม่"],
+        ["Telemetry ของครู", "นับเป็นจบชุด", "หยุดเองหรือครบเพดานนับเป็น Drop-off"],
+        ["เส้นในผัง", "ด่าน \"ถึงเกณฑ์จบชุด?\" → ถึง", "ด่าน \"ถึงเกณฑ์จบชุด?\" → ครบ 20 ข้อ · รอเลือกทางต่อ → หยุดวันนี้"],
+    ],
+}
+COMPARE_NODES = {"COMPLETED", "SESSION_ENDED"}
+
 # ผลของการปรับแต่ละค่า และช่วงที่ยอมให้ตั้ง (min, max, step)
 PARAM_GUIDE: dict[str, dict] = {
     "deliberate_delay": {"range": (0, 60, 1), "effect": "มากขึ้น = ให้คิดเองนานขึ้นก่อนเห็นคำใบ้ · น้อยลง = ช่วยเร็วขึ้น สเปกแนะนำ 15–30 วินาที"},
@@ -153,4 +169,8 @@ def describe(node_id: str, positions: list[dict]) -> dict | None:
         "content": info.get("content"),
         "rules": related,
         "students": [p for p in positions if p["position"] == node_id],
+        "compare": {
+            "columns": END_COMPARE["columns"],
+            "rows": [[cell.format(**values) for cell in row] for row in END_COMPARE["rows"]],
+        } if node_id in COMPARE_NODES else None,
     }

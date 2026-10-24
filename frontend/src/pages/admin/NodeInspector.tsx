@@ -34,6 +34,7 @@ interface NodeDetail {
   content: string | null;
   rules: { id: string; title: string }[];
   students: { code: string; kind: string }[];
+  compare: { columns: string[]; rows: string[][] } | null;
 }
 
 const KIND: Record<NodeDetail["kind"], { label: string; text: string }> = {
@@ -98,6 +99,38 @@ export default function NodeInspector({ nodeId, onClose, version }: { nodeId: st
             <p className="small muted">{KIND[data.kind].text}</p>
             {data.card && <PrincipleCard card={data.card} compact />}
           </section>
+
+          {data.compare && (
+            <section className="stack stack-sm">
+              <h4 className="inspector-title">ต่างจากอีกกล่องอย่างไร</h4>
+              <div className="table-wrap card">
+                <table className="table compare-table">
+                  <thead>
+                    <tr>
+                      <th />
+                      {data.compare.columns.map((c) => (
+                        <th key={c} className={c === data.label ? "is-current" : ""}>
+                          {c}
+                        </th>
+                      ))}
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {data.compare.rows.map(([label, ...cells]) => (
+                      <tr key={label}>
+                        <td className="small strong nowrap">{label}</td>
+                        {cells.map((cell, i) => (
+                          <td key={i} className={`small ${data.compare!.columns[i] === data.label ? "is-current" : "muted"}`}>
+                            {cell}
+                          </td>
+                        ))}
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </section>
+          )}
 
           <section className="stack stack-sm">
             <h4 className="inspector-title">

@@ -2339,3 +2339,14 @@
 .qa-warning .qa-result {
   color: var(--warning);
 }
+
+.compare-table th.is-current,
+.compare-table td.is-current {
+  background: var(--accent-soft);
+  color: var(--text);
+}
+
+.compare-table td {
+  vertical-align: top;
+  line-height: 1.6;
+}
