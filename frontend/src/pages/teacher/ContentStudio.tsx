@@ -2,6 +2,7 @@ import { useRef, useState, type FormEvent } from "react";
 import { useNavigate } from "react-router";
 import { CircleAlert, CircleCheck, Download, FilePlus2, PencilLine, Trash2, Upload } from "lucide-react";
 import { api } from "../../lib/api";
+import { useContentScope } from "./contentScope";
 import { useLoad } from "../../lib/hooks";
 import type { Subject, SubjectSummary } from "../../lib/types";
 import { Badge, Button, Card, Empty, Field, Modal, Spinner, useToast } from "../../components/ui";
@@ -17,15 +18,16 @@ export function downloadJson(name: string, data: unknown) {
 }
 
 export default function ContentStudio() {
+  const { role, base } = useContentScope();
   const toast = useToast();
   const navigate = useNavigate();
-  const subjects = useLoad(() => api<SubjectSummary[]>("teacher", "/api/teacher/subjects"));
+  const subjects = useLoad(() => api<SubjectSummary[]>(role, "/api/teacher/subjects"));
   const [creating, setCreating] = useState(false);
   const [removing, setRemoving] = useState<SubjectSummary | null>(null);
   const fileRef = useRef<HTMLInputElement>(null);
 
   const exportSubject = async (id: string) => {
-    const subject = await api<Subject>("teacher", `/api/teacher/subjects/${id}`);
+    const subject = await api<Subject>(role, `/api/teacher/subjects/${id}`);
     downloadJson(`${id}.json`, subject);
   };
 
@@ -34,7 +36,7 @@ export default function ContentStudio() {
       const subject = JSON.parse(await file.text()) as Subject;
       if (!subject.id || !subject.name) throw new Error("ไฟล์ต้องมี id และ name ของวิชา");
       const exists = subjects.data?.some((s) => s.id === subject.id);
-      await api("teacher", exists ? `/api/teacher/subjects/${subject.id}` : "/api/teacher/subjects", {
+      await api(role, exists ? `/api/teacher/subjects/${subject.id}` : "/api/teacher/subjects", {
         method: exists ? "PUT" : "POST",
         body: subject,
       });
@@ -47,7 +49,7 @@ export default function ContentStudio() {
 
   const remove = async () => {
     if (!removing) return;
-    await api("teacher", `/api/teacher/subjects/${removing.id}`, { method: "DELETE" });
+    await api(role, `/api/teacher/subjects/${removing.id}`, { method: "DELETE" });
     toast(`ลบวิชา ${removing.name} แล้ว`, "success");
     setRemoving(null);
     subjects.reload();
@@ -123,7 +125,7 @@ export default function ContentStudio() {
               <Button variant="ghost" size="sm" icon={<Download size={15} />} onClick={() => exportSubject(subject.id)}>
                 ส่งออก JSON
               </Button>
-              <Button variant="primary" size="sm" icon={<PencilLine size={15} />} onClick={() => navigate(`/teacher/content/${subject.id}`)}>
+              <Button variant="primary" size="sm" icon={<PencilLine size={15} />} onClick={() => navigate(`${base}/${subject.id}`)}>
                 แก้ไขเนื้อหา
               </Button>
             </div>
@@ -136,7 +138,7 @@ export default function ContentStudio() {
         onClose={() => setCreating(false)}
         onCreated={(id) => {
           setCreating(false);
-          navigate(`/teacher/content/${id}`);
+          navigate(`${base}/${id}`);
         }}
       />
       <Modal
@@ -159,6 +161,7 @@ export default function ContentStudio() {
 }
 
 function CreateSubject({ open, onClose, onCreated }: { open: boolean; onClose: () => void; onCreated: (id: string) => void }) {
+  const { role } = useContentScope();
   const toast = useToast();
   const [form, setForm] = useState({ id: "", name: "", grade: "", description: "" });
   const [busy, setBusy] = useState(false);
@@ -168,7 +171,7 @@ function CreateSubject({ open, onClose, onCreated }: { open: boolean; onClose: (
     setBusy(true);
     try {
       const id = form.id.trim().toLowerCase().replace(/\s+/g, "-");
-      await api("teacher", "/api/teacher/subjects", {
+      await api(role, "/api/teacher/subjects", {
         body: { ...form, id, concepts: [], items: [], bug_tags: [], walkthroughs: [], question_sets: [] },
       });
       setForm({ id: "", name: "", grade: "", description: "" });

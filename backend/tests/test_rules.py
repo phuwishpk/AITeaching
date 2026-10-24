@@ -101,3 +101,35 @@ def test_param_validation():
     assert node_info.validate_params({"deliberate_delay": 20}) == []
     assert node_info.validate_params({"deliberate_delay": 999})
     assert node_info.validate_params({"standard_mastery": 0.9, "fast_track_mastery": 0.8})
+
+
+def test_admin_can_author_content_but_not_see_roster(subject):
+    from app import db
+
+    db.save_subject(subject)
+    client = TestClient(app)
+    admin = {"Authorization": f"Bearer {issue_token('admin')}"}
+    new = {**subject, "id": "math-x", "name": "วิชาทดลอง", "question_sets": []}
+    assert client.post("/api/teacher/subjects", json=new, headers=admin).status_code == 200
+    assert client.get("/api/teacher/subjects/math-x", headers=admin).json()["name"] == "วิชาทดลอง"
+    assert client.get("/api/teacher/roster", headers=admin).status_code == 403
+
+
+def test_answer_sheet_shows_question_and_answer(content):
+    from app import db, services
+    from app.engine import core as engine
+    from app.engine.core import Ctx
+
+    db.save_subject(content.subject)
+    db.execute("INSERT INTO students (code, kind, persona, created_at) VALUES ('S-08', 'real', NULL, 0)")
+    state = engine.new_state("S-08", content.subject["id"], "QS-1", 1, 1000.0)
+    ctx = Ctx(content, settings_store.params(), 1.0, 1000.0)
+    services.persist(state, engine.begin(state, ctx), 1000.0)
+    ctx.now = 1020.0
+    services.persist(state, engine.submit(state, ctx, "7"), 1020.0)
+
+    sheet = services.answer_sheet("S-08")
+    assert sheet["current"]["math"] == "2x + 3 = 11" and sheet["current"]["correct"] == "4"
+    first = sheet["answers"][0]
+    assert first["raw"] == "7" and first["correct"] is False and first["item"]["id"] == "T-01"
+    assert first["diagnosis"]["class"] == "misconception"

@@ -102,8 +102,14 @@ def events(code: str | None = None, include_sim: bool = False, limit: int = 40) 
             "detail": db.loads(row["detail"], {}), "id": row["id"],
         })
 
+    from .services import item_brief, item_lookup  # import ภายในฟังก์ชันกันการ import วนกับ services
+
+    items = item_lookup()
     out = []
     for event in sorted(grouped.values(), key=lambda e: e["ts"], reverse=True)[:limit]:
+        for item in event["inputs"]:
+            if item["action"] in ("answer", "invalid_answer", "duplicate_ignored"):
+                item["item"] = item_brief(items.get(item["target"]))
         event["decisions"].sort(key=lambda d: d["id"])
         event["inputs"].reverse()
         edges = [e for d in event["decisions"] for e in d["edges"]]

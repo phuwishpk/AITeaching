@@ -6,6 +6,7 @@ import FlowMap from "../../components/FlowMap";
 import { Badge, Button, Card, CardHead, Empty, Spinner, useToast } from "../../components/ui";
 import { TopicHeader, useAdmin, type ScenarioEvent } from "./AdminApp";
 import { Section } from "./shared";
+import AnswerSheet from "./AnswerSheet";
 
 interface Scenario {
   id: string;
@@ -164,6 +165,8 @@ export default function Topic5() {
           selectedNode={latest?.position}
         />
       </Card>
+
+      <AnswerSheet code={code} title={`โจทย์และคำตอบของ ${code} ในสถานการณ์นี้`} />
 
       <div className="grid grid-2">
         <Card>

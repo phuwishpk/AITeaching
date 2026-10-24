@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { Link, useParams } from "react-router";
 import { ArrowLeft, CircleAlert, CircleCheck, Download, FileText, Plus, Save, Trash2, TriangleAlert, Upload } from "lucide-react";
 import { api } from "../../lib/api";
+import { useContentScope } from "./contentScope";
 import { useLoad } from "../../lib/hooks";
 import { ago, num } from "../../lib/format";
 import type { BugTag, Concept, Item, QuestionSet, Readiness, Subject, SubjectSummary, Walkthrough } from "../../lib/types";
@@ -18,6 +19,7 @@ function syncIsomorphs(items: Item[]): Item[] {
 }
 
 export default function SubjectEditor() {
+  const { role, base } = useContentScope();
   const { subjectId = "" } = useParams();
   const toast = useToast();
   const [tab, setTab] = useState<Tab>("concepts");
@@ -25,7 +27,7 @@ export default function SubjectEditor() {
   const [dirty, setDirty] = useState(false);
   const [saving, setSaving] = useState(false);
   const [readiness, setReadiness] = useState<Record<string, Readiness>>({});
-  const loaded = useLoad(() => api<Subject>("teacher", `/api/teacher/subjects/${subjectId}`), [subjectId]);
+  const loaded = useLoad(() => api<Subject>(role, `/api/teacher/subjects/${subjectId}`), [subjectId]);
 
   useEffect(() => {
     if (loaded.data) {
@@ -35,7 +37,7 @@ export default function SubjectEditor() {
   }, [loaded.data]);
 
   useEffect(() => {
-    api<SubjectSummary[]>("teacher", "/api/teacher/subjects")
+    api<SubjectSummary[]>(role, "/api/teacher/subjects")
       .then((list) => {
         const mine = list.find((s) => s.id === subjectId);
         if (mine) setReadiness(Object.fromEntries(mine.sets.map((qs) => [qs.id, qs.readiness])));
@@ -61,7 +63,7 @@ export default function SubjectEditor() {
     setSaving(true);
     try {
       const body = { ...draft, items: syncIsomorphs(draft.items) };
-      const summary = await api<SubjectSummary>("teacher", `/api/teacher/subjects/${subjectId}`, { method: "PUT", body });
+      const summary = await api<SubjectSummary>(role, `/api/teacher/subjects/${subjectId}`, { method: "PUT", body });
       setReadiness(Object.fromEntries(summary.sets.map((qs) => [qs.id, qs.readiness])));
       setDraft(body);
       setDirty(false);
@@ -81,7 +83,7 @@ export default function SubjectEditor() {
     <div className="page stack stack-lg">
       <header className="spread fade-in">
         <div className="stack stack-sm">
-          <Link to="/teacher/content" className="row row-sm small muted">
+          <Link to={base} className="row row-sm small muted">
             <ArrowLeft size={14} /> วิชาทั้งหมด
           </Link>
           <h1 className="title-xl">{draft.name}</h1>
@@ -708,8 +710,9 @@ interface DocumentRow {
 }
 
 function DocsTab({ subjectId }: { subjectId: string }) {
+  const { role } = useContentScope();
   const toast = useToast();
-  const docs = useLoad(() => api<DocumentRow[]>("teacher", `/api/teacher/subjects/${subjectId}/documents`), [subjectId]);
+  const docs = useLoad(() => api<DocumentRow[]>(role, `/api/teacher/subjects/${subjectId}/documents`), [subjectId]);
   const [busy, setBusy] = useState(false);
   const fileRef = useRef<HTMLInputElement>(null);
 
@@ -718,7 +721,7 @@ function DocsTab({ subjectId }: { subjectId: string }) {
     try {
       const form = new FormData();
       form.append("file", file);
-      const result = await api<{ warning: string | null; chars: number }>("teacher", `/api/teacher/subjects/${subjectId}/documents`, { form });
+      const result = await api<{ warning: string | null; chars: number }>(role, `/api/teacher/subjects/${subjectId}/documents`, { form });
       toast(result.warning ?? `อ่านได้ ${num(result.chars)} ตัวอักษร แบ่งเป็นย่อหน้าให้ RAG ค้นแล้ว`, result.warning ? "warning" : "success");
       docs.reload();
     } catch (err) {
@@ -729,7 +732,7 @@ function DocsTab({ subjectId }: { subjectId: string }) {
   };
 
   const remove = async (id: number) => {
-    await api("teacher", `/api/teacher/documents/${id}`, { method: "DELETE" });
+    await api(role, `/api/teacher/documents/${id}`, { method: "DELETE" });
     docs.reload();
   };
 

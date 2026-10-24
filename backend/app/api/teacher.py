@@ -11,6 +11,8 @@ from .deps import require
 
 router = APIRouter(prefix="/api/teacher", tags=["teacher"])
 teacher = require("teacher")
+# จัดการวิชา โจทย์ และเอกสาร ทำได้ทั้งครูและ Admin (ไม่มีข้อมูลนักเรียน) ส่วนอื่นของหน้าครูยังเป็นของครูคนเดียว
+content_editor = require("teacher", "admin")
 
 
 class Override(BaseModel):
@@ -162,12 +164,12 @@ def summary(subject: dict) -> dict:
 
 
 @router.get("/subjects")
-def subjects(auth: dict = Depends(teacher)):
+def subjects(auth: dict = Depends(content_editor)):
     return [summary(s) for s in db.list_subjects()]
 
 
 @router.get("/subjects/{subject_id}")
-def get_subject(subject_id: str, auth: dict = Depends(teacher)):
+def get_subject(subject_id: str, auth: dict = Depends(content_editor)):
     subject = db.get_subject(subject_id)
     if not subject:
         raise HTTPException(404, "ไม่พบวิชานี้")
@@ -190,7 +192,7 @@ def validate(subject: dict):
 
 
 @router.put("/subjects/{subject_id}")
-def save_subject(subject_id: str, subject: dict, auth: dict = Depends(teacher)):
+def save_subject(subject_id: str, subject: dict, auth: dict = Depends(content_editor)):
     subject["id"] = subject_id
     validate(subject)
     db.save_subject(subject)
@@ -199,7 +201,7 @@ def save_subject(subject_id: str, subject: dict, auth: dict = Depends(teacher)):
 
 
 @router.post("/subjects")
-def create_subject(subject: dict, auth: dict = Depends(teacher)):
+def create_subject(subject: dict, auth: dict = Depends(content_editor)):
     validate(subject)
     if db.get_subject(subject["id"]):
         raise HTTPException(400, "มีวิชารหัสนี้อยู่แล้ว")
@@ -210,7 +212,7 @@ def create_subject(subject: dict, auth: dict = Depends(teacher)):
 
 
 @router.delete("/subjects/{subject_id}")
-def delete_subject(subject_id: str, auth: dict = Depends(teacher)):
+def delete_subject(subject_id: str, auth: dict = Depends(content_editor)):
     db.delete_subject(subject_id)
     db.execute("DELETE FROM documents WHERE subject_id = ?", (subject_id,))
     services.invalidate_content()
@@ -218,7 +220,7 @@ def delete_subject(subject_id: str, auth: dict = Depends(teacher)):
 
 
 @router.get("/subjects/{subject_id}/readiness/{set_id}")
-def readiness(subject_id: str, set_id: str, auth: dict = Depends(teacher)):
+def readiness(subject_id: str, set_id: str, auth: dict = Depends(content_editor)):
     subject = db.get_subject(subject_id)
     if not subject:
         raise HTTPException(404, "ไม่พบวิชานี้")
@@ -226,7 +228,7 @@ def readiness(subject_id: str, set_id: str, auth: dict = Depends(teacher)):
 
 
 @router.get("/subjects/{subject_id}/documents")
-def documents(subject_id: str, auth: dict = Depends(teacher)):
+def documents(subject_id: str, auth: dict = Depends(content_editor)):
     rows = db.query(
         "SELECT id, filename, kind, chars, warning, uploaded_at, chunks FROM documents WHERE subject_id = ? ORDER BY uploaded_at DESC",
         (subject_id,),
@@ -239,7 +241,7 @@ def documents(subject_id: str, auth: dict = Depends(teacher)):
 
 
 @router.post("/subjects/{subject_id}/documents")
-async def upload(subject_id: str, file: UploadFile = File(...), auth: dict = Depends(teacher)):
+async def upload(subject_id: str, file: UploadFile = File(...), auth: dict = Depends(content_editor)):
     if not db.get_subject(subject_id):
         raise HTTPException(404, "ไม่พบวิชานี้")
     data = await file.read()
@@ -253,7 +255,7 @@ async def upload(subject_id: str, file: UploadFile = File(...), auth: dict = Dep
 
 
 @router.delete("/documents/{doc_id}")
-def delete_document(doc_id: int, auth: dict = Depends(teacher)):
+def delete_document(doc_id: int, auth: dict = Depends(content_editor)):
     row = db.query_one("SELECT subject_id FROM documents WHERE id = ?", (doc_id,))
     db.execute("DELETE FROM documents WHERE id = ?", (doc_id,))
     if row:

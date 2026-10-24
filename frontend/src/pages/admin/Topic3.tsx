@@ -12,6 +12,7 @@ import { TopicHeader, useAdmin } from "./AdminApp";
 import { useStudentPicker } from "./Topic2";
 import { CodePicker, Section, TopicLink } from "./shared";
 import NodeInspector from "./NodeInspector";
+import AnswerSheet from "./AnswerSheet";
 import { Button } from "../../components/ui";
 
 const KINDS = [
@@ -216,6 +217,8 @@ export default function Topic3() {
           )}
         </Card>
       </div>
+
+      <AnswerSheet code={code} />
 
       <Section num="3.2" title="บันไดคำใบ้และการสับราง (Scaffolding Logic)" sub="กฎเหล็ก: ไม่เฉลยคำตอบสำเร็จรูป ทุกระดับเป็นคำถามนำให้คิดต่อ และคำใบ้ระดับ 3 แสดงแค่ขั้นแรก">
         <div className="grid grid-2">

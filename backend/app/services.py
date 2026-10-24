@@ -12,6 +12,7 @@ from .engine import core as engine
 from .engine import flow as F
 from .engine.core import Content, Ctx, Fx
 from .hub import hub
+from .engine.answers import answer_display
 from .tutor import distress, pii
 from .tutor import service as tutor
 
@@ -384,3 +385,45 @@ def all_positions() -> list[dict]:
             "since": state["position_since"],
         })
     return positions
+
+
+# ---------------------------------------------------------------- โจทย์และคำตอบสำหรับหน้าครูและ Admin
+
+def item_lookup() -> dict[str, dict]:
+    """รหัสโจทย์ → โจทย์ จากทุกวิชา (รหัสโจทย์ไม่ซ้ำกันภายในวิชา)"""
+    return {it["id"]: it for subject in db.list_subjects() for it in subject.get("items", [])}
+
+
+def item_brief(it: dict | None) -> dict | None:
+    """โจทย์ในรูปที่ครูและ Admin อ่าน: คำสั่ง สมการ ตัวเลือก และคำตอบที่ถูก"""
+    if not it:
+        return None
+    return {
+        "id": it["id"], "prompt": it.get("prompt", ""), "math": it.get("math"), "format": it.get("format"),
+        "kind": it.get("kind"), "options": [{"id": o["id"], "text": o["text"]} for o in it.get("options", [])],
+        "correct": answer_display(it), "correct_option": (it.get("answer") or {}).get("option"),
+    }
+
+
+def answer_sheet(code: str, limit: int = 40) -> dict:
+    """โจทย์ที่นักเรียนกำลังทำ และคำตอบที่ส่งมาแต่ละครั้งพร้อมตัวโจทย์"""
+    items = item_lookup()
+    states = db.states_for(code)
+    state = max(states, key=lambda s: s["last_activity"]) if states else None
+    current = None
+    if state and state.get("item"):
+        item = state["item"]
+        current = {
+            **item_brief(items.get(item["id"])), "mode": item["mode"], "error_count": item["error_count"],
+            "hint_level": item["hint_level"],
+            "attempts": [{"raw": a.get("raw"), "kind": a["kind"], "rt": a.get("rt")} for a in item["attempts"]],
+        }
+    answers = []
+    for row in db.query("SELECT ts, target, data FROM traces WHERE code = ? AND action IN ('answer', 'invalid_answer') "
+                        "ORDER BY ts DESC LIMIT ?", (code, limit)):
+        data = db.loads(row["data"], {})
+        answers.append({"ts": row["ts"], "item": item_brief(items.get(row["target"])), "raw": data.get("raw"),
+                        "correct": data.get("correct"), "rapid": data.get("rapid", False),
+                        "invalid": "correct" not in data, "rt": data.get("rt"), "diagnosis": data.get("diagnosis"),
+                        "isomorphic": data.get("isomorphic", False)})
+    return {"current": current, "answers": answers, "position": state["position"] if state else None}

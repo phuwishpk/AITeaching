@@ -10,11 +10,13 @@ import { useAdmin } from "./AdminApp";
 import { useStudentPicker } from "./Topic2";
 import { CodePicker } from "./shared";
 import NodeInspector from "./NodeInspector";
+import { answerText, ItemView, type ItemBrief } from "./AnswerSheet";
 
 interface ActivityInput {
   action: string;
   target: string | null;
   data: Record<string, any>;
+  item?: ItemBrief | null;
 }
 
 interface ActivityDecision {
@@ -48,7 +50,7 @@ export function describeInput(input: ActivityInput) {
     case "answer": {
       const result = d.correct ? "ถูก" : d.rapid ? "ผิดและเร็วเกินเวลาอ่าน" : "ผิด";
       const diag = d.diagnosis?.tag_name ? ` · ${d.diagnosis.class === "slip" ? "Slip" : d.diagnosis.class === "misconception" ? "Misconception" : "จัดประเภทไม่ได้"}: ${d.diagnosis.tag_name}` : "";
-      return { text: `ตอบ "${d.raw}" ในข้อ ${input.target}`, sub: `เวลาคิด ${num(d.rt, 1)} วินาที · ${result}${diag}` };
+      return { text: `ตอบ "${answerText(input.item, d.raw)}" ในข้อ ${input.target}`, sub: `เวลาคิด ${num(d.rt, 1)} วินาที · ${result}${diag}` };
     }
     case "hint_request":
       return { text: "กดขอคำใบ้", sub: `กดครั้งที่ ${d.presses_in_window ?? 1} ในช่วงเวลาตรวจ` };
@@ -281,9 +283,12 @@ function EventDetail({ event, labels }: { event: ActivityEvent; labels: Record<s
           inputs.map((input, i) => {
             const d = describeInput(input);
             return (
-              <div key={i} className="stack" style={{ gap: 2 }}>
-                <span className="strong">{d.text}</span>
-                {d.sub && <span className="small muted">{d.sub}</span>}
+              <div key={i} className="stack stack-sm">
+                <div className="stack" style={{ gap: 2 }}>
+                  <span className="strong">{d.text}</span>
+                  {d.sub && <span className="small muted">{d.sub}</span>}
+                </div>
+                {input.item && <ItemView item={input.item} chosen={input.data?.raw ? [input.data.raw] : []} />}
               </div>
             );
           })

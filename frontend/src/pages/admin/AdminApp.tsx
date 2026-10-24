@@ -1,6 +1,6 @@
 import { createContext, useCallback, useContext, useEffect, useRef, useState, type ReactNode } from "react";
 import { Link, Navigate, Route, Routes, useLocation, useNavigate } from "react-router";
-import { Activity as ActivityIcon, ArrowLeft, ArrowRight, ListChecks, Presentation, Settings as SettingsIcon } from "lucide-react";
+import { Activity as ActivityIcon, ArrowLeft, ArrowRight, BookMarked, ListChecks, Presentation, Settings as SettingsIcon } from "lucide-react";
 import { api, clearAuth, getAuth } from "../../lib/api";
 import { useLive } from "../../lib/hooks";
 import type { StaffView } from "../../lib/types";
@@ -20,6 +20,9 @@ import Topic7 from "./Topic7";
 import Settings from "./Settings";
 import RulesPage from "../shared/RulesPage";
 import Activity from "./Activity";
+import ContentStudio from "../teacher/ContentStudio";
+import SubjectEditor from "../teacher/SubjectEditor";
+import { ContentScopeContext } from "../teacher/contentScope";
 
 export interface FlowData {
   nodes: FlowNode[];
@@ -218,6 +221,10 @@ function AdminShell({ onLogout }: { onLogout: () => void }) {
                 ],
               },
               {
+                title: "จัดการเนื้อหา",
+                items: [{ to: "/admin/content", label: "วิชาและโจทย์", icon: <BookMarked size={17} /> }],
+              },
+              {
                 title: "ระบบ",
                 items: [{ to: "/admin/settings", label: "ตั้งค่า (API key, PIN)", icon: <SettingsIcon size={17} /> }],
               },
@@ -237,6 +244,8 @@ function AdminShell({ onLogout }: { onLogout: () => void }) {
               <Route path="settings" element={<Settings />} />
               <Route path="rules" element={<RulesPage role="admin" />} />
               <Route path="activity" element={<Activity />} />
+              <Route path="content" element={<AdminContent><ContentStudio /></AdminContent>} />
+              <Route path="content/:subjectId" element={<AdminContent><SubjectEditor /></AdminContent>} />
               <Route path="*" element={<Navigate to="1" replace />} />
             </Routes>
             <TopicPager />
@@ -297,4 +306,9 @@ function TopicPager() {
       )}
     </nav>
   );
+}
+
+// หน้าจัดการวิชาของครู ใช้ token ของ Admin และลิงก์กลับใต้ /admin/content
+function AdminContent({ children }: { children: ReactNode }) {
+  return <ContentScopeContext.Provider value={{ role: "admin", base: "/admin/content" }}>{children}</ContentScopeContext.Provider>;
 }

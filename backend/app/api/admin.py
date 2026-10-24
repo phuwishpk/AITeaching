@@ -133,6 +133,12 @@ def student_activity(code: str | None = None, include_sim: bool = False, limit: 
     return activity.events(code, include_sim, max(1, min(limit, 150)))
 
 
+@router.get("/students/{code}/answers")
+def student_answers(code: str, auth: dict = Depends(admin)):
+    """โจทย์ที่กำลังทำ และคำตอบแต่ละครั้งพร้อมตัวโจทย์และคำตอบที่ถูก"""
+    return services.answer_sheet(code)
+
+
 @router.get("/topics")
 def topics(auth: dict = Depends(admin)):
     return {"topics": principles.TOPICS, "cards": principles.NODE_CARDS}
