@@ -109,7 +109,7 @@ export default function Overview() {
               <thead>
                 <tr>
                   <th>นักเรียน</th>
-                  <th>ตอนนี้</th>
+                  <th style={{ minWidth: 150 }}>ตอนนี้</th>
                   <th>เส้นทาง</th>
                   <th>Mastery เป้าหมาย</th>
                   <th>Risk Score</th>
@@ -141,7 +141,7 @@ export default function Overview() {
                           <span className="faint small">ยังไม่เริ่มเรียน</span>
                         )}
                       </td>
-                      <td className="small">{s.path ? PATH_LABELS[s.path] ?? s.path : "–"}</td>
+                      <td className="small nowrap">{s.path ? PATH_LABELS[s.path] ?? s.path : "–"}</td>
                       <td style={{ minWidth: 120 }}>
                         {mastery != null ? (
                           <div className="row row-sm row-nowrap">

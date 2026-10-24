@@ -1,11 +1,12 @@
-import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
-import { NavLink, Route, Routes } from "react-router";
+import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
+import { Route, Routes } from "react-router";
 import { Bell, BookMarked, Bot, LayoutDashboard, ListChecks, Sparkles, UsersRound } from "lucide-react";
 import { api, clearAuth, getAuth } from "../../lib/api";
 import { useLive } from "../../lib/hooks";
 import type { Alert, Decision, StaffView, Telemetry } from "../../lib/types";
 import type { Centroid } from "../../components/charts";
 import { TopBar } from "../../components/Shell";
+import SideNav from "../../components/SideNav";
 import { StaffLogin } from "../Login";
 import Overview from "./Overview";
 import AlertsPage from "./Alerts";
@@ -158,32 +159,37 @@ function TeacherShell({ onLogout }: { onLogout: () => void }) {
           }
         />
         <div className="side-layout">
-          <nav className="sidebar" aria-label="เมนูครู">
-            <NavItem to="/teacher" end icon={<LayoutDashboard size={17} />}>
-              ภาพรวมห้องเรียน
-            </NavItem>
-            <NavItem to="/teacher/alerts" icon={<Bell size={17} />} count={openAlerts}>
-              การแจ้งเตือน
-            </NavItem>
-            <NavItem to="/teacher/content" icon={<BookMarked size={17} />}>
-              วิชาและชุดคำถาม
-            </NavItem>
-            <NavItem to="/teacher/roster" icon={<UsersRound size={17} />}>
-              รายชื่อนักเรียน
-            </NavItem>
-            <NavItem to="/teacher/tags" icon={<Sparkles size={17} />} count={data?.pending_tags ?? 0} tone="calm">
-              แท็กที่ AI เสนอ
-            </NavItem>
-            <NavItem to="/teacher/ai" icon={<Bot size={17} />}>
-              ตรวจคำตอบของ AI
-            </NavItem>
-            <NavItem to="/teacher/rules" icon={<ListChecks size={17} />}>
-              กฎของระบบ
-            </NavItem>
-            <div className="sidebar-foot xsmall faint">
-              ครูเห็นชื่อจริงและ Risk Score ได้คนเดียว ฝั่งนักเรียนเห็นเพียงแถบความก้าวหน้า
-            </div>
-          </nav>
+          <SideNav
+            label="เมนูครู"
+            sections={[
+              {
+                title: "ติดตามนักเรียน",
+                items: [
+                  { to: "/teacher", end: true, label: "ภาพรวมห้องเรียน", icon: <LayoutDashboard size={17} /> },
+                  { to: "/teacher/alerts", label: "การแจ้งเตือน", icon: <Bell size={17} />, count: openAlerts },
+                ],
+              },
+              {
+                title: "ตรวจงานของ AI",
+                items: [
+                  { to: "/teacher/tags", label: "แท็กที่ AI เสนอ", icon: <Sparkles size={17} />, count: data?.pending_tags ?? 0, tone: "calm" },
+                  { to: "/teacher/ai", label: "คำตอบของ AI", icon: <Bot size={17} /> },
+                ],
+              },
+              {
+                title: "จัดการชั้นเรียน",
+                items: [
+                  { to: "/teacher/content", label: "วิชาและชุดคำถาม", icon: <BookMarked size={17} /> },
+                  { to: "/teacher/roster", label: "รายชื่อนักเรียน", icon: <UsersRound size={17} /> },
+                ],
+              },
+              {
+                title: "คู่มือ",
+                items: [{ to: "/teacher/rules", label: "กฎของระบบ", icon: <ListChecks size={17} /> }],
+              },
+            ]}
+            footer="ครูเห็นชื่อจริงและ Risk Score ได้คนเดียว ฝั่งนักเรียนเห็นเพียงแถบความก้าวหน้า"
+          />
           <main className="side-main">
             <Routes>
               <Route index element={<Overview />} />
@@ -200,29 +206,5 @@ function TeacherShell({ onLogout }: { onLogout: () => void }) {
         <StudentDrawer code={student} onClose={() => setStudent(null)} />
       </div>
     </TeacherContext.Provider>
-  );
-}
-
-function NavItem({
-  to,
-  end,
-  icon,
-  count,
-  tone,
-  children,
-}: {
-  to: string;
-  end?: boolean;
-  icon: ReactNode;
-  count?: number;
-  tone?: "calm";
-  children: ReactNode;
-}) {
-  return (
-    <NavLink to={to} end={end} className={({ isActive }) => `nav-item ${isActive ? "active" : ""}`}>
-      {icon}
-      <span>{children}</span>
-      {!!count && <span className={`nav-count ${tone === "calm" ? "nav-count-calm" : ""}`}>{count}</span>}
-    </NavLink>
   );
 }

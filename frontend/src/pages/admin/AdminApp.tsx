@@ -1,12 +1,13 @@
 import { createContext, useCallback, useContext, useEffect, useRef, useState, type ReactNode } from "react";
-import { Navigate, NavLink, Route, Routes, useLocation, useNavigate } from "react-router";
-import { Activity as ActivityIcon, ListChecks, Presentation, Settings as SettingsIcon } from "lucide-react";
+import { Link, Navigate, Route, Routes, useLocation, useNavigate } from "react-router";
+import { Activity as ActivityIcon, ArrowLeft, ArrowRight, ListChecks, Presentation, Settings as SettingsIcon } from "lucide-react";
 import { api, clearAuth, getAuth } from "../../lib/api";
 import { useLive } from "../../lib/hooks";
 import type { StaffView } from "../../lib/types";
 import type { FlowEdge, FlowNode, FlowPosition } from "../../components/FlowMap";
 import type { Principle } from "../../components/PrincipleCard";
 import { TopBar } from "../../components/Shell";
+import SideNav from "../../components/SideNav";
 import { Button } from "../../components/ui";
 import { StaffLogin } from "../Login";
 import Topic1 from "./Topic1";
@@ -58,13 +59,13 @@ export function useAdmin() {
 }
 
 export const TOPICS = [
-  { id: "1", short: "ปัญหา", title: "ที่มาและสภาพปัญหาในสถานศึกษา" },
-  { id: "2", short: "สถาปัตยกรรม", title: "สถาปัตยกรรม 4 แบบจำลอง" },
-  { id: "3", short: "ผังตรรกะ", title: "พิมพ์เขียวตรรกะระบบและการไหลของข้อมูล" },
-  { id: "4", short: "AI", title: "เครื่องมือและการบูรณาการ AI" },
-  { id: "5", short: "สาธิต", title: "สาธิตการทำงานของต้นแบบ" },
-  { id: "6", short: "Stress Test", title: "การทดสอบจุดบอดและกรณีข้อยกเว้น" },
-  { id: "7", short: "HITL · จริยธรรม", title: "การควบคุมโดยมนุษย์ จริยธรรม และความเป็นส่วนตัว" },
+  { id: "1", menu: "ปัญหาและความต้องการ", title: "ที่มาและสภาพปัญหาในสถานศึกษา" },
+  { id: "2", menu: "สถาปัตยกรรม 4 แบบจำลอง", title: "สถาปัตยกรรม 4 แบบจำลอง" },
+  { id: "3", menu: "ผังตรรกะสด", title: "พิมพ์เขียวตรรกะระบบและการไหลของข้อมูล" },
+  { id: "4", menu: "เครื่องมือ AI", title: "เครื่องมือและการบูรณาการ AI" },
+  { id: "5", menu: "สาธิตต้นแบบ", title: "สาธิตการทำงานของต้นแบบ" },
+  { id: "6", menu: "ทดสอบกรณีพิเศษ", title: "การทดสอบจุดบอดและกรณีข้อยกเว้น" },
+  { id: "7", menu: "มนุษย์กำกับ · จริยธรรม", title: "การควบคุมโดยมนุษย์ จริยธรรม และความเป็นส่วนตัว" },
 ];
 
 const PRESENT_KEY = "adaptive-tutor:present";
@@ -194,56 +195,53 @@ function AdminShell({ onLogout }: { onLogout: () => void }) {
               >
                 Presentation View
               </Button>
-              <NavLink
-                to="/admin/settings"
-                aria-label="ตั้งค่า"
-                className={({ isActive }) => `btn btn-ghost btn-sm ${isActive ? "is-active" : ""}`}
-              >
-                <SettingsIcon size={16} />
-                <span className="btn-label">ตั้งค่า</span>
-              </NavLink>
             </>
           }
         />
-        <nav className="topic-nav" aria-label="หัวข้อการนำเสนอ">
-          <div className="topic-nav-inner">
-            {TOPICS.map((topic) => (
-              <NavLink key={topic.id} to={`/admin/${topic.id}`} className={({ isActive }) => `topic-tab ${isActive ? "active" : ""}`} title={topic.title}>
-                <span className="topic-num">{topic.id}</span>
-                <span>{topic.short}</span>
-              </NavLink>
-            ))}
-            <span className="topic-sep" aria-hidden />
-            <NavLink to="/admin/activity" className={({ isActive }) => `topic-tab ${isActive ? "active" : ""}`} title="นักเรียนทำอะไร และการกระทำเข้าไปตรงไหนในผัง">
-              <span className="topic-num">
-                <ActivityIcon size={14} />
-              </span>
-              <span>กิจกรรมสด</span>
-            </NavLink>
-            <NavLink to="/admin/rules" className={({ isActive }) => `topic-tab ${isActive ? "active" : ""}`} title="กฎทั้งหมดที่ระบบใช้ตัดสิน">
-              <span className="topic-num">
-                <ListChecks size={14} />
-              </span>
-              <span>กฎทั้งหมด</span>
-            </NavLink>
-          </div>
-        </nav>
-        <main>
-          <Routes>
-            <Route index element={<Navigate to="3" replace />} />
-            <Route path="1" element={<Topic1 />} />
-            <Route path="2" element={<Topic2 />} />
-            <Route path="3" element={<Topic3 />} />
-            <Route path="4" element={<Topic4 />} />
-            <Route path="5" element={<Topic5 />} />
-            <Route path="6" element={<Topic6 />} />
-            <Route path="7" element={<Topic7 />} />
-            <Route path="settings" element={<Settings />} />
-            <Route path="rules" element={<RulesPage role="admin" />} />
-            <Route path="activity" element={<Activity />} />
-            <Route path="*" element={<Navigate to="3" replace />} />
-          </Routes>
-        </main>
+        <div className="side-layout">
+          <SideNav
+            label="เมนูผู้ดูแลระบบ"
+            sections={[
+              {
+                title: "นำเสนอตามลำดับสไลด์",
+                items: TOPICS.map((topic) => ({
+                  to: `/admin/${topic.id}`,
+                  label: topic.menu,
+                  icon: <span className="nav-num">{topic.id}</span>,
+                })),
+              },
+              {
+                title: "ดูระบบทำงานจริง",
+                items: [
+                  { to: "/admin/activity", label: "กิจกรรมสดของนักเรียน", icon: <ActivityIcon size={17} /> },
+                  { to: "/admin/rules", label: "กฎทั้งหมด", icon: <ListChecks size={17} /> },
+                ],
+              },
+              {
+                title: "ระบบ",
+                items: [{ to: "/admin/settings", label: "ตั้งค่า (API key, PIN)", icon: <SettingsIcon size={17} /> }],
+              },
+            ]}
+            footer="หน้านี้เห็นนักเรียนเป็นรหัสเท่านั้น ใช้ Presentation View ตอนฉายจอ"
+          />
+          <main className="side-main">
+            <Routes>
+              <Route index element={<Navigate to="1" replace />} />
+              <Route path="1" element={<Topic1 />} />
+              <Route path="2" element={<Topic2 />} />
+              <Route path="3" element={<Topic3 />} />
+              <Route path="4" element={<Topic4 />} />
+              <Route path="5" element={<Topic5 />} />
+              <Route path="6" element={<Topic6 />} />
+              <Route path="7" element={<Topic7 />} />
+              <Route path="settings" element={<Settings />} />
+              <Route path="rules" element={<RulesPage role="admin" />} />
+              <Route path="activity" element={<Activity />} />
+              <Route path="*" element={<Navigate to="1" replace />} />
+            </Routes>
+            <TopicPager />
+          </main>
+        </div>
       </div>
     </AdminContext.Provider>
   );
@@ -260,5 +258,43 @@ export function TopicHeader({ id, lead, children }: { id: string; lead?: string;
       </div>
       {children}
     </header>
+  );
+}
+
+// ท้ายหน้าของแต่ละหัวข้อ: ไปหัวข้อก่อนหน้าหรือถัดไปตามลำดับสไลด์
+function TopicPager() {
+  const location = useLocation();
+  const index = TOPICS.findIndex((t) => location.pathname.endsWith(`/admin/${t.id}`));
+  if (index < 0) return null;
+  const prev = TOPICS[index - 1];
+  const next = TOPICS[index + 1];
+  return (
+    <nav className="topic-pager" aria-label="เปลี่ยนหัวข้อ">
+      {prev ? (
+        <Link to={`/admin/${prev.id}`} className="pager-link">
+          <ArrowLeft size={16} />
+          <span className="stack" style={{ gap: 0 }}>
+            <span className="xsmall faint">หัวข้อที่ {prev.id}</span>
+            <span>{prev.menu}</span>
+          </span>
+        </Link>
+      ) : (
+        <span />
+      )}
+      <span className="xsmall faint">
+        หัวข้อ {index + 1} จาก {TOPICS.length}
+      </span>
+      {next ? (
+        <Link to={`/admin/${next.id}`} className="pager-link pager-next">
+          <span className="stack" style={{ gap: 0 }}>
+            <span className="xsmall faint">หัวข้อที่ {next.id}</span>
+            <span>{next.menu}</span>
+          </span>
+          <ArrowRight size={16} />
+        </Link>
+      ) : (
+        <span />
+      )}
+    </nav>
   );
 }

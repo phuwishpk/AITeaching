@@ -1177,7 +1177,10 @@
 }
 
 /* ---------- หน้า Admin ---------- */
-.admin .topbar-inner,
+.admin .topbar-inner {
+  max-width: none;
+}
+
 .admin .page {
   max-width: 1480px;
 }
@@ -1189,73 +1192,6 @@
 /* ปุ่มแบ่งส่วนในคอลัมน์ไม่ยืดเต็มความกว้าง */
 .stack > .seg {
   align-self: flex-start;
-}
-
-.topic-nav {
-  position: sticky;
-  top: 60px;
-  z-index: 25;
-  background: color-mix(in srgb, var(--bg) 88%, transparent);
-  backdrop-filter: saturate(160%) blur(12px);
-  border-bottom: 1px solid var(--border);
-}
-
-.topic-nav-inner {
-  max-width: 1480px;
-  margin: 0 auto;
-  padding: 8px clamp(16px, 3vw, 32px);
-  display: flex;
-  gap: 6px;
-  overflow-x: auto;
-  scrollbar-width: none;
-}
-
-.topic-nav-inner::-webkit-scrollbar {
-  display: none;
-}
-
-.topic-tab {
-  display: inline-flex;
-  align-items: center;
-  gap: 8px;
-  padding: 6px 14px 6px 7px;
-  border-radius: 999px;
-  border: 1px solid transparent;
-  color: var(--text-2);
-  font-size: var(--fs-sm);
-  font-weight: 500;
-  white-space: nowrap;
-  transition: background 0.15s ease, color 0.15s ease;
-}
-
-.topic-tab:hover {
-  background: var(--surface);
-  color: var(--text);
-  text-decoration: none;
-}
-
-.topic-tab.active {
-  background: var(--surface);
-  border-color: var(--border);
-  box-shadow: var(--shadow-1);
-  color: var(--text);
-}
-
-.topic-num {
-  width: 24px;
-  height: 24px;
-  border-radius: 50%;
-  display: grid;
-  place-items: center;
-  font-size: var(--fs-xs);
-  font-weight: 600;
-  background: var(--surface-3);
-  color: var(--text-2);
-}
-
-.topic-tab.active .topic-num {
-  background: var(--accent);
-  color: var(--on-accent);
 }
 
 .btn.is-active {
@@ -1598,10 +1534,17 @@
   font-size: var(--fs-base);
 }
 
-.admin.present .topbar-inner,
-.admin.present .page,
-.admin.present .topic-nav-inner {
+.admin.present .page {
   max-width: 1760px;
+}
+
+/* ตอนฉายจอซ่อนเมนูข้าง ใช้ลูกศรซ้ายขวาหรือปุ่มท้ายหน้าเปลี่ยนหัวข้อ */
+.admin.present .side-layout {
+  grid-template-columns: minmax(0, 1fr);
+}
+
+.admin.present .sidebar {
+  display: none;
 }
 
 .admin.present .lead {
@@ -1627,13 +1570,6 @@
 }
 
 /* ---------- หน้ากฎทั้งหมด ---------- */
-.topic-sep {
-  flex: none;
-  width: 1px;
-  margin: 6px 6px;
-  background: var(--border-strong);
-}
-
 .rules-tools {
   flex-wrap: nowrap;
 }
@@ -1703,7 +1639,7 @@
 }
 
 .rule-group {
-  scroll-margin-top: 140px;
+  scroll-margin-top: 80px;
 }
 
 .rule-list-full {
@@ -1718,7 +1654,7 @@
   gap: 14px;
   padding: 18px 22px;
   border-bottom: 1px solid var(--border);
-  scroll-margin-top: 140px;
+  scroll-margin-top: 80px;
 }
 
 .rule:last-child {
@@ -1841,7 +1777,6 @@
 /* พิมพ์หน้ากฎไว้อ่านเตรียมตอบคำถาม: เอาแถบเมนูและเครื่องมือออก */
 @media print {
   .topbar,
-  .topic-nav,
   .sidebar,
   .rules-tools,
   .rule-toc,
@@ -1920,14 +1855,14 @@
 
 .activity-list-card {
   position: sticky;
-  top: 132px;
+  top: 76px;
 }
 
 .activity-list {
   list-style: none;
   margin: 0;
   padding: 6px;
-  max-height: calc(100vh - 260px);
+  max-height: calc(100vh - 200px);
   overflow-y: auto;
 }
 
@@ -2051,4 +1986,96 @@
 .rule-pill .mono {
   color: var(--accent);
   font-size: var(--fs-xs);
+}
+
+/* ---------- เมนูข้างแบบแบ่งกลุ่ม ---------- */
+.nav-section {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.nav-section + .nav-section {
+  margin-top: 14px;
+}
+
+.nav-section-title {
+  padding: 4px 12px 6px;
+  font-size: var(--fs-xs);
+  font-weight: 600;
+  color: var(--text-3);
+}
+
+.nav-num {
+  flex: none;
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  font-size: 11px;
+  font-weight: 600;
+  background: var(--surface-3);
+  color: var(--text-2);
+}
+
+.nav-item.active .nav-num {
+  background: var(--accent);
+  color: var(--on-accent);
+}
+
+.sidebar {
+  position: sticky;
+  top: 60px;
+  height: calc(100vh - 60px);
+  overflow-y: auto;
+}
+
+@media (max-width: 860px) {
+  .sidebar {
+    position: static;
+    height: auto;
+  }
+
+  .nav-section {
+    display: contents;
+  }
+
+  .nav-section-title {
+    display: none;
+  }
+}
+
+.topic-pager {
+  max-width: 1480px;
+  margin: 0 auto;
+  padding: 0 clamp(16px, 3vw, 32px) 48px;
+  display: grid;
+  grid-template-columns: 1fr auto 1fr;
+  align-items: center;
+  gap: 12px;
+}
+
+.pager-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  justify-self: start;
+  padding: 10px 14px;
+  border-radius: var(--radius);
+  border: 1px solid var(--border);
+  background: var(--surface);
+  color: var(--text);
+  font-size: var(--fs-sm);
+  font-weight: 500;
+}
+
+.pager-link:hover {
+  border-color: var(--accent);
+  text-decoration: none;
+}
+
+.pager-next {
+  justify-self: end;
+  text-align: right;
 }
