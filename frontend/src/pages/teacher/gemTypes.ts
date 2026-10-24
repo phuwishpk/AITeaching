@@ -47,6 +47,8 @@ export interface BankStats {
   remedial: number;
   challenge: number;
   flagged: number;
+  pending: number;
+  check: number;
   formats: string[];
 }
 

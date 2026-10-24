@@ -58,7 +58,7 @@ def fake_llm(monkeypatch, resolve_wrong: set[int] = frozenset()):
         elif "ชุดที่ 2" in user:
             payload = ITEMS_B
         elif "ชุดที่ 9" in user:  # สร้างโจทย์สดระหว่างเรียน
-            payload = {"items": [_item("7x + 2 = 30", 4, 5)]}
+            payload = {"items": [_item("7x + 2 = 30", 4, 4)]}
         elif "โจทย์ทบทวนพื้นฐาน" in user:
             payload = EXTRAS
         elif "แก้โจทย์ต่อไปนี้" in user:
@@ -447,3 +447,50 @@ def test_journey_shows_teacher_response_time(monkeypatch):
     assert "แก้ร่าง" in actions[1]["text"]
     assert trip["run"]["gem"]["id"] == gem["id"] and trip["run"]["gem"]["version"]
     assert trip["summary"]["alerts"] == 2 and trip["summary"]["responses"] == 1
+
+
+def test_teacher_reviews_adds_edits_and_removes_items(monkeypatch):
+    fake_llm(monkeypatch)
+    gem = manage.create({"name": "คลัง"}, "teacher")
+    asyncio.run(builder.build(gem["id"]))
+    gem = manage.get(gem["id"])
+    client = TestClient(app)
+    teacher = {"Authorization": f"Bearer {issue_token('teacher')}"}
+    base = f"/api/gems/{gem['id']}"
+    bank = client.get(f"{base}/items", headers=teacher).json()
+    assert {i["status"] for i in bank["items"]} >= {"active", "flagged"}
+
+    # AI สร้างเพิ่ม: รอครูอนุมัติ ยังไม่ถึงนักเรียน
+    after = client.post(f"{base}/generate", headers=teacher, json={"count": 1})
+    assert after.status_code == 400  # ยังไม่มี API key ในเทสต์
+    asyncio.run(builder.generate_items(gem["subject_id"], {"difficulty": 50, "count": 1}, builder.REVIEW_PENDING))
+    pending = [i for i in client.get(f"{base}/items", headers=teacher).json()["items"] if i["status"] == "pending"]
+    assert pending and pending[0]["id"] not in services.content_for(gem["subject_id"], gem["set_id"]).items
+    client.post(f"{base}/items/{pending[0]['id']}/approve", headers=teacher)
+    services.invalidate_content()
+    assert pending[0]["id"] in services.content_for(gem["subject_id"], gem["set_id"]).items
+
+    # ครูแก้ข้อที่ติดธง: ธงหายเพราะครูเป็นผู้ตัดสินสุดท้าย และ sympy เตือนถ้ายังไม่ตรง
+    fixed = client.put(f"{base}/items/G-03", headers=teacher, json={
+        "prompt": "จงหาค่าของ x", "math": "4x + 1 = 21", "format": "numeric", "answer": {"value": "5"},
+        "hints": {"1": "ดูฝั่งซ้าย", "2": "ใช้สมบัติการเท่ากัน", "3": "ลบ 1 ทั้งสองข้าง"}}).json()
+    item = next(i for i in fixed["items"] if i["id"] == "G-03")
+    assert item["status"] == "active" and fixed["warning"] is None
+    wrong = client.put(f"{base}/items/G-03", headers=teacher, json={**item, "answer": {"value": "6"}}).json()
+    assert "sympy" in wrong["warning"]
+
+    # ครูเพิ่มโจทย์ปรนัยเอง แล้วลบ
+    added = client.post(f"{base}/items", headers=teacher, json={
+        "kind": "main", "prompt": "ข้อใดคือคำตอบของ x + 1 = 3", "format": "mcq",
+        "options": [{"text": "1"}, {"text": "2"}], "answer": {"option": "b"}}).json()
+    assert added["saved"] == "K-01"
+    assert client.post(f"{base}/items", headers=teacher, json={"prompt": "x", "format": "mcq", "options": [{"text": "1"}],
+                                                              "answer": {"option": "a"}}).status_code == 400
+    removed = client.delete(f"{base}/items/K-01", headers=teacher).json()
+    assert all(i["id"] != "K-01" for i in removed["items"])
+    notes = [v["note"] for v in manage.versions.history(gem["id"])]
+    assert "ครูเพิ่มโจทย์ K-01" in notes and "ครูลบโจทย์ K-01" in notes
+    # Gem ยังเปิดให้นักเรียนได้ แม้โจทย์ที่ครูเพิ่มยังไม่มีข้อคู่ขนาน
+    from app.content.readiness import check_set
+    assert check_set(builder.usable(db.get_subject(gem["subject_id"])), gem["set_id"])["ok"]
+    assert client.get(f"{base}/items", headers={"Authorization": f"Bearer {issue_token('admin')}"}).status_code == 403

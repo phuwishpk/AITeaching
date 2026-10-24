@@ -9,7 +9,7 @@ from pydantic import BaseModel
 
 from .. import db, seed, services
 from ..gems import alerts as gem_alerts
-from ..gems import builder, design, manage, versions
+from ..gems import builder, design, items, manage, versions
 from ..tutor import rag, service
 from .deps import require
 
@@ -37,6 +37,10 @@ class RefineBody(BaseModel):
 
 class FlagBody(BaseModel):
     keep: bool
+
+
+class GenerateBody(BaseModel):
+    count: int = 2
 
 
 class PreviewAnswer(BaseModel):
@@ -115,9 +119,15 @@ async def build_gem(gem_id: str, auth: dict = Depends(teacher)):
     reason = manage.can_build()
     if reason:
         raise HTTPException(400, reason)
-    asyncio.create_task(builder.build(gem_id))
+    asyncio.create_task(_build(gem_id))
     await asyncio.sleep(0)
     return manage.detail(manage.get(gem_id))
+
+
+async def _build(gem_id: str):
+    await builder.build(gem_id)
+    # Gem แรกที่พร้อม: สร้างนักเรียนจำลองให้สถิติห้องและ K-Means ในหน้า Admin มีข้อมูล
+    seed.ensure_cohort()
 
 
 @router.post("/refine")
@@ -264,3 +274,55 @@ async def preview_chat(gem_id: str, body: PreviewChat, auth: dict = Depends(teac
     gem = _load(gem_id)
     code = _preview_code(gem)
     return _preview(code, await services.chat(code, _preview_set(gem), body.message))
+
+
+# ---------------------------------------------------------------- คลังโจทย์: ครูตรวจ เพิ่ม แก้ ลบ (Human-in-the-Loop)
+
+def _items(call):
+    try:
+        return call()
+    except (items.ItemError, manage.GemError) as error:
+        raise HTTPException(400, str(error)) from error
+
+
+@router.get("/{gem_id}/items")
+def bank_items(gem_id: str, auth: dict = Depends(teacher)):
+    _load(gem_id)
+    return _items(lambda: items.listing(gem_id))
+
+
+@router.post("/{gem_id}/items")
+def add_item(gem_id: str, body: dict, auth: dict = Depends(teacher)):
+    _load(gem_id)
+    return _items(lambda: items.save(gem_id, None, body))
+
+
+@router.put("/{gem_id}/items/{item_id}")
+def edit_item(gem_id: str, item_id: str, body: dict, auth: dict = Depends(teacher)):
+    _load(gem_id)
+    return _items(lambda: items.save(gem_id, item_id, body))
+
+
+@router.delete("/{gem_id}/items/{item_id}")
+def delete_item(gem_id: str, item_id: str, auth: dict = Depends(teacher)):
+    _load(gem_id)
+    return _items(lambda: items.remove(gem_id, item_id))
+
+
+@router.post("/{gem_id}/items/{item_id}/approve")
+def approve_item(gem_id: str, item_id: str, auth: dict = Depends(teacher)):
+    _load(gem_id)
+    return _items(lambda: items.approve(gem_id, item_id))
+
+
+@router.post("/{gem_id}/generate")
+async def generate_items(gem_id: str, body: GenerateBody, auth: dict = Depends(teacher)):
+    """ให้ AI สร้างโจทย์เพิ่ม ข้อใหม่รอครูอนุมัติก่อนถึงนักเรียน"""
+    _load(gem_id)
+    reason = manage.can_build()
+    if reason:
+        raise HTTPException(400, reason)
+    try:
+        return await items.generate(gem_id, body.count)
+    except items.ItemError as error:
+        raise HTTPException(400, str(error)) from error

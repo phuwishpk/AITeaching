@@ -3871,3 +3871,46 @@ button.route-node:hover {
 .provider-backup[open] > summary {
   margin-bottom: 12px;
 }
+
+/* ---------- คลังโจทย์ของ Gem: ครูตรวจทีละข้อ ---------- */
+.bank-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.bank-row {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 12px 14px;
+  border-radius: 12px;
+  border: 1px solid var(--border);
+  border-left-width: 4px;
+  background: var(--surface);
+}
+
+.bank-row.status-active {
+  border-left-color: var(--success);
+}
+
+.bank-row.status-flagged {
+  border-left-color: var(--warning);
+}
+
+.bank-row.status-pending {
+  border-left-color: var(--info);
+}
+
+.bank-row.status-check {
+  border-left-color: var(--calm);
+}
+
+.gem-flag-reasons li {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}

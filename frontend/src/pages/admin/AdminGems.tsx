@@ -7,7 +7,7 @@ import { ago } from "../../lib/format";
 import FlowMap from "../../components/FlowMap";
 import GemIcon from "../../components/GemIcon";
 import { FRAME_LABEL } from "../../components/AiLog";
-import { Badge, Card, CardHead, Empty, Spinner } from "../../components/ui";
+import { Badge, Button, Card, CardHead, Empty, Spinner, useToast } from "../../components/ui";
 import { STATUS_TEXT, TOOL_LABELS, type AlertRule, type GemDetail, type GemSummary, type GemTools } from "../teacher/gemTypes";
 import { useAdmin } from "./AdminApp";
 import NodeInspector from "./NodeInspector";
@@ -37,6 +37,23 @@ export default function AdminGems() {
   const design = useLoad(() => (selected ? api<GemDesign>("admin", `/api/gems/${selected}/design`) : Promise.resolve(null)), [selected]);
   const [inspect, setInspect] = useState<string | null>(null);
   const now = useNow(30000);
+  const toast = useToast();
+  const demoGem = useLoad(() => api<{ gem_id: string | null }>("admin", "/api/admin/demo-gem"));
+  const [switching, setSwitching] = useState(false);
+
+  // Gem ที่ใช้สาธิตหัวข้อ 2–6 และนักเรียนจำลอง เป็นการตั้งค่าระบบ Admin เลือกได้
+  const chooseForDemo = async (gemId: string) => {
+    setSwitching(true);
+    try {
+      const result = await api<{ students: number }>("admin", "/api/admin/demo-gem", { method: "PUT", body: { gem_id: gemId } });
+      toast(`ใช้ Gem นี้สาธิตหัวข้อ 2–6 แล้ว สร้างนักเรียนจำลองใหม่ ${result.students} คน`, "success");
+      demoGem.reload();
+    } catch (err) {
+      toast(err instanceof Error ? err.message : "เปลี่ยน Gem ที่ใช้สาธิตไม่สำเร็จ", "warning");
+    } finally {
+      setSwitching(false);
+    }
+  };
 
   useEffect(() => {
     if (!params.get("gem") && gems.data?.[0]) setParams({ gem: gems.data[0].id }, { replace: true });
@@ -85,6 +102,15 @@ export default function AdminGems() {
                 <span className="strong">{d.name}</span>
                 <Badge>เวอร์ชัน {d.version ?? "–"}</Badge>
                 {d.bank && <Badge tone="info">คลังรุ่นที่ {d.bank_version}</Badge>}
+                {demoGem.data?.gem_id === d.id ? (
+                  <Badge tone="success">ใช้สาธิตหัวข้อ 2–6 อยู่</Badge>
+                ) : (
+                  d.bank && (
+                    <Button size="sm" variant="soft" loading={switching} onClick={() => chooseForDemo(d.id)}>
+                      ใช้ Gem นี้สาธิตหัวข้อ 2–6
+                    </Button>
+                  )
+                )}
               </span>
               <ul className="flow-legend xsmall muted">
                 <li>

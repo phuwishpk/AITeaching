@@ -311,9 +311,16 @@ interface PreviewResult {
 function PromptInspector() {
   const sample = useLoad(() => api<SampleData>("admin", "/api/admin/sample"));
   const stats = useLoad(() => api<any>("admin", "/api/admin/ai/stats"));
-  const [itemId, setItemId] = useState("T-01");
+  const [itemId, setItemId] = useState("");
   const [level, setLevel] = useState("1");
-  const [tag, setTag] = useState("M-SIGN");
+  const [tag, setTag] = useState("");
+
+  // ค่าเริ่มต้นจากคลังของ Gem ที่ใช้สาธิต: โจทย์หลักข้อแรก และ Misconception ข้อแรก
+  useEffect(() => {
+    if (!sample.data) return;
+    setItemId((current) => current || sample.data!.items.find((it) => it.kind === "main")?.id || "");
+    setTag((current) => current || sample.data!.bug_tags.find((t) => t.type === "misconception")?.id || "");
+  }, [sample.data]);
   const [busy, setBusy] = useState(false);
   const [result, setResult] = useState<PreviewResult | null>(null);
 

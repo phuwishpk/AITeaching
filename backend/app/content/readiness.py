@@ -40,7 +40,10 @@ def check_set(subject: dict, set_id: str) -> dict:
         if not _has_answer(it):
             errors.append(f"{label} ยังไม่ได้กำหนดคำตอบที่ถูก")
         isos = [items[i] for i in it.get("isomorphs", []) if i in items]
-        if not isos:
+        if not isos and subject.get("gem"):
+            # Gem: ข้อที่ครูเพิ่มเองอาจยังไม่มีข้อคู่ขนาน engine ข้าม Isomorphic Test ไปได้ จึงเป็นแค่คำเตือน
+            warnings.append(f"{label} ยังไม่มี Isomorphic Item ผ่านด้วยคำใบ้แล้วจะข้าม Isomorphic Test")
+        elif not isos:
             errors.append(f"{label} ยังไม่มี Isomorphic Item")
         elif len(isos) < 2:
             warnings.append(f"{label} มี Isomorphic Item 1 ข้อ ควรมีอย่างน้อย 2 ข้อ (สอบคู่ขนานได้ 2 รอบ)")

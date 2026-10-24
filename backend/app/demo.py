@@ -2,6 +2,7 @@
 
 นักเรียนจำลองวิ่งผ่าน engine ตัวเดียวกับนักเรียนจริง แต่ใช้นาฬิกาจำลองของตัวเอง
 จึงสร้าง Decision Trace ได้จริงโดยไม่ต้องรอเวลาจริง และไม่เรียก AI (ใช้คำใบ้ต้นฉบับ)
+ทุกอย่างทำงานบน "Gem ที่ใช้สาธิต" ที่ Admin เลือก (ถ้ายังไม่เลือก ใช้ Gem แรกที่สร้างคลังโจทย์เสร็จ)
 """
 
 import asyncio
@@ -18,7 +19,22 @@ from .engine.core import Ctx, Fx
 from .hub import hub
 from .tutor import distress, guard
 
-SET_ID = "QS-1"
+DEMO_GEM_KEY = "demo_gem"
+
+
+def demo_gem() -> dict | None:
+    """Gem ที่ใช้สาธิตหัวข้อ 2–6 และนักเรียนจำลอง"""
+    ready = [g for g in db.list_gems() if g.get("set_id") and db.get_subject(g.get("subject_id") or "")]
+    chosen = db.get_setting(DEMO_GEM_KEY)
+    return next((g for g in ready if g["id"] == chosen), None) or min(ready, key=lambda g: g.get("created_at", 0), default=None)
+
+
+def demo_content():
+    """(set_id, Content) ของคลังรุ่นปัจจุบันของ Gem ที่ใช้สาธิต"""
+    gem = demo_gem()
+    if gem is None:
+        raise services.NotFound("ยังไม่มี Gem ที่พร้อมสาธิต ให้ครูสร้าง Gem ก่อน")
+    return gem["set_id"], services.content_for(gem["subject_id"], gem["set_id"])
 
 PERSONAS = {
     "fast": {"label": "Fast Learners", "acc": 0.9, "rt": (6, 16), "session": (22, 32), "hint_prob": 0.03,
@@ -62,9 +78,10 @@ def other_wrong(it: dict, k: int = 0) -> str:
     return "ไม่ทราบ"
 
 
-def bug_answer(it: dict, tag: str) -> str | None:
+def bug_answer(it: dict, tag: str | None, tags: dict | None = None) -> str | None:
+    """คำตอบผิดที่ตรงกับ Bug Library: ระบุแท็ก หรือ tag=None เพื่อเอา Misconception ข้อแรกของโจทย์นี้"""
     for bug in it.get("bugs", []):
-        if bug["tag"] == tag:
+        if bug["tag"] == tag or (tag is None and (tags or {}).get(bug["tag"], {}).get("type") == "misconception"):
             return str(bug["answer"])
     return None
 
@@ -149,8 +166,8 @@ def _persist_all(state: dict, content, fxs: list[Fx], t: float) -> list[dict]:
 
 
 def seed_cohort(per_persona: int = 8, seed: int = 2026) -> int:
-    subject, _ = services.find_set(SET_ID)
-    content = services.content_for(subject["id"], SET_ID)
+    set_id, content = demo_content()
+    subject = content.subject
     rng = random.Random(seed)
     now = time.time()
     index = 1
@@ -166,9 +183,9 @@ def seed_cohort(per_persona: int = 8, seed: int = 2026) -> int:
                 length = rng.uniform(*persona["session"]) * 60
                 reason = {"fast": "completed", "bite": "student_stop"}.get(key) or rng.choice(["completed", "student_stop", "cap"])
                 db.execute("INSERT INTO sessions (code, set_id, started_at, ended_at, end_reason, items) VALUES (?,?,?,?,?,?)",
-                           (code, SET_ID, start, start + length, reason, rng.randint(3, 15)))
+                           (code, set_id, start, start + length, reason, rng.randint(3, 15)))
             t = now - rng.uniform(900, 5400)
-            state = engine.new_state(code, subject["id"], SET_ID, services.new_session(code, SET_ID, t), t)
+            state = engine.new_state(code, subject["id"], set_id, services.new_session(code, set_id, t), t)
             ctx = Ctx(content, settings_store.params(), 1.0, t)
             _persist_all(state, content, [engine.begin(state, ctx)], t)
             for _ in range(rng.randint(*persona["steps"])):
@@ -189,10 +206,15 @@ async def cohort_tick(max_students: int = 10) -> int:
     for row in rng.sample(rows, min(max_students, len(rows))):
         code = row["code"]
         async with services.lock(code):
-            state = db.load_state(code, SET_ID)
+            # ชุดล่าสุดที่นักเรียนจำลองทำอยู่ (Gem ที่สาธิตอาจเปลี่ยนคลังรุ่นไปแล้ว)
+            states = db.states_for(code)
+            state = max(states, key=lambda s: s["last_activity"]) if states else None
             if not state or state["position"] in (F.DONE, F.ENDED, F.DEADLOCK, F.SAFETY):
                 continue
-            content = services.content_for(state["subject_id"], SET_ID)
+            try:
+                content = services.content_for(state["subject_id"], state["set_id"])
+            except services.NotFound:
+                continue
             t = state.get("virtual_now") or state["last_activity"]
             fxs, t = agent_act(state, content, row["persona"], rng, t)
             alerts = _persist_all(state, content, fxs, t)
@@ -221,29 +243,30 @@ SCENARIOS = {
         "title": "ตอบผิด: Slip กับ Misconception",
         "description": "หน่วงเวลา → คำใบ้ L1 → L2 → L3 โดยไม่หลุดเฉลย ตอบถูกแล้วเจอ Isomorphic Test จากนั้นข้อถัดไปเป็น Slip ที่แก้เองได้",
         "steps": [
-            ("answer", "other", 20), ("wait", 16), ("answer", "bug:M-SIGN", 28), ("answer", "other1", 26),
+            ("answer", "other", 20), ("wait", 16), ("answer", "bug", 28), ("answer", "other1", 26),
             ("answer", "correct", 30), ("answer", "correct", 18), ("answer", "slip", 22), ("answer", "correct", 8),
         ],
     },
     "impasse": {
         "code": "DEMO-3",
         "title": "ติดหล่มความคิด (Impasse)",
-        "description": "ผิด 3 ครั้งโดยเวลาคิดยาวขึ้นทุกครั้ง ระบบพักข้อนี้แล้วส่งไปทบทวนสมบัติการเท่ากัน ผ่าน 2 ข้อแล้วกลับข้อเดิม",
+        "description": "ผิด 3 ครั้งโดยเวลาคิดยาวขึ้นทุกครั้ง ระบบพักข้อนี้แล้วส่งไปทบทวนความรู้พื้นฐานที่ผูกกับความเข้าใจผิด ผ่าน 2 ข้อแล้วกลับข้อเดิม",
         "steps": [
-            ("answer", "bug:M-SIGN", 20), ("wait", 16), ("answer", "other", 35), ("answer", "other1", 55),
+            ("answer", "bug", 20), ("wait", 16), ("answer", "other", 35), ("answer", "other1", 55),
             ("answer", "correct", 15), ("answer", "correct", 12), ("answer", "correct", 25),
         ],
     },
 }
 
 
-def _scenario_answer(it: dict, spec: str) -> str:
+def _scenario_answer(it: dict, spec: str, tags: dict) -> str:
     if spec == "correct":
         return correct_raw(it)
     if spec == "slip":
         return slip_answer(it)
-    if spec.startswith("bug:"):
-        return bug_answer(it, spec[4:]) or other_wrong(it)
+    if spec == "bug":
+        # Misconception ข้อแรกที่ AI ระบุไว้ในโจทย์ข้อนี้ ถ้าไม่มีใช้คำตอบผิดที่ยังจัดประเภทไม่ได้
+        return bug_answer(it, None, tags) or other_wrong(it)
     if spec.startswith("other"):
         return other_wrong(it, int(spec[5:] or 0))
     return spec
@@ -262,14 +285,14 @@ def reset_demo_student(code: str):
 async def run_scenario(name: str, pause: float = 1.4) -> dict:
     scenario = SCENARIOS[name]
     code = scenario["code"]
-    subject, _ = services.find_set(SET_ID)
-    content = services.content_for(subject["id"], SET_ID)
+    set_id, content = demo_content()
+    subject = content.subject
     total_virtual = sum(step[-1] for step in scenario["steps"] if isinstance(step[-1], (int, float))) + 30
     t = time.time() - total_virtual
     log = []
     async with services.lock(code):
         reset_demo_student(code)
-        state = engine.new_state(code, subject["id"], SET_ID, services.new_session(code, SET_ID, t), t)
+        state = engine.new_state(code, subject["id"], set_id, services.new_session(code, set_id, t), t)
         ctx = Ctx(content, settings_store.params(), 1.0, t)
         fx = engine.begin(state, ctx)
         alerts = _persist_all(state, content, [fx], t)
@@ -287,7 +310,7 @@ async def run_scenario(name: str, pause: float = 1.4) -> dict:
                 label = f"รอ {step[1]} วินาที"
             else:
                 it = content.item(state["item"]["id"])
-                raw = _scenario_answer(it, step[1])
+                raw = _scenario_answer(it, step[1], content.tags)
                 t = max(t, state["item"]["ready_at"]) + step[2]
                 ctx.now = t
                 fx = engine.submit(state, ctx, raw)
@@ -427,7 +450,12 @@ def test_prompt_injection(content):
 def test_cross_format(content):
     state, ctx = _fresh(content)
     mcqs = [it for it in content.main_items() if it["format"] == "mcq"][:2]
-    numerics = [it for it in content.main_items() if it["format"] == "numeric"][:2]
+    numerics = [it for it in content.main_items() if it["format"] != "mcq"][:2]
+    if len(mcqs) < 2 or len(numerics) < 2:
+        return _result("cross_format", "ปรนัยได้เต็มแต่เติมคำทำไม่ได้", "ตอบปรนัยถูก 2 ข้อ แล้วตอบเติมคำผิด 2 ข้อ",
+                       "Cross-Format Check ลด Mastery",
+                       f"Gem นี้มีโจทย์หลักแบบปรนัย {len(mcqs)} ข้อ แบบเติมคำ {len(numerics)} ข้อ ต้องมีอย่างละ 2 ข้อจึงทดสอบได้",
+                       False, [])
     t = 1000.0
     for it in mcqs:
         engine.serve(state, _at(ctx, t), it, "main")
@@ -519,9 +547,8 @@ STRESS_TESTS = {
 
 
 def run_stress(case: str) -> dict:
-    subject, _ = services.find_set(SET_ID)
-    content = services.content_for(subject["id"], SET_ID)
     try:
+        _, content = demo_content()
         return STRESS_TESTS[case](content)
     except Exception as error:  # แสดงข้อผิดพลาดในหน้าทดสอบ แทนการล้มทั้งหน้า
         return _result(case, case, "-", "-", f"เกิดข้อผิดพลาด: {error}", False, [])

@@ -4,7 +4,6 @@ import time
 
 from . import db, demo, services
 from .gems import manage
-from .content.sample_math_m2 import SAMPLE_DOCUMENT, SAMPLE_DOCUMENT_NAME, build_subject
 from .tutor import rag
 
 # ชื่อสมมติสำหรับสาธิต ใช้ได้เฉพาะฝั่งครูผ่าน Roster
@@ -34,11 +33,8 @@ def rebuild_index(subject_id: str):
 
 
 def ensure_seed():
-    if not db.list_subjects():
-        subject = build_subject()
-        db.save_subject(subject)
-        add_document(subject["id"], SAMPLE_DOCUMENT_NAME, SAMPLE_DOCUMENT)
-    # ชุดคำถามแบบเดิมกลายเป็น Gem ตัวหนึ่ง (ADR-0003)
+    # ไม่มีวิชาตัวอย่างติดมากับระบบแล้ว บทเรียนทุกชุดเป็น Gem ที่ครูสร้าง (ADR-0003)
+    # วิชาที่ยังไม่เป็น Gem (สร้างจากหน้าแก้เนื้อหาแบบเดิม) แปลงเป็น Gem ให้
     manage.adopt_legacy()
     for subject in db.list_subjects():
         rebuild_index(subject["id"])
@@ -50,6 +46,11 @@ def ensure_seed():
             db.execute("INSERT OR IGNORE INTO students (code, kind, persona, created_at) VALUES (?,?,?,?)",
                        (code, "real", None, now))
             db.execute("INSERT OR REPLACE INTO roster (code, name) VALUES (?, ?)", (code, name))
+    ensure_cohort()
+
+
+def ensure_cohort():
+    """นักเรียนจำลองสำหรับ K-Means และสถิติห้อง สร้างเมื่อมี Gem ที่พร้อมสาธิตแล้ว"""
     if not db.query_one("SELECT code FROM students WHERE kind = 'sim'"):
         try:
             demo.seed_cohort()

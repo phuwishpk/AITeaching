@@ -64,7 +64,9 @@ export default function GemList() {
                 {gem.stats && (
                   <span className="xsmall muted">
                     {gem.stats.main} โจทย์หลัก
-                    {gem.stats.flagged > 0 && <span className="gem-flag-count"> · ติดธง {gem.stats.flagged}</span>}
+                    {gem.stats.flagged + gem.stats.pending + gem.stats.check > 0 && (
+                      <span className="gem-flag-count"> · รอตรวจ {gem.stats.flagged + gem.stats.pending + gem.stats.check}</span>
+                    )}
                   </span>
                 )}
                 {gem.files > 0 && (

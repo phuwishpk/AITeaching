@@ -466,7 +466,8 @@ def apply_checks(items: list[dict], solved: dict[int, object] | None) -> list[st
 
 def usable(subject: dict) -> dict:
     """Subject ที่ตัด Flagged Item ออก (รวมรหัสที่อ้างถึงในชุดคำถามและข้อคู่ขนาน) ใช้ทั้งตรวจความพร้อมและตอนสอน"""
-    flagged = {it["id"] for it in subject.get("items", []) if it.get("flag")}
+    # ข้อที่ติดธงและข้อที่ AI สร้างเพิ่มแต่ครูยังไม่อนุมัติ ไม่ถึงนักเรียน
+    flagged = {it["id"] for it in subject.get("items", []) if it.get("flag") or it.get("review") == REVIEW_PENDING}
     if not flagged:
         return subject
     # โจทย์หลักที่ข้อคู่ขนานติดธงทั้งหมด ใช้ Isomorphic Test ไม่ได้ จึงพักไว้ด้วยจนครูตรวจ
@@ -590,8 +591,20 @@ async def build(gem_id: str) -> None:
         _running.discard(gem_id)
 
 
+# สถานะการตรวจของครู (Human-in-the-Loop) นอกเหนือจากธงของ Answer Key Check
+# pending = AI สร้างจากปุ่ม "สร้างเพิ่ม" ยังไม่ถึงนักเรียนจนครูอนุมัติ
+# check = AI สร้างสดระหว่างเรียน นักเรียนใช้ได้ทันที แต่รอครูตรวจย้อนหลัง
+REVIEW_PENDING = "pending"
+REVIEW_CHECK = "check"
+
+
 async def generate_live(subject_id: str, request: dict) -> list[str]:
-    """Live Generation: สร้างโจทย์หลักพร้อมข้อคู่ขนานเพิ่มเข้าคลังรุ่นนี้ระหว่างเรียน ตรวจเฉลยเหมือนตอนสร้างคลัง
+    """Live Generation: สร้างโจทย์หลักพร้อมข้อคู่ขนานระหว่างเรียน ใช้ได้ทันทีแต่รอครูตรวจย้อนหลัง"""
+    return await generate_items(subject_id, request, REVIEW_CHECK)
+
+
+async def generate_items(subject_id: str, request: dict, review: str) -> list[str]:
+    """สร้างโจทย์หลักพร้อมข้อคู่ขนานเพิ่มเข้าคลังรุ่นนี้ ตรวจเฉลยเหมือนตอนสร้างคลัง
 
     คืนรหัสโจทย์หลักใหม่ที่ผ่านการตรวจ ข้อที่ไม่ผ่านเก็บไว้แบบติดธงให้ครูตรวจทีหลัง
     """
@@ -624,7 +637,7 @@ async def generate_live(subject_id: str, request: dict) -> list[str]:
         if iso:
             iso["iso_of"] = main["id"]
             main["isomorphs"] = [iso["id"]]
-        main["live"] = True
+        main["live"] = review == REVIEW_CHECK
         taken |= {main["id"]} | ({iso["id"]} if iso else set())
         mains.append(main)
         new_items += [main] + ([iso] if iso else [])
@@ -637,6 +650,8 @@ async def generate_live(subject_id: str, request: dict) -> list[str]:
     except BuildError:
         solved = None
     apply_checks(new_items, solved)
+    for item in new_items:
+        item["review"] = review
     # อ่านใหม่ก่อนบันทึก ระหว่างรอ AI ครูอาจแก้คลังหรือนักเรียนคนอื่นสร้างโจทย์เพิ่ม
     subject = db.get_subject(subject_id)
     subject["items"] += new_items
@@ -667,5 +682,7 @@ def bank_stats(subject: dict) -> dict:
         "concepts": len(subject["concepts"]), "bugs": len(subject["bug_tags"]),
         "main": kinds["main"], "isomorphic": kinds["isomorphic"], "remedial": kinds["remedial"],
         "challenge": kinds["challenge"], "flagged": sum(1 for it in items if it.get("flag")),
+        "pending": sum(1 for it in items if it.get("review") == REVIEW_PENDING and not it.get("flag")),
+        "check": sum(1 for it in items if it.get("review") == REVIEW_CHECK and not it.get("flag")),
         "formats": sorted({it["format"] for it in items}),
     }

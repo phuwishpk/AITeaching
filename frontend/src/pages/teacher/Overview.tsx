@@ -57,7 +57,9 @@ export default function Overview() {
   const now = useNow(15000);
   const navigate = useNavigate();
   const gems = useLoad(() => api<GemSummary[]>("teacher", "/api/gems"), [Math.floor(liveVersion / 20)]);
-  const flaggedGems = (gems.data ?? []).filter((g) => (g.stats?.flagged ?? 0) > 0);
+  // โจทย์ที่รอครูตรวจ: เฉลยติดธง AI สร้างเพิ่มรออนุมัติ และโจทย์สดที่นักเรียนใช้ไปแล้ว
+  const review = (g: GemSummary) => (g.stats?.flagged ?? 0) + (g.stats?.pending ?? 0) + (g.stats?.check ?? 0);
+  const flaggedGems = (gems.data ?? []).filter((g) => review(g) > 0);
 
   const students = useMemo(() => {
     const list = (data?.students ?? []).filter((s) => scope === "all" || s.kind !== "sim");
@@ -163,10 +165,14 @@ export default function Overview() {
         <div key={g.id} className="flag-banner fade-in">
           <Flag size={18} />
           <span className="grow small">
-            Gem <span className="strong">{g.name}</span> มีเฉลยติดธง {g.stats!.flagged} ข้อ นักเรียนจะยังไม่ได้ข้อเหล่านี้จนกว่าครูตรวจ
+            Gem <span className="strong">{g.name}</span> มีโจทย์รอครูตรวจ {review(g)} ข้อ
+            <span className="muted">
+              {" "}
+              (ติดธง {g.stats!.flagged} · รออนุมัติ {g.stats!.pending} · สร้างสดระหว่างเรียน {g.stats!.check})
+            </span>
           </span>
           <Button size="sm" variant="secondary" onClick={() => navigate(`/teacher/gems/${g.id}`)}>
-            ตรวจเฉลย
+            ตรวจโจทย์
           </Button>
         </div>
       ))}

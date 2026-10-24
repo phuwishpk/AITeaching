@@ -5,7 +5,6 @@ import {
   Check,
   CircleAlert,
   FileText,
-  Flag,
   Info,
   LoaderCircle,
   Lock,
@@ -24,7 +23,8 @@ import { mmss } from "../../lib/format";
 import GemIcon, { GEM_COLORS, GEM_ICONS } from "../../components/GemIcon";
 import { Badge, Button, Modal, Spinner, Tabs, useToast } from "../../components/ui";
 import { PreviewTry, Versions } from "./GemPreview";
-import { STATUS_TEXT, TOOL_LABELS, type AlertLevel, type AlertRule, type BankItem, type GemDetail, type GemMeta, type GemTools } from "./gemTypes";
+import GemItems from "./GemItems";
+import { STATUS_TEXT, TOOL_LABELS, type AlertLevel, type AlertRule, type GemDetail, type GemMeta, type GemTools } from "./gemTypes";
 
 // หน้าสร้างและแก้ Gem แบบ Gemini: ฟอร์มด้านซ้าย พรีวิวด้านขวา กดบันทึกแล้ว AI สร้างคลังโจทย์ให้
 
@@ -184,10 +184,6 @@ export default function GemEditor() {
     await load();
   };
 
-  const resolveFlag = async (itemId: string, keep: boolean) => {
-    setGem(await api<GemDetail>("teacher", `/api/gems/${gemId}/items/${itemId}/flag`, { body: { keep } }));
-    toast(keep ? "ยืนยันเฉลยแล้ว นักเรียนจะได้ข้อนี้" : "ลบข้อนี้ออกจากคลังแล้ว", "success");
-  };
 
   if (loading) return <Spinner />;
 
@@ -275,7 +271,7 @@ export default function GemEditor() {
 
         <aside className="gem-preview">
           <span className="gem-preview-label">พรีวิว</span>
-          <Preview form={form} gem={gem} onRetry={() => gem && startBuild(gem.id)} onFlag={resolveFlag} onChange={setGem} />
+          <Preview form={form} gem={gem} onRetry={() => gem && startBuild(gem.id)} onReload={() => load().catch(() => {})} onChange={setGem} />
         </aside>
       </div>
 
@@ -552,13 +548,13 @@ function Preview({
   form,
   gem,
   onRetry,
-  onFlag,
+  onReload,
   onChange,
 }: {
   form: Form;
   gem: GemDetail | null;
   onRetry: () => void;
-  onFlag: (itemId: string, keep: boolean) => void;
+  onReload: () => void;
   onChange: (gem: GemDetail) => void;
 }) {
   const now = useNow(1000);
@@ -631,7 +627,7 @@ function Preview({
               { id: "versions", label: `เวอร์ชัน (${gem.versions.length})` },
             ]}
           />
-          {tab === "bank" && <Bank gem={gem} onFlag={onFlag} onRebuild={onRetry} />}
+          {tab === "bank" && <Bank gem={gem} onRebuild={onRetry} onReload={onReload} />}
           {tab === "try" && <PreviewTry gem={gem} />}
           {tab === "versions" && <Versions gem={gem} onRestored={onChange} />}
         </>
@@ -665,7 +661,7 @@ function BuildSteps({ steps }: { steps: { id: string; label: string; status: str
   );
 }
 
-function Bank({ gem, onFlag, onRebuild }: { gem: GemDetail; onFlag: (id: string, keep: boolean) => void; onRebuild: () => void }) {
+function Bank({ gem, onRebuild, onReload }: { gem: GemDetail; onRebuild: () => void; onReload: () => void }) {
   const navigate = useNavigate();
   const bank = gem.bank!;
   const target = bank.concepts.find((c) => c.name === bank.target);
@@ -722,40 +718,7 @@ function Bank({ gem, onFlag, onRebuild }: { gem: GemDetail; onFlag: (id: string,
         </ol>
       </div>
 
-      {bank.flagged.length > 0 && (
-        <div className="stack stack-sm">
-          <span className="small strong row row-sm" style={{ color: "var(--warning)" }}>
-            <Flag size={15} />
-            เฉลยติดธง {bank.flagged.length} ข้อ ซ่อนจากนักเรียนจนกว่าครูตรวจ
-          </span>
-          {bank.flagged.map((item) => (
-            <ItemCard key={item.id} item={item}>
-              <ul className="gem-flag-reasons">
-                {item.flag?.reasons.map((r) => (
-                  <li key={r}>{r}</li>
-                ))}
-              </ul>
-              <div className="row row-sm" style={{ justifyContent: "flex-end" }}>
-                <Button size="sm" variant="ghost" icon={<Trash2 size={14} />} onClick={() => onFlag(item.id, false)}>
-                  ลบข้อนี้
-                </Button>
-                <Button size="sm" variant="soft" icon={<Check size={14} />} onClick={() => onFlag(item.id, true)}>
-                  เฉลยถูกแล้ว
-                </Button>
-              </div>
-            </ItemCard>
-          ))}
-        </div>
-      )}
-
-      {bank.samples.length > 0 && (
-        <div className="stack stack-sm">
-          <span className="small strong">ตัวอย่างโจทย์</span>
-          {bank.samples.map((item) => (
-            <ItemCard key={item.id} item={item} />
-          ))}
-        </div>
-      )}
+      <GemItems gemId={gem.id} onChanged={onReload} />
 
       {notes.length > 0 && (
         <details className="gem-notes">
@@ -783,24 +746,3 @@ function Stat({ value, label }: { value: number; label: string }) {
 // Slip ทั่วไปที่ทุก Gem มีเหมือนกัน (backend/app/gems/builder.py GENERIC_SLIPS) ไม่นับเป็นข้อผิดพลาดที่ AI หาเจอ
 const GENERIC_SLIPS = new Set(["S-ARITH", "S-SIGNFLIP"]);
 
-const FORMAT_LABEL: Record<string, string> = { numeric: "ตัวเลข", mcq: "ปรนัย", short: "คำตอบสั้น" };
-
-function ItemCard({ item, children }: { item: BankItem; children?: ReactNode }) {
-  return (
-    <div className="gem-item">
-      <span className="row row-sm xsmall faint">
-        <span className="mono">{item.id}</span>· {FORMAT_LABEL[item.format] ?? item.format}
-        {item.concept && <>· {item.concept}</>}
-      </span>
-      <span className="small">{item.prompt}</span>
-      {item.math && <span className="gem-item-math">{item.math}</span>}
-      {item.options && (
-        <span className="xsmall muted">{item.options.map((o) => `(${o.id}) ${o.text}`).join("  ")}</span>
-      )}
-      <span className="xsmall">
-        เฉลย: <span className="strong">{item.answer}</span>
-      </span>
-      {children}
-    </div>
-  );
-}

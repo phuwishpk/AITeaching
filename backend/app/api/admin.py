@@ -53,11 +53,12 @@ class ScrubBody(BaseModel):
     text: str
 
 
-def _sample_subject() -> dict:
-    subjects = db.list_subjects()
-    if not subjects:
-        raise HTTPException(404, "ยังไม่มีวิชาในระบบ")
-    return next((s for s in subjects if s["id"] == "math-m2"), subjects[0])
+def _demo_subject() -> dict:
+    """คลังโจทย์รุ่นปัจจุบันของ Gem ที่ใช้สาธิตหัวข้อ 2–6"""
+    gem = demo.demo_gem()
+    if gem is None:
+        raise HTTPException(404, "ยังไม่มี Gem ที่พร้อมสาธิต ให้ครูสร้าง Gem ก่อน")
+    return db.get_subject(gem["subject_id"])
 
 
 # ---------------------------------------------------------------- ผังตรรกะและตำแหน่งนักเรียน (แท็บ 3)
@@ -158,7 +159,7 @@ def topics(auth: dict = Depends(admin)):
 
 @router.get("/knowledge-map")
 def knowledge_map(code: str | None = None, auth: dict = Depends(admin)):
-    subject = _sample_subject()
+    subject = _demo_subject()
     mastery = {}
     if code:
         for state in db.states_for(code):
@@ -177,10 +178,11 @@ def knowledge_map(code: str | None = None, auth: dict = Depends(admin)):
 @router.get("/sample")
 def sample(auth: dict = Depends(admin)):
     """โจทย์และ Bug Library ของวิชาตัวอย่าง สำหรับเลือกในตัวตรวจ prompt"""
-    subject = _sample_subject()
+    subject = _demo_subject()
     return {
         "id": subject["id"],
         "name": subject["name"],
+        "set_id": subject["question_sets"][0]["id"],
         "items": [{k: it.get(k) for k in ("id", "concept", "kind", "format", "prompt", "math")} for it in subject["items"]],
         "bug_tags": subject.get("bug_tags", []),
         "concepts": subject.get("concepts", []),
@@ -189,7 +191,7 @@ def sample(auth: dict = Depends(admin)):
 
 @router.get("/bug-library")
 def bug_library(auth: dict = Depends(admin)):
-    return analytics.bug_hits(_sample_subject())
+    return analytics.bug_hits(_demo_subject())
 
 
 # ---------------------------------------------------------------- AI (แท็บ 4)
@@ -237,7 +239,7 @@ def ai_stats(auth: dict = Depends(admin)):
 
 @router.post("/ai/preview")
 async def ai_preview(body: Preview, auth: dict = Depends(admin)):
-    subject = _sample_subject()
+    subject = _demo_subject()
     content = services.content_for(subject["id"], subject["question_sets"][0]["id"])
     if body.item_id not in content.items:
         raise HTTPException(404, "ไม่พบโจทย์นี้")
@@ -253,8 +255,8 @@ async def ai_preview(body: Preview, auth: dict = Depends(admin)):
 
 @router.post("/ai/tokenize")
 def tokenize(body: TokenizeBody, auth: dict = Depends(admin)):
-    subject = _sample_subject()
-    index = rag.get_index(subject["id"])
+    subject = _demo_subject()
+    index = rag.get_index((subject.get("gem") or {}).get("id") or subject["id"])
     query_terms, results = (index.search(body.query, 3) if index and body.query else ([], []))
     return {"tokens": rag.tokenize_demo(body.text), "query_terms": query_terms, "results": results}
 
@@ -294,14 +296,42 @@ async def cohort_tick(body: TickBody, auth: dict = Depends(admin)):
 
 @router.post("/cohort/reset")
 def cohort_reset(auth: dict = Depends(admin)):
+    return {"students": _reset_cohort()}
+
+
+def _reset_cohort() -> int:
     codes = [r["code"] for r in db.query("SELECT code FROM students WHERE kind = 'sim'")]
     for code in codes:
         for table in ("states", "decisions", "alerts", "traces", "sessions"):
             db.execute(f"DELETE FROM {table} WHERE code = ?", (code,))
     db.execute("DELETE FROM students WHERE kind = 'sim'")
-    count = demo.seed_cohort(seed=int(time.time()) % 10_000)
+    try:
+        count = demo.seed_cohort(seed=int(time.time()) % 10_000)
+    except services.NotFound as error:
+        raise HTTPException(400, str(error)) from error
     analytics.clusters(force=True)
-    return {"students": count}
+    return count
+
+
+class DemoGem(BaseModel):
+    gem_id: str
+
+
+@router.get("/demo-gem")
+def demo_gem(auth: dict = Depends(admin)):
+    gem = demo.demo_gem()
+    return {"gem_id": gem["id"] if gem else None, "name": gem["name"] if gem else None,
+            "set_id": gem["set_id"] if gem else None}
+
+
+@router.put("/demo-gem")
+def set_demo_gem(body: DemoGem, auth: dict = Depends(admin)):
+    """เลือก Gem ที่ใช้สาธิตหัวข้อ 2–6 แล้วสร้างนักเรียนจำลองใหม่บน Gem นั้น"""
+    gem = db.get_gem(body.gem_id)
+    if not gem or not gem.get("set_id"):
+        raise HTTPException(400, "Gem นี้ยังไม่มีคลังโจทย์")
+    db.set_setting(demo.DEMO_GEM_KEY, body.gem_id)
+    return {"gem_id": body.gem_id, "students": _reset_cohort()}
 
 
 # ---------------------------------------------------------------- จริยธรรมและความเป็นส่วนตัว (แท็บ 7)

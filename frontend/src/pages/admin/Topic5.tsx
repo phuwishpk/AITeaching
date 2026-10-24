@@ -54,7 +54,7 @@ export default function Topic5() {
     try {
       const result = await api<{ token: string; code: string }>(null, "/api/auth/student", { body: { code } });
       setAuth("student", { token: result.token, code: result.code });
-      const setId = flow?.positions.find((p) => p.code === code)?.set_id || "QS-1";
+      const setId = flow?.positions.find((p) => p.code === code)?.set_id || (await api<{ set_id: string | null }>("admin", "/api/admin/demo-gem")).set_id;
       window.open(`/student/${setId}`, "_blank", "noopener");
     } catch (err) {
       toast(err instanceof Error ? err.message : "เปิดหน้านักเรียนไม่สำเร็จ", "warning");
