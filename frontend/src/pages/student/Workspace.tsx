@@ -31,6 +31,8 @@ interface View {
   position: string;
   label: string;
   set: { id: string; name: string; subject: string };
+  // เครื่องมือเริ่มต้นและคำถามเริ่มต้นที่ครูตั้งใน Gem (null = ชุดคำถามที่ครูเขียนเอง)
+  gem: { id: string; name: string; icon: string; color: string; tools: Record<string, boolean>; starter_prompts: string[] } | null;
   target: { id: string; name: string };
   mastery: number;
   item: { id: string; prompt: string; math: string | null; format: "numeric" | "mcq" | "short"; options: { id: string; text: string }[] } | null;
@@ -212,7 +214,7 @@ function Room({ code, onLogout }: { code: string; onLogout: () => void }) {
         <section className="ws-head fade-in">
           <div className="stack stack-sm grow">
             <p className="eyebrow">
-              {view.set.subject} · {view.set.name}
+              {view.set.subject === view.set.name ? view.set.name : `${view.set.subject} · ${view.set.name}`}
             </p>
             <h1 className="title-lg">{view.target.name}</h1>
           </div>
@@ -302,22 +304,25 @@ function Room({ code, onLogout }: { code: string; onLogout: () => void }) {
               }}
               onTimer={refresh}
             />
-            <TutorChat
-              messages={chat}
-              toTeacher={!answering}
-              teacherIn={teacherIn}
-              onSend={async (message) => {
-                setChat((list) => [...list, { from: "me", text: message }]);
-                const response = await act("chat", { message });
-                if (!response) return;
-                if (response.to_teacher) {
-                  setChat((list) => list.map((m, i) => (i === list.length - 1 ? { ...m, note: "ส่งถึงครูแล้ว รอครูตอบนะ" } : m)));
-                } else if (response.reply) {
-                  const reply = response.reply;
-                  setChat((list) => [...list, { from: response.source === "safety" ? "system" : "tutor", text: reply }]);
-                }
-              }}
-            />
+            {view.gem?.tools.chat !== false && (
+              <TutorChat
+                messages={chat}
+                starters={view.gem?.starter_prompts ?? []}
+                toTeacher={!answering}
+                teacherIn={teacherIn}
+                onSend={async (message) => {
+                  setChat((list) => [...list, { from: "me", text: message }]);
+                  const response = await act("chat", { message });
+                  if (!response) return;
+                  if (response.to_teacher) {
+                    setChat((list) => list.map((m, i) => (i === list.length - 1 ? { ...m, note: "ส่งถึงครูแล้ว รอครูตอบนะ" } : m)));
+                  } else if (response.reply) {
+                    const reply = response.reply;
+                    setChat((list) => [...list, { from: response.source === "safety" ? "system" : "tutor", text: reply }]);
+                  }
+                }}
+              />
+            )}
           </aside>
         </div>
       </main>
@@ -719,11 +724,14 @@ function TutorChat({
   onSend,
   toTeacher,
   teacherIn,
+  starters,
 }: {
   messages: ChatMessage[];
   onSend: (text: string) => Promise<void>;
   toTeacher: boolean;
   teacherIn: boolean;
+  // คำถามเริ่มต้นที่ครูเตรียมไว้ใน Gem กดแล้วส่งทันที
+  starters: string[];
 }) {
   const direct = toTeacher || teacherIn;
   const [text, setText] = useState("");
@@ -734,14 +742,17 @@ function TutorChat({
     listRef.current?.scrollTo({ top: listRef.current.scrollHeight, behavior: "smooth" });
   }, [messages, busy]);
 
-  const send = async (event: FormEvent) => {
-    event.preventDefault();
-    const message = text.trim();
+  const sendText = async (message: string) => {
     if (!message || busy) return;
     setText("");
     setBusy(!direct);
     await onSend(message);
     setBusy(false);
+  };
+
+  const send = (event: FormEvent) => {
+    event.preventDefault();
+    sendText(text.trim());
   };
 
   return (
@@ -762,6 +773,15 @@ function TutorChat({
       <div className="chat-list" ref={listRef}>
         {messages.length === 0 && (
           <p className="small faint">พิมพ์บอกได้ว่าติดตรงไหน ครูผู้ช่วยจะถามกลับให้คิดต่อ ไม่บอกคำตอบ</p>
+        )}
+        {messages.length === 0 && !direct && starters.length > 0 && (
+          <div className="starter-list">
+            {starters.map((s) => (
+              <button key={s} type="button" className="starter-chip" onClick={() => sendText(s)}>
+                {s}
+              </button>
+            ))}
+          </div>
         )}
         {messages.map((m, index) => (
           <div key={index} className={`bubble bubble-${m.from === "me" ? "me" : m.from}`}>

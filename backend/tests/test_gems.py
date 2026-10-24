@@ -102,6 +102,9 @@ def test_llm_items_become_rule_checkable():
     short = builder.to_item({"prompt": "ชื่อสมบัติ", "answer": ["สมบัติการเท่ากัน"]}, "Z", "C-T", "main", bugs)
     assert short["format"] == "short"
     assert builder.parse_json('```json\n{"a": 1}\n```') == {"a": 1}
+    # AI บางครั้งส่ง list มาตรง ๆ แทน object ที่สั่ง
+    assert builder.parse_json('คำตอบ: [{"i": 0, "answer": 4}]') == [{"i": 0, "answer": 4}]
+    assert builder.listing([{"i": 0}], "answers") == [{"i": 0}] and builder.listing({"answers": "x"}, "answers") == []
 
 
 def test_build_flags_wrong_keys_and_students_can_learn(monkeypatch):
@@ -249,3 +252,18 @@ def test_main_item_rests_when_all_its_isomorphs_are_flagged():
     view = builder.usable(subject)
     assert [it["id"] for it in view["items"]] == ["G-02", "G-02-I1"]
     assert view["question_sets"][0]["main_items"] == ["G-02"]
+
+
+def test_unexpected_crash_still_ends_the_build(monkeypatch):
+    fake_llm(monkeypatch)
+    monkeypatch.setattr(builder, "apply_checks", lambda items, solved: 1 / 0)
+    gem = manage.create({"name": "พัง"}, "teacher")
+    asyncio.run(builder.build(gem["id"]))
+    build = manage.get(gem["id"])["build"]
+    assert build["status"] == "error" and "ZeroDivisionError" in build["error"]
+
+
+def test_rounded_fraction_answers_read_as_fractions():
+    from app.engine.answers import number_display
+
+    assert [number_display(v) for v in (0.8333, 0.1667, 2.35, 0.125, 4, 3.0)] == ["5/6", "1/6", "2.35", "0.125", "4", "3"]

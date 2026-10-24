@@ -597,3 +597,27 @@
 .bubble-system .bubble-from {
   color: var(--text-3);
 }
+
+/* ---------- คำถามเริ่มต้นของ Gem ในแชต ---------- */
+.starter-list {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 6px;
+}
+
+.starter-chip {
+  padding: 7px 14px;
+  border: 1px solid var(--border-strong);
+  border-radius: 999px;
+  background: var(--surface);
+  color: var(--text);
+  font-size: var(--fs-sm);
+  text-align: left;
+  cursor: pointer;
+}
+
+.starter-chip:hover {
+  border-color: var(--accent);
+  background: var(--accent-soft);
+}

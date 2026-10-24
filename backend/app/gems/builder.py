@@ -12,6 +12,7 @@ LLM เขียนเฉลยแบบมีโครงสร้าง แต
 import asyncio
 import hashlib
 import json
+import logging
 import re
 import time
 from collections import Counter
@@ -22,6 +23,8 @@ from ..content.readiness import check_set
 from ..engine.answers import parse_number
 from ..tutor import service
 from . import verify
+
+log = logging.getLogger(__name__)
 
 STEPS = [
     ("plan", "วางแผนผังความรู้และ Bug Library"),
@@ -111,19 +114,29 @@ def gem_brief(gem: dict, knowledge: str) -> str:
     return "\n".join(lines)
 
 
-def parse_json(text: str) -> dict:
-    """แยก JSON ออกจากคำตอบของ LLM (บางโมเดลห่อด้วย ```json หรือมีข้อความนำ)"""
+def parse_json(text: str) -> dict | list:
+    """แยก JSON ออกจากคำตอบของ LLM (บางโมเดลห่อด้วย ```json มีข้อความนำ หรือส่งเป็น list แทน object)"""
     cleaned = re.sub(r"^```(?:json)?\s*|\s*```$", "", text.strip())
     try:
         return json.loads(cleaned)
     except json.JSONDecodeError:
-        start, end = cleaned.find("{"), cleaned.rfind("}")
-        if start == -1 or end <= start:
+        starts = [i for i in (cleaned.find("{"), cleaned.find("[")) if i != -1]
+        if not starts:
             raise BuildError("AI ไม่ได้ตอบเป็น JSON") from None
+        start = min(starts)
+        end = cleaned.rfind("}" if cleaned[start] == "{" else "]")
         try:
             return json.loads(cleaned[start:end + 1])
         except json.JSONDecodeError as error:
             raise BuildError(f"อ่าน JSON จาก AI ไม่ได้: {error}") from None
+
+
+def listing(payload, key: str) -> list:
+    """รายการใต้คีย์ที่สั่งไว้ ถ้า AI ส่ง list มาตรง ๆ ก็ใช้ list นั้น"""
+    if isinstance(payload, list):
+        return payload
+    value = payload.get(key) if isinstance(payload, dict) else None
+    return value if isinstance(value, list) else []
 
 
 # Provider มักตอบ "มีผู้ใช้มากชั่วคราว" หรือส่ง JSON ไม่ครบเป็นครั้งคราว จึงลองใหม่ก่อนยอมแพ้
@@ -132,7 +145,7 @@ RETRY_DELAYS = (5.0, 15.0)
 GEMINI_BACKUPS = ("gemini-3.5-flash-lite", "gemini-2.5-flash")
 
 
-async def ask_json(step: str, user: str, max_tokens: int = 12000) -> dict:
+async def ask_json(step: str, user: str, max_tokens: int = 12000) -> dict | list:
     frames = {"role": SYSTEM, "task": user[:8000]}
     problem = "เรียก AI ไม่สำเร็จ"
     for attempt in range(len(RETRY_DELAYS) + 1):
@@ -225,6 +238,8 @@ def plan_summary(plan: dict) -> str:
 
 def normalize_plan(raw: dict) -> dict:
     """ตรวจและเติมโครงจาก LLM ให้ครบ ใส่รหัสมโนทัศน์และรหัส Bug Library"""
+    if not isinstance(raw, dict):
+        raise BuildError("AI ส่งแผนผังความรู้ผิดรูปแบบ")
     target = raw.get("target") or {}
     if not str(target.get("name", "")).strip():
         raise BuildError("AI ไม่ได้กำหนดมโนทัศน์เป้าหมาย")
@@ -365,7 +380,7 @@ def assemble(gem: dict, version: int, plan: dict, main_batches: list[dict], extr
     bug_ids = {b["id"] for b in bug_tags}
 
     items, mains = [], []
-    raw_mains = [raw for batch in main_batches for raw in batch.get("items") or []]
+    raw_mains = [raw for batch in main_batches for raw in listing(batch, "items")]
     for raw in raw_mains:
         main = to_item(raw, f"G-{len(mains) + 1:02d}", "C-T", "main", bug_ids)
         if main is None:
@@ -378,19 +393,21 @@ def assemble(gem: dict, version: int, plan: dict, main_batches: list[dict], extr
         items.extend([main] + ([iso] if iso else []))
 
     challenges = []
-    for raw in extras.get("challenge") or []:
+    for raw in listing(extras, "challenge"):
         item = to_item(raw, f"H-{len(challenges) + 1:02d}", "C-T", "challenge", bug_ids)
         if item:
             challenges.append(item)
     items.extend(challenges)
 
-    for group in extras.get("remedial") or []:
+    for group in listing(extras, "remedial"):
+        if not isinstance(group, dict):
+            continue
         index = group.get("prerequisite")
         if not isinstance(index, (int, float)) or not 0 <= int(index) < len(prereq_ids):
             continue
         concept = prereq_ids[int(index)]
         count = 0
-        for raw in group.get("items") or []:
+        for raw in listing(group, "items"):
             item = to_item(raw, f"R-{int(index) + 1}-{count + 1:02d}", concept, "remedial", bug_ids)
             if item:
                 item["difficulty"] = min(item["difficulty"], 0.35)
@@ -534,7 +551,7 @@ async def build(gem_id: str) -> None:
         _progress(gem, "verify")
         try:
             answers = await ask_json("verify", resolve_prompt(subject["items"]), 4000)
-            solved = {int(a["i"]): a.get("answer") for a in answers.get("answers") or []
+            solved = {int(a["i"]): a.get("answer") for a in listing(answers, "answers")
                       if isinstance(a, dict) and str(a.get("i", "")).lstrip("-").isdigit()}
         except BuildError:
             solved = None
@@ -558,9 +575,12 @@ async def build(gem_id: str) -> None:
         if flagged:
             gem["build"]["warnings"].insert(0, f"ติดธง {len(flagged)} ข้อ ซ่อนจากนักเรียนจนกว่าครูยืนยัน")
         _progress(gem, "save", "done")
-    except BuildError as error:
+    except Exception as error:  # noqa: BLE001 งานเบื้องหลังต้องจบด้วยสถานะเสมอ ไม่ค้างที่ "กำลังสร้าง"
+        message = str(error) if isinstance(error, BuildError) else f"เกิดข้อผิดพลาดที่ไม่คาดคิด: {type(error).__name__}: {error}"
+        if not isinstance(error, BuildError):
+            log.exception("สร้าง Item Bank ของ %s ไม่สำเร็จ", gem_id)
         gem = db.get_gem(gem_id) or gem
-        gem["build"].update(status="error", error=str(error), finished_at=time.time())
+        gem["build"].update(status="error", error=message, finished_at=time.time())
         for s in gem["build"]["steps"]:
             if s["status"] == "running":
                 s["status"] = "error"

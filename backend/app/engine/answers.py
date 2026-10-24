@@ -102,11 +102,21 @@ def match_bug(item: dict, value) -> str | None:
     return None
 
 
+def number_display(value) -> str:
+    """ทศนิยมที่ปัดมาจากเศษส่วนไม่รู้จบ (เก็บไว้ 4 ตำแหน่ง เช่น 0.8333) แสดงเป็นเศษส่วนให้ครูอ่านง่าย
+    ทศนิยมจริงอย่าง 2.35 หรือ 0.125 แสดงตามเดิม"""
+    if isinstance(value, float) and round(value, 3) != value:
+        fraction = Fraction(value).limit_denominator(100)
+        if abs(float(fraction) - value) < 1e-4:
+            return f"{fraction.numerator}/{fraction.denominator}"
+    return str(int(value) if isinstance(value, float) and value.is_integer() else value)
+
+
 def answer_display(item: dict) -> str:
     """คำตอบที่ถูกในรูปที่คนอ่าน (ใช้เฉพาะฝั่งครูและ Admin)"""
     answer_format = item.get("format", "numeric")
     if answer_format == "numeric":
-        return str(item["answer"]["value"])
+        return number_display(item["answer"]["value"])
     if answer_format == "mcq":
         option = next((o for o in item.get("options", []) if o["id"] == item["answer"]["option"]), None)
         return option["text"] if option else item["answer"]["option"]

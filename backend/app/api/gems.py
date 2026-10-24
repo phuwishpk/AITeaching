@@ -1,6 +1,7 @@
 """API ของ Gem: ครูสร้างและแก้ได้ Admin ดูได้อย่างเดียว"""
 
 import asyncio
+import re
 
 from fastapi import APIRouter, Depends, File, HTTPException, UploadFile
 from pydantic import BaseModel
@@ -103,14 +104,22 @@ async def refine_instructions(body: RefineBody, auth: dict = Depends(teacher)):
     system = (
         "คุณช่วยครูเขียนคำสั่งของ Gem ซึ่งเป็นติวเตอร์ AI ภาษาไทย ให้ชัดเจนและนำไปใช้ได้ทันที "
         "ระบุบทบาท กลุ่มผู้เรียนและระดับชั้น เนื้อหาที่สอน และน้ำเสียงในการสอน คงเจตนาเดิมของครูทุกข้อ "
-        "ห้ามเพิ่มคำสั่งให้เฉลยคำตอบ เพราะระบบห้ามเฉลยอยู่แล้ว ตอบเฉพาะคำสั่งที่เกลาแล้ว ไม่ต้องมีคำนำ"
+        "ห้ามเพิ่มคำสั่งให้เฉลยคำตอบ เพราะระบบห้ามเฉลยอยู่แล้ว ตอบเฉพาะคำสั่งที่เกลาแล้ว ไม่ต้องมีคำนำ "
+        "เขียนเป็นย่อหน้าข้อความธรรมดาที่ขึ้นต้นด้วย \"คุณคือ\" ไม่ใช้สัญลักษณ์ markdown เช่น ** # หรือ ---"
     )
     user = f"ชื่อ Gem: {body.name}\nคำอธิบาย: {body.description}\nคำสั่งเดิมของครู:\n{body.instructions or '(ยังไม่มี เขียนร่างจากชื่อและคำอธิบาย)'}"
-    result, errors = await service._call(system, user, max_tokens=1500, timeout=60.0)
+    result, errors = await service._call(system, user, max_tokens=1500, timeout=60.0, backup_models=builder.GEMINI_BACKUPS)
     service._log(None, "gem_refine", {"role": system, "task": user}, None, result, result.text if result else "", None, errors)
     if result is None:
         raise HTTPException(502, "; ".join(errors) or "เรียก AI ไม่สำเร็จ")
-    return {"instructions": result.text.strip()}
+    return {"instructions": _plain(result.text)}
+
+
+def _plain(text: str) -> str:
+    """เอาสัญลักษณ์ markdown ที่หลุดมาออก ช่องคำสั่งเป็นข้อความธรรมดา"""
+    lines = [re.sub(r"^#+\s*|\*\*|__", "", line).rstrip() for line in text.strip().splitlines()]
+    lines = [line for line in lines if not re.fullmatch(r"\s*[-*_]{3,}\s*", line)]
+    return re.sub(r"\n{3,}", "\n\n", "\n".join(lines)).strip()
 
 
 @router.get("/{gem_id}/files")

@@ -1,6 +1,6 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
 import { Route, Routes, useNavigate } from "react-router";
-import { Bell, BookMarked, Bot, LayoutDashboard, ListChecks, MessagesSquare, Sparkles, UsersRound } from "lucide-react";
+import { Bell, BookMarked, Bot, Gem, LayoutDashboard, ListChecks, MessagesSquare, Sparkles, UsersRound } from "lucide-react";
 import { api, clearAuth, getAuth } from "../../lib/api";
 import { useLive } from "../../lib/hooks";
 import type { Alert, Decision, StaffView, Telemetry } from "../../lib/types";
@@ -16,6 +16,8 @@ import Roster from "./Roster";
 import TagReview from "./TagReview";
 import AiReview from "./AiReview";
 import Inbox from "./Inbox";
+import GemList from "./GemList";
+import GemEditor from "./GemEditor";
 import StudentDrawer, { type DrawerTab } from "./StudentDrawer";
 import RulesPage from "../shared/RulesPage";
 
@@ -179,6 +181,10 @@ function TeacherShell({ onLogout, onExpired }: { onLogout: () => void; onExpired
             label="เมนูครู"
             sections={[
               {
+                title: "สร้างบทเรียน",
+                items: [{ to: "/teacher/gems", label: "Gem ของฉัน", icon: <Gem size={17} /> }],
+              },
+              {
                 title: "ติดตามนักเรียน",
                 items: [
                   { to: "/teacher", end: true, label: "ภาพรวมห้องเรียน", icon: <LayoutDashboard size={17} /> },
@@ -216,6 +222,9 @@ function TeacherShell({ onLogout, onExpired }: { onLogout: () => void; onExpired
           <main className="side-main">
             <Routes>
               <Route index element={<Overview />} />
+              <Route path="gems" element={<GemList />} />
+              <Route path="gems/new" element={<GemEditor />} />
+              <Route path="gems/:gemId" element={<GemEditor />} />
               <Route path="alerts" element={<AlertsPage />} />
               <Route path="inbox" element={<Inbox />} />
               <Route path="content" element={<ContentStudio />} />

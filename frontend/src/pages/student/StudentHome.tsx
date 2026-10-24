@@ -6,6 +6,7 @@ import { useLoad } from "../../lib/hooks";
 import { TopBar } from "../../components/Shell";
 import { Badge, Button, Empty, Spinner, useToast } from "../../components/ui";
 import { StudentLogin } from "../Login";
+import GemIcon from "../../components/GemIcon";
 
 interface SetInfo {
   id: string;
@@ -15,6 +16,7 @@ interface SetInfo {
   grade: string;
   target: string;
   status: "new" | "in_progress" | "paused" | "completed";
+  gem: { icon: string; color: string } | null;
 }
 
 const STATUS = {
@@ -71,16 +73,20 @@ function Home({ code, onLogout }: { code: string; onLogout: () => void }) {
             return (
               <article key={set.id} className="card card-hover set-card fade-in">
                 <div className="spread">
-                  <span className="eyebrow">{set.subject}</span>
+                  {/* Gem ตั้งชื่อวิชาเป็นชื่อเดียวกับ Gem จึงแสดงระดับชั้นแทน */}
+                  <span className="eyebrow">{set.gem ? set.grade || "Gem" : set.subject}</span>
                   <Badge tone={status.tone} dot>
                     {status.label}
                   </Badge>
                 </div>
-                <h2 className="title">{set.name}</h2>
+                <div className="row" style={{ alignItems: "center" }}>
+                  {set.gem && <GemIcon icon={set.gem.icon} color={set.gem.color} size={38} />}
+                  <h2 className="title">{set.name}</h2>
+                </div>
                 <p className="small muted">{set.description}</p>
-                <div className="row row-sm small faint">
-                  <BookOpen size={15} />
-                  เป้าหมาย: {set.target}
+                <div className="row row-sm row-nowrap small faint" style={{ alignItems: "flex-start" }}>
+                  <BookOpen size={15} style={{ flex: "none", marginTop: 3 }} />
+                  <span>เป้าหมาย: {set.target}</span>
                 </div>
                 <div className="set-card-foot">
                   <Button
