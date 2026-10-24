@@ -2863,3 +2863,156 @@ button.route-node:hover {
 .lane-steps button:hover {
   border-color: var(--accent);
 }
+
+/* ---------- เส้นทางตั้งแต่ต้นจนจบ (กิจกรรมรายคน) ---------- */
+.journey-head {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 0 16px 12px;
+  border-bottom: 1px solid var(--border);
+}
+
+.journey-stats {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 6px;
+  margin: 0;
+}
+
+.journey-stats div {
+  padding: 6px 8px;
+  border-radius: 8px;
+  background: var(--surface-2);
+}
+
+.journey-stats dt {
+  font-size: var(--fs-xs);
+  color: var(--text-3);
+}
+
+.journey-stats dd {
+  margin: 0;
+  font-size: var(--fs-sm);
+  font-weight: 600;
+}
+
+.journey {
+  list-style: none;
+  margin: 0;
+  padding: 8px 6px;
+  max-height: calc(100vh - 300px);
+  overflow-y: auto;
+}
+
+.journey-step {
+  position: relative;
+}
+
+/* เส้นเชื่อมระหว่างวงกลมเลขขั้น */
+.journey-step:not(:last-child)::before {
+  content: "";
+  position: absolute;
+  left: 23px;
+  top: 34px;
+  bottom: -8px;
+  width: 2px;
+  background: var(--border);
+}
+
+.journey-step > button {
+  position: relative;
+  width: 100%;
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  padding: 8px 10px;
+  border: none;
+  border-radius: 10px;
+  background: none;
+  color: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.journey-step > button:hover {
+  background: var(--surface-2);
+}
+
+.journey-step > button.is-on {
+  background: var(--accent-soft);
+}
+
+.journey-n {
+  position: relative;
+  z-index: 1;
+  flex: none;
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  background: var(--surface);
+  border: 2px solid var(--border-strong);
+  font-size: var(--fs-xs);
+  font-weight: 700;
+  color: var(--text-2);
+}
+
+.ms-start .journey-n {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+.ms-completed .journey-n,
+.ms-ended .journey-n {
+  border-color: var(--accent);
+  background: var(--accent);
+  color: #fff;
+}
+
+.journey-flag {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 1px 8px;
+  border-radius: 999px;
+  background: var(--accent-soft);
+  color: var(--accent-ink);
+  font-weight: 600;
+}
+
+.journey-open {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 8px 10px;
+}
+
+.journey-open .journey-n {
+  border-style: dashed;
+  color: var(--text-3);
+}
+
+.activity-src-sm {
+  width: 20px;
+  height: 20px;
+}
+
+.activity-src-sm svg {
+  width: 12px;
+  height: 12px;
+}
+
+@media (max-width: 560px) {
+  .journey-stats {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+/* คอลัมน์เดียว: รายการไม่ลอยทับรายละเอียด (ต้องอยู่หลังกฎ sticky ของ .activity-list-card) */
+@media (max-width: 1100px) {
+  .activity-list-card {
+    position: static;
+  }
+}

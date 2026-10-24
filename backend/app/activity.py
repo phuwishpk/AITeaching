@@ -70,6 +70,47 @@ def _input_route(inputs: list[dict]) -> tuple[list[str], list[str], list[str]]:
     return [], [], []
 
 
+def _assemble(traces: list[dict], decisions: list[dict]) -> list[dict]:
+    """รวมร่องรอยและการตัดสินใจที่เกิดพร้อมกันเป็นเหตุการณ์เดียว เรียงจากเก่าไปใหม่"""
+    grouped: dict[tuple[str, float], dict] = {}
+
+    def slot(row: dict) -> dict:
+        key = (row["code"], round(row["ts"], 3))
+        return grouped.setdefault(key, {"code": row["code"], "ts": row["ts"], "inputs": [], "decisions": []})
+
+    for row in sorted(traces, key=lambda r: (r["ts"], r["id"])):
+        slot(row)["inputs"].append({"action": row["action"], "target": row["target"], "data": db.loads(row["data"], {})})
+    for row in decisions:
+        edges = db.loads(row["edges"], [])
+        path = node_path(edges)
+        slot(row)["decisions"].append({
+            "from": row["from_pos"], "to": row["to_pos"], "rule": row["rule"], "edges": edges,
+            "path": path, "path_labels": [NODE_LABELS.get(n, n) for n in path],
+            "detail": db.loads(row["detail"], {}), "id": row["id"], "set_id": row["set_id"],
+        })
+
+    from .services import item_brief, item_lookup  # import ภายในฟังก์ชันกันการ import วนกับ services
+
+    items = item_lookup()
+    out = []
+    for event in sorted(grouped.values(), key=lambda e: e["ts"]):
+        for item in event["inputs"]:
+            if item["action"] in ("answer", "invalid_answer", "duplicate_ignored"):
+                item["item"] = item_brief(items.get(item["target"]))
+        event["decisions"].sort(key=lambda d: d["id"])
+        edges = [e for d in event["decisions"] for e in d["edges"]]
+        steps, rule_ids, route_edges = ([], [], []) if event["decisions"] else _input_route(event["inputs"])
+        event["edges"] = edges or route_edges
+        event["steps"] = steps
+        event["rules"] = _related_rules(edges, rule_ids)
+        event["source"] = "student" if event["inputs"] or "e_start" in edges else ("teacher" if any(
+            "e_override" in d["edges"] or "e_teacher_release" in d["edges"] or "e_teacher_safety" in d["edges"]
+            or d["rule"].startswith("ครู") for d in event["decisions"]) else "system")
+        event["position"] = event["decisions"][-1]["to"] if event["decisions"] else None
+        out.append(event)
+    return out
+
+
 def events(code: str | None = None, include_sim: bool = False, limit: int = 40) -> list[dict]:
     where, params = [], []
     if code:
@@ -80,46 +121,88 @@ def events(code: str | None = None, include_sim: bool = False, limit: int = 40) 
     clause = ("WHERE " + " AND ".join(where)) if where else ""
     join = "JOIN students s ON s.code = x.code"
     fetch = limit * 4
-    traces = db.query(f"SELECT x.ts, x.code, x.action, x.target, x.data FROM traces x {join} {clause} "
+    traces = db.query(f"SELECT x.id, x.ts, x.code, x.action, x.target, x.data FROM traces x {join} {clause} "
                       f"ORDER BY x.ts DESC LIMIT ?", (*params, fetch))
     decisions = db.query(f"SELECT x.id, x.ts, x.code, x.set_id, x.from_pos, x.to_pos, x.edges, x.rule, x.detail "
                          f"FROM decisions x {join} {clause} ORDER BY x.ts DESC, x.id DESC LIMIT ?", (*params, fetch))
+    return list(reversed(_assemble(traces, decisions)))[:limit]
 
-    grouped: dict[tuple[str, float], dict] = {}
 
-    def slot(row: dict) -> dict:
-        key = (row["code"], round(row["ts"], 3))
-        return grouped.setdefault(key, {"code": row["code"], "ts": row["ts"], "inputs": [], "decisions": []})
+# ---------------------------------------------------------------- เส้นทางตั้งแต่ต้นจนจบของหนึ่ง Session
 
-    for row in traces:
-        slot(row)["inputs"].append({"action": row["action"], "target": row["target"], "data": db.loads(row["data"], {})})
-    for row in decisions:
-        edges = db.loads(row["edges"], [])
-        path = node_path(edges)
-        slot(row)["decisions"].append({
-            "from": row["from_pos"], "to": row["to_pos"], "rule": row["rule"], "edges": edges,
-            "path": path, "path_labels": [NODE_LABELS.get(n, n) for n in path],
-            "detail": db.loads(row["detail"], {}), "id": row["id"],
+END_LABELS = {"completed": "จบชุด", None: "กำลังทำอยู่"}
+
+
+def _runs(code: str) -> list[dict]:
+    """Session ทั้งหมดของนักเรียน เรียงจากเก่าไปใหม่ พร้อมช่วงเวลาที่เป็นของ Session นั้น
+
+    Session ที่ยังไม่จบกินเวลาไปถึง Session ถัดไปของนักเรียนคนเดียวกัน (เช่น กดเริ่มชุดใหม่)
+    """
+    from .services import NotFound, find_set
+
+    rows = db.query("SELECT id, set_id, started_at, ended_at, end_reason FROM sessions WHERE code = ? ORDER BY started_at, id",
+                    (code,))
+    runs, last_of_set = [], {}
+    for i, row in enumerate(rows):
+        following = rows[i + 1]["started_at"] if i + 1 < len(rows) else None
+        # จบแล้วนับถึงเหตุการณ์สุดท้ายที่จบ ยังไม่จบนับถึงก่อน Session ถัดไปเริ่ม
+        until = (row["ended_at"] + 0.001 if row["ended_at"] is not None else
+                 following - 0.001 if following is not None else None)
+        prev = last_of_set.get(row["set_id"])
+        # ต่อจาก Session ที่จบเพราะครบเพดานหรือหยุดเอง = ทำต่อจากความคืบหน้าเดิม ไม่ใช่เริ่มชุดใหม่
+        resumed = bool(prev and prev["ended_at"] is not None and prev["end_reason"] != "completed")
+        try:
+            set_name = find_set(row["set_id"])[1]["name"]
+        except NotFound:
+            set_name = row["set_id"]
+        runs.append({
+            "id": row["id"], "set_id": row["set_id"], "set_name": set_name,
+            "started": row["started_at"], "ended": row["ended_at"], "until": until,
+            "end_reason": row["end_reason"], "resumed": resumed,
+            "outcome": END_LABELS.get(row["end_reason"], "จบ Session"),
         })
+        last_of_set[row["set_id"]] = row
+    return runs
 
-    from .services import item_brief, item_lookup  # import ภายในฟังก์ชันกันการ import วนกับ services
 
-    items = item_lookup()
-    out = []
-    for event in sorted(grouped.values(), key=lambda e: e["ts"], reverse=True)[:limit]:
-        for item in event["inputs"]:
-            if item["action"] in ("answer", "invalid_answer", "duplicate_ignored"):
-                item["item"] = item_brief(items.get(item["target"]))
-        event["decisions"].sort(key=lambda d: d["id"])
-        event["inputs"].reverse()
-        edges = [e for d in event["decisions"] for e in d["edges"]]
-        steps, rule_ids, route_edges = ([], [], []) if event["decisions"] else _input_route(event["inputs"])
-        event["edges"] = edges or route_edges
-        event["steps"] = steps
-        event["rules"] = _related_rules(edges, rule_ids)
-        event["source"] = "student" if event["inputs"] else ("teacher" if any(
-            "e_override" in d["edges"] or "e_teacher_release" in d["edges"] or "e_teacher_safety" in d["edges"]
-            or d["rule"].startswith("ครู") for d in event["decisions"]) else "system")
-        event["position"] = event["decisions"][-1]["to"] if event["decisions"] else None
-        out.append(event)
-    return out
+def journey(code: str, session_id: int | None = None) -> dict:
+    """ทุกการกระทำใน Session เดียว เรียงเป็นขั้นที่ 1 ถึงขั้นสุดท้าย พร้อมสรุปผล"""
+    runs = _runs(code)
+    if not runs:
+        return {"runs": [], "run": None, "steps": [], "summary": None}
+    run = next((r for r in runs if r["id"] == session_id), runs[-1])
+    window = "code = ? AND ts >= ?" + (" AND ts <= ?" if run["until"] is not None else "")
+    params = (code, run["started"] - 0.001) + ((run["until"],) if run["until"] is not None else ())
+    traces = db.query(f"SELECT id, ts, code, action, target, data FROM traces WHERE {window} ORDER BY ts", params)
+    decisions = db.query(f"SELECT id, ts, code, set_id, from_pos, to_pos, edges, rule, detail FROM decisions "
+                         f"WHERE {window} ORDER BY ts, id", params)
+    # ช่วงที่ซ้อนกับชุดอื่น: ตัดเหตุการณ์ที่ระบบตัดสินในชุดอื่นออก
+    steps = [e for e in _assemble(traces, decisions)
+             if not e["decisions"] or any(d["set_id"] == run["set_id"] for d in e["decisions"])]
+    for n, step in enumerate(steps, 1):
+        step["n"] = n
+        edges = step["edges"]
+        step["milestone"] = ("start" if "e_start" in edges else
+                             "completed" if step["position"] == F.DONE else
+                             "ended" if step["position"] == F.ENDED else None)
+
+    answers = [i for s in steps for i in s["inputs"] if i["action"] == "answer"]
+    hints = sorted({d["to"] for s in steps for d in s["decisions"] if d["to"] in F.HINT_POSITIONS.values()})
+    last = next((s["position"] for s in reversed(steps) if s["position"]), None)
+    return {
+        "runs": [{k: r[k] for k in ("id", "set_name", "started", "ended", "outcome", "resumed")} for r in reversed(runs)],
+        "run": run,
+        "steps": steps,
+        "summary": {
+            "steps": len(steps),
+            "answers": len(answers),
+            "correct": sum(1 for a in answers if a["data"].get("correct")),
+            "items": len({a["target"] for a in answers}),
+            "hints": len([d for s in steps for d in s["decisions"] if d["to"] in F.HINT_POSITIONS.values()]),
+            "hint_levels": [NODE_LABELS[h] for h in hints],
+            "duration": ((run["ended"] or (steps[-1]["ts"] if steps else run["started"])) - run["started"]),
+            "position": last,
+            "position_label": NODE_LABELS.get(last, last) if last else None,
+            "finished": run["ended"] is not None,
+        },
+    }

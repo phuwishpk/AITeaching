@@ -137,6 +137,12 @@ def student(code: str, auth: dict = Depends(admin)):
     }
 
 
+@router.get("/students/{code}/journey")
+def student_journey(code: str, session: int | None = None, auth: dict = Depends(admin)):
+    """ทุกการกระทำใน Session หนึ่งตั้งแต่ต้นจนจบ เรียงเป็นขั้นที่ 1, 2, 3 …"""
+    return activity.journey(code, session)
+
+
 @router.get("/activity")
 def student_activity(code: str | None = None, include_sim: bool = False, limit: int = 40, auth: dict = Depends(admin)):
     """สิ่งที่นักเรียนป้อนเข้ามาแต่ละครั้ง และเส้นทางที่การกระทำนั้นผ่านในผังตรรกะ"""

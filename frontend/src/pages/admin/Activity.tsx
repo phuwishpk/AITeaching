@@ -1,9 +1,9 @@
 import { useEffect, useMemo, useState } from "react";
 import { Link } from "react-router";
-import { ArrowRight, Bot, Check, ChevronRight, Hand, MousePointerClick, Timer, UserRound, X } from "lucide-react";
+import { ArrowRight, Bot, Check, ChevronRight, Flag, Hand, Hourglass, MousePointerClick, Play, Timer, UserRound, X } from "lucide-react";
 import { api } from "../../lib/api";
 import { useLoad, useNow } from "../../lib/hooks";
-import { ago, clock, num } from "../../lib/format";
+import { ago, clock, mmss, num } from "../../lib/format";
 import FlowMap from "../../components/FlowMap";
 import { Badge, Card, CardHead, Empty, Spinner } from "../../components/ui";
 import { useAdmin } from "./AdminApp";
@@ -39,6 +39,35 @@ interface ActivityEvent {
   steps: string[];
   rules: { id: string; title: string }[];
   position: string | null;
+  // เฉพาะเส้นทางตั้งแต่ต้นจนจบ: ลำดับขั้น และจุดเริ่มหรือจุดจบ
+  n?: number;
+  milestone?: "start" | "completed" | "ended" | null;
+}
+
+interface JourneyRun {
+  id: number;
+  set_name: string;
+  started: number;
+  ended: number | null;
+  outcome: string;
+  resumed: boolean;
+}
+
+interface JourneyData {
+  runs: JourneyRun[];
+  run: (JourneyRun & { set_id: string }) | null;
+  steps: ActivityEvent[];
+  summary: {
+    steps: number;
+    answers: number;
+    correct: number;
+    items: number;
+    hints: number;
+    duration: number;
+    position: string | null;
+    position_label: string | null;
+    finished: boolean;
+  } | null;
 }
 
 const CHOICES: Record<string, string> = { rest: "พักก่อน", easier: "ทำต่อแบบง่ายลง", stop: "หยุดวันนี้" };
@@ -86,6 +115,7 @@ export function describeInput(input: ActivityInput) {
 
 function summary(event: ActivityEvent): { text: string; sub: string; math?: string | null } {
   const shown = event.inputs.filter((i) => i.action !== "misconception");
+  if (event.edges.includes("e_start")) return { text: "กดเริ่มชุดคำถาม", sub: event.decisions[0]?.rule ?? "" };
   if (shown.length) return { ...describeInput(shown[0]), math: shown[0].item?.math };
   if (event.source === "teacher") return { text: "ครูสั่ง Manual Override", sub: event.decisions[0]?.rule ?? "" };
   return { text: "ระบบเปลี่ยนสถานะเอง", sub: event.decisions[0]?.rule ?? "" };
@@ -107,26 +137,44 @@ export default function Activity() {
   const [selected, setSelected] = useState<string | null>(null);
   const [follow, setFollow] = useState(true);
   const [inspect, setInspect] = useState<string | null>(null);
+  const [session, setSession] = useState<number | null>(null);
   const now = useNow(5000);
+  const one = scope === "one" && !!code;
 
-  const query = scope === "one" && code ? `?code=${code}&limit=60` : `?include_sim=${includeSim}&limit=60`;
-  const feed = useLoad(() => api<ActivityEvent[]>("admin", `/api/admin/activity${query}`), [query]);
+  const query = `?include_sim=${includeSim}&limit=60`;
+  const feed = useLoad(() => (one ? Promise.resolve(null) : api<ActivityEvent[]>("admin", `/api/admin/activity${query}`)), [query, one]);
+  // รายคน: ทุกการกระทำใน Session เดียว เรียงเป็นขั้นที่ 1 ถึงขั้นสุดท้าย
+  const trip = useLoad(
+    () => (one ? api<JourneyData>("admin", `/api/admin/students/${code}/journey${session ? `?session=${session}` : ""}`) : Promise.resolve(null)),
+    [one, code, session],
+  );
+
+  useEffect(() => setSession(null), [code]);
 
   // ข้อมูลสดเข้ามา: โหลดใหม่แบบรวบหลายเหตุการณ์ติดกัน
   useEffect(() => {
     if (!liveVersion) return;
-    const id = setTimeout(feed.reload, 500);
+    const id = setTimeout(one ? trip.reload : feed.reload, 500);
     return () => clearTimeout(id);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [liveVersion]);
 
-  const events = useMemo(() => feed.data ?? [], [feed.data]);
-  const keyOf = (e: ActivityEvent) => `${e.code}-${e.ts}`;
+  const events = useMemo(() => (one ? trip.data?.steps : feed.data) ?? [], [one, trip.data, feed.data]);
+  // รายการล่าสุดอยู่บนสุดของ feed แต่อยู่ท้ายสุดของเส้นทาง
+  const latest = one ? events[events.length - 1] : events[0];
   useEffect(() => {
-    if (!events.length) return;
-    if (follow || !events.some((e) => keyOf(e) === selected)) setSelected(keyOf(events[0]));
+    if (!latest) return;
+    if (follow || !events.some((e) => keyOf(e) === selected)) setSelected(keyOf(latest));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [events]);
+
+  const pick = (k: string) => {
+    setSelected(k);
+    setFollow(false);
+    // เลือกรายการที่อยู่ล่าง ๆ แล้วเลื่อนกลับมาให้เห็นโจทย์และคำตอบตัวใหญ่
+    const detail = document.querySelector(".event-detail");
+    if (detail && detail.getBoundingClientRect().top < 70) detail.scrollIntoView({ block: "start", behavior: "smooth" });
+  };
 
   const event = events.find((e) => keyOf(e) === selected) ?? null;
   const active = (flow?.positions ?? []).filter((p) => p.kind !== "sim" && !["COMPLETED", "SESSION_ENDED"].includes(p.position));
@@ -195,54 +243,61 @@ export default function Activity() {
       </section>
 
       <div className="activity-grid">
-        <Card className="activity-list-card">
-          <CardHead
-            title="การกระทำล่าสุด"
-            sub="ใหม่สุดอยู่บน กดรายการเพื่อดูเส้นทาง"
-            actions={
-              <label className="check xsmall">
-                <input type="checkbox" checked={follow} onChange={(e) => setFollow(e.target.checked)} />
-                ตามรายการล่าสุด
-              </label>
-            }
+        {one ? (
+          <JourneyCard
+            trip={trip.data}
+            loading={trip.loading}
+            selected={selected}
+            onSelect={pick}
+            onSession={setSession}
+            labels={flow.labels}
+            follow={follow}
+            onFollow={setFollow}
           />
-          {feed.loading && !feed.data && <Spinner />}
-          {feed.data && events.length === 0 && <Empty>ยังไม่มีการกระทำ ลองเปิดหน้านักเรียนแล้วตอบสักข้อ</Empty>}
-          <ol className="activity-list">
-            {events.map((e) => {
-              const s = summary(e);
-              const k = keyOf(e);
-              return (
-                <li key={k}>
-                  <button
-                    className={k === selected ? "is-on" : ""}
-                    onClick={() => {
-                      setSelected(k);
-                      setFollow(false);
-                      // เลือกรายการที่อยู่ล่าง ๆ แล้วเลื่อนกลับมาให้เห็นโจทย์และคำตอบตัวใหญ่
-                      const detail = document.querySelector(".event-detail");
-                      if (detail && detail.getBoundingClientRect().top < 70) detail.scrollIntoView({ block: "start", behavior: "smooth" });
-                    }}
-                  >
-                    <span className={`activity-src src-${e.source}`} title={SOURCE_LABEL[e.source]}>
-                      {SOURCE_ICON[e.source]}
-                    </span>
-                    <span className="stack grow" style={{ gap: 1 }}>
-                      <span className="row row-sm xsmall">
-                        <span className="mono strong">{e.code}</span>
-                        <span className="faint num">{clock(e.ts)}</span>
+        ) : (
+          <Card className="activity-list-card">
+            <CardHead
+              title="การกระทำล่าสุด"
+              sub="ใหม่สุดอยู่บน กดรายการเพื่อดูเส้นทาง"
+              actions={
+                <label className="check xsmall">
+                  <input type="checkbox" checked={follow} onChange={(e) => setFollow(e.target.checked)} />
+                  ตามรายการล่าสุด
+                </label>
+              }
+            />
+            {feed.loading && !feed.data && <Spinner />}
+            {feed.data && events.length === 0 && <Empty>ยังไม่มีการกระทำ ลองเปิดหน้านักเรียนแล้วตอบสักข้อ</Empty>}
+            <ol className="activity-list">
+              {events.map((e) => {
+                const s = summary(e);
+                const k = keyOf(e);
+                return (
+                  <li key={k}>
+                    <button
+                      className={k === selected ? "is-on" : ""}
+                      onClick={() => pick(k)}
+                    >
+                      <span className={`activity-src src-${e.source}`} title={SOURCE_LABEL[e.source]}>
+                        {SOURCE_ICON[e.source]}
                       </span>
-                      <span className="small activity-text">{s.text}</span>
-                      {s.math && <span className="activity-math mono">{s.math}</span>}
-                      {e.position && <span className="xsmall faint">→ {flow.labels[e.position] ?? e.position}</span>}
-                    </span>
-                    <ChevronRight size={16} className="faint" />
-                  </button>
-                </li>
-              );
-            })}
-          </ol>
-        </Card>
+                      <span className="stack grow" style={{ gap: 1 }}>
+                        <span className="row row-sm xsmall">
+                          <span className="mono strong">{e.code}</span>
+                          <span className="faint num">{clock(e.ts)}</span>
+                        </span>
+                        <span className="small activity-text">{s.text}</span>
+                        {s.math && <span className="activity-math mono">{s.math}</span>}
+                        {e.position && <span className="xsmall faint">→ {flow.labels[e.position] ?? e.position}</span>}
+                      </span>
+                      <ChevronRight size={16} className="faint" />
+                    </button>
+                  </li>
+                );
+              })}
+            </ol>
+          </Card>
+        )}
 
         <div className="stack">
           {event ? <EventDetail event={event} labels={flow.labels} /> : <Card className="card-pad"><Empty>เลือกการกระทำจากรายการ</Empty></Card>}
@@ -266,6 +321,135 @@ export default function Activity() {
       <NodeInspector nodeId={inspect} onClose={() => setInspect(null)} onNavigate={setInspect} />
     </div>
   );
+}
+
+const MILESTONE = {
+  start: { label: "เริ่ม", icon: <Play size={12} /> },
+  completed: { label: "จบชุด", icon: <Flag size={12} /> },
+  ended: { label: "จบ Session", icon: <Flag size={12} /> },
+};
+
+// เส้นทางตั้งแต่ต้นจนจบของหนึ่ง Session: ขั้นที่ 1 คือจุดเริ่ม ขั้นสุดท้ายคือจุดจบ
+function JourneyCard({
+  trip,
+  loading,
+  selected,
+  onSelect,
+  onSession,
+  labels,
+  follow,
+  onFollow,
+}: {
+  trip: JourneyData | null;
+  loading: boolean;
+  selected: string | null;
+  onSelect: (key: string) => void;
+  onSession: (id: number) => void;
+  labels: Record<string, string>;
+  follow: boolean;
+  onFollow: (on: boolean) => void;
+}) {
+  const sum = trip?.summary;
+  const steps = trip?.steps ?? [];
+  return (
+    <Card className="activity-list-card">
+      <CardHead
+        title="ตั้งแต่ต้นจนจบ"
+        sub="ทุกการกระทำใน Session นี้เรียงตามลำดับ กดขั้นเพื่อดูว่าเข้าไปตรงไหนในผัง"
+        actions={
+          <label className="check xsmall">
+            <input type="checkbox" checked={follow} onChange={(e) => onFollow(e.target.checked)} />
+            ตามขั้นล่าสุด
+          </label>
+        }
+      />
+      {loading && !trip && <Spinner />}
+      {trip && !trip.run && <Empty>นักเรียนคนนี้ยังไม่เคยเริ่มชุดคำถาม</Empty>}
+      {trip?.run && sum && (
+        <div className="journey-head">
+          {trip.runs.length > 1 ? (
+            <select className="input" value={trip.run.id} onChange={(e) => onSession(Number(e.target.value))} aria-label="เลือก Session">
+              {trip.runs.map((r, i) => (
+                <option key={r.id} value={r.id}>
+                  {i === 0 ? "ล่าสุด · " : ""}
+                  {r.set_name} · {new Date(r.started * 1000).toLocaleString("th-TH", { dateStyle: "short", timeStyle: "short" })} · {r.outcome}
+                </option>
+              ))}
+            </select>
+          ) : (
+            <span className="small strong">{trip.run.set_name}</span>
+          )}
+          <dl className="journey-stats">
+            <div>
+              <dt>ทั้งหมด</dt>
+              <dd>{sum.steps} ขั้น</dd>
+            </div>
+            <div>
+              <dt>ตอบ / ถูก</dt>
+              <dd>
+                {sum.answers} / {sum.correct}
+              </dd>
+            </div>
+            <div>
+              <dt>คำใบ้</dt>
+              <dd>{sum.hints} ครั้ง</dd>
+            </div>
+            <div>
+              <dt>ใช้เวลา</dt>
+              <dd>{mmss(sum.duration)}{sum.duration < 60 ? " วินาที" : " นาที"}</dd>
+            </div>
+          </dl>
+        </div>
+      )}
+      <ol className="journey">
+        {steps.map((e) => {
+          const s = summary(e);
+          const k = keyOf(e);
+          const ms = e.milestone ? MILESTONE[e.milestone] : null;
+          return (
+            <li key={k} className={`journey-step ${e.milestone ? `ms-${e.milestone}` : ""}`}>
+              <button className={k === selected ? "is-on" : ""} onClick={() => onSelect(k)}>
+                <span className="journey-n num">{e.n}</span>
+                <span className="stack grow" style={{ gap: 2, minWidth: 0 }}>
+                  <span className="row row-sm xsmall">
+                    <span className="strong">ขั้นที่ {e.n}</span>
+                    {ms && (
+                      <span className="journey-flag">
+                        {ms.icon}
+                        {ms.label}
+                      </span>
+                    )}
+                    <span className="faint num">{clock(e.ts)}</span>
+                    <span className={`activity-src src-${e.source} activity-src-sm`} title={SOURCE_LABEL[e.source]}>
+                      {SOURCE_ICON[e.source]}
+                    </span>
+                  </span>
+                  <span className="small activity-text">{s.text}</span>
+                  {s.math && <span className="activity-math mono">{s.math}</span>}
+                  {s.sub && !e.milestone && <span className="xsmall muted">{s.sub}</span>}
+                  {e.position && <span className="xsmall faint">→ {labels[e.position] ?? e.position}</span>}
+                </span>
+              </button>
+            </li>
+          );
+        })}
+        {sum && !sum.finished && steps.length > 0 && (
+          <li className="journey-step journey-open">
+            <span className="journey-n">
+              <Hourglass size={13} />
+            </span>
+            <span className="small muted">
+              ยังไม่จบ ตอนนี้อยู่ที่ <span className="strong">{sum.position_label ?? "–"}</span>
+            </span>
+          </li>
+        )}
+      </ol>
+    </Card>
+  );
+}
+
+function keyOf(e: ActivityEvent) {
+  return `${e.code}-${e.ts}`;
 }
 
 function EventDetail({ event, labels }: { event: ActivityEvent; labels: Record<string, string> }) {
@@ -301,7 +485,11 @@ function EventDetail({ event, labels }: { event: ActivityEvent; labels: Record<s
           })
         ) : (
           <span className="small muted">
-            {event.source === "teacher" ? "ครูสั่งจากหน้าครู" : "ไม่มีการป้อนจากนักเรียน ระบบเปลี่ยนสถานะเมื่อครบเวลาหรือเงื่อนไข"}
+            {event.edges.includes("e_start")
+              ? "นักเรียนกดเริ่มชุดคำถาม ระบบเลือกโจทย์ข้อแรกให้"
+              : event.source === "teacher"
+                ? "ครูสั่งจากหน้าครู"
+                : "ไม่มีการป้อนจากนักเรียน ระบบเปลี่ยนสถานะเมื่อครบเวลาหรือเงื่อนไข"}
           </span>
         )}
       </div>

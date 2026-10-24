@@ -74,6 +74,41 @@ def test_activity_links_input_to_flow_path(content):
     assert rejected["steps"][-1].startswith("ตีกลับ") and rejected["rules"][0]["id"] == "R-02"
 
 
+def test_journey_numbers_one_session_from_start(content):
+    from app import activity, db, services
+    from app.engine import core as engine
+    from app.engine.core import Ctx
+
+    db.execute("INSERT INTO students (code, kind, persona, created_at) VALUES ('S-10', 'real', NULL, 0)")
+    first = services.new_session("S-10", "QS-1", 1000.0)
+    state = engine.new_state("S-10", content.subject["id"], "QS-1", first, 1000.0)
+    ctx = Ctx(content, settings_store.params(), 1.0, 1000.0)
+    services.persist(state, engine.begin(state, ctx), 1000.0)
+    ctx.now = 1020.0
+    services.persist(state, engine.submit(state, ctx, "7"), 1020.0)
+
+    trip = activity.journey("S-10")
+    assert [s["n"] for s in trip["steps"]] == [1, 2]
+    assert trip["steps"][0]["milestone"] == "start" and trip["steps"][0]["source"] == "student"
+    assert trip["steps"][1]["position"] == "DELIBERATE_DELAY"
+    assert trip["summary"]["answers"] == 1 and trip["summary"]["correct"] == 0
+    assert not trip["summary"]["finished"]
+
+    # เริ่มชุดใหม่: Session เดิมจบช่วงเวลาที่ Session ใหม่เริ่ม และเลือกดูย้อนหลังได้
+    second = services.new_session("S-10", "QS-1", 2000.0)
+    state = engine.new_state("S-10", content.subject["id"], "QS-1", second, 2000.0)
+    ctx.now = 2000.0
+    services.persist(state, engine.begin(state, ctx), 2000.0)
+    assert [r["id"] for r in activity.journey("S-10")["runs"]] == [second, first]
+    assert len(activity.journey("S-10")["steps"]) == 1
+    assert len(activity.journey("S-10", first)["steps"]) == 2
+
+    client = TestClient(app)
+    admin = {"Authorization": f"Bearer {issue_token('admin')}"}
+    assert client.get("/api/admin/students/S-10/journey", headers=admin).json()["run"]["id"] == second
+    assert activity.journey("NOBODY")["steps"] == []
+
+
 def test_rule_edges_exist():
     edge_ids = {e["id"] for e in F.EDGES}
     for rule_id, edges in rules.RULE_EDGES.items():
