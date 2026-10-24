@@ -1,9 +1,9 @@
 import { useEffect, useState, type FormEvent, type ReactNode } from "react";
 import { Link } from "react-router";
-import { ArrowLeft, KeyRound } from "lucide-react";
+import { ArrowLeft } from "lucide-react";
 import { api, setAuth, type Role } from "../lib/api";
 import { BrandMark, ThemeToggle } from "../components/Shell";
-import { Button, Field } from "../components/ui";
+import { Button, Field, Spinner } from "../components/ui";
 
 function LoginFrame({ children }: { children: ReactNode }) {
   return (
@@ -73,64 +73,44 @@ export function StudentLogin({ onDone }: { onDone: () => void }) {
   );
 }
 
-export function StaffLogin({ role, onDone }: { role: Exclude<Role, "student">; onDone: () => void }) {
-  const [pin, setPin] = useState("");
+// ครูและ Admin เข้าได้ทันทีโดยไม่ใช้ PIN: ขอ token ของบทบาทนั้นแล้วเข้าหน้าเลย
+export function StaffEnter({ role, onDone }: { role: Exclude<Role, "student">; onDone: () => void }) {
   const [error, setError] = useState<string | null>(null);
-  const [busy, setBusy] = useState(false);
-  const [defaults, setDefaults] = useState<Record<string, boolean>>({});
-  const label = role === "teacher" ? "ครู" : "ผู้ดูแลระบบ";
-  const defaultPin = role === "teacher" ? "1234" : "4321";
+  const [attempt, setAttempt] = useState(0);
 
   useEffect(() => {
-    api<Record<string, boolean>>(null, "/api/auth/pin-hints").then(setDefaults).catch(() => {});
-  }, []);
+    let live = true;
+    api<{ token: string }>(null, "/api/auth/staff", { body: { role } })
+      .then((result) => {
+        if (!live) return;
+        setAuth(role, { token: result.token });
+        onDone();
+      })
+      .catch((err) => live && setError(err instanceof Error ? err.message : "เข้าระบบไม่สำเร็จ"));
+    return () => {
+      live = false;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [role, attempt]);
 
-  const submit = async (event: FormEvent) => {
-    event.preventDefault();
-    setBusy(true);
-    setError(null);
-    try {
-      const result = await api<{ token: string }>(null, "/api/auth/staff", { body: { role, pin } });
-      setAuth(role, { token: result.token });
-      onDone();
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "เข้าสู่ระบบไม่สำเร็จ");
-    } finally {
-      setBusy(false);
-    }
-  };
-
+  if (!error) return <Spinner />;
   return (
     <LoginFrame>
-      <form onSubmit={submit} className="stack" style={{ gap: 20 }}>
-        <div className="stack stack-sm">
-          <p className="eyebrow">{label}</p>
-          <h1 className="title-lg">ใส่ PIN {label}</h1>
-          <p className="small muted">
-            {role === "teacher"
-              ? "หน้าครูเห็นชื่อจริงของนักเรียน คะแนนความเสี่ยง และการแจ้งเตือน"
-              : "หน้าผู้ดูแลระบบเห็นการทำงานภายในของระบบ แต่เห็นนักเรียนเป็นรหัสเท่านั้น"}
-          </p>
-        </div>
-        <Field
-          label="PIN"
-          hint={defaults[role] ? `ยังใช้ PIN เริ่มต้นสำหรับสาธิตอยู่: ${defaultPin} (เปลี่ยนได้ในหน้าตั้งค่า)` : undefined}
+      <div className="stack" style={{ gap: 16 }}>
+        <h1 className="title-lg">เข้า{role === "teacher" ? "หน้าครู" : "หน้าผู้ดูแลระบบ"}ไม่สำเร็จ</h1>
+        <p className="small muted">{error}</p>
+        <Button
+          variant="primary"
+          size="lg"
+          block
+          onClick={() => {
+            setError(null);
+            setAttempt((n) => n + 1);
+          }}
         >
-          <input
-            className="input input-lg mono"
-            type="password"
-            inputMode="numeric"
-            value={pin}
-            onChange={(e) => setPin(e.target.value)}
-            autoFocus
-            aria-invalid={!!error}
-          />
-        </Field>
-        {error && <p className="small" style={{ color: "var(--danger)" }}>{error}</p>}
-        <Button variant="primary" size="lg" block loading={busy} disabled={!pin} type="submit" icon={<KeyRound size={18} />}>
-          เข้าสู่ระบบ
+          ลองอีกครั้ง
         </Button>
-      </form>
+      </div>
     </LoginFrame>
   );
 }

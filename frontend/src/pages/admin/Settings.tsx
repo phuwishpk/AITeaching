@@ -17,7 +17,6 @@ interface SettingsData {
   params: Record<string, number>;
   param_labels: Record<string, string>;
   demo: { enabled: boolean; time_scale: number };
-  pins_default: Record<string, boolean>;
 }
 
 const PROVIDERS = [
@@ -165,7 +164,6 @@ export default function Settings() {
         </div>
       </Card>
 
-      <PinCard defaults={s.pins_default} onChanged={settings.reload} />
     </div>
   );
 }
@@ -289,65 +287,6 @@ function ProviderCard({
               <span className="small">{test.error}</span>
             </div>
           ))}
-      </div>
-    </Card>
-  );
-}
-
-function PinCard({ defaults, onChanged }: { defaults: Record<string, boolean>; onChanged: () => void }) {
-  const toast = useToast();
-  const [role, setRole] = useState<"teacher" | "admin">("teacher");
-  const [pin, setPin] = useState("");
-  const [busy, setBusy] = useState(false);
-
-  const save = async () => {
-    setBusy(true);
-    try {
-      await api("admin", "/api/admin/pins", { method: "PUT", body: { role, pin } });
-      toast(`เปลี่ยน PIN ของ${role === "teacher" ? "ครู" : "ผู้ดูแลระบบ"}แล้ว`, "success");
-      setPin("");
-      onChanged();
-    } catch (err) {
-      toast(err instanceof Error ? err.message : "เปลี่ยน PIN ไม่สำเร็จ", "warning");
-    } finally {
-      setBusy(false);
-    }
-  };
-
-  return (
-    <Card>
-      <CardHead title="PIN สำหรับเข้าระบบ" sub="PIN เก็บแบบแฮชพร้อม salt ค่าเริ่มต้นใช้เพื่อสาธิตเท่านั้น" />
-      <div className="card-body stack" style={{ paddingTop: 0 }}>
-        <div className="row">
-          {(["teacher", "admin"] as const).map((r) => (
-            <Badge key={r} tone={defaults[r] ? "warning" : "success"}>
-              {r === "teacher" ? "ครู" : "ผู้ดูแลระบบ"}: {defaults[r] ? "ยังใช้ PIN เริ่มต้น" : "เปลี่ยนแล้ว"}
-            </Badge>
-          ))}
-        </div>
-        <div className="key-row">
-          <Segmented
-            label="บทบาท"
-            value={role}
-            onChange={setRole}
-            options={[
-              { id: "teacher", label: "ครู" },
-              { id: "admin", label: "ผู้ดูแลระบบ" },
-            ]}
-          />
-          <input
-            className="input mono"
-            type="password"
-            inputMode="numeric"
-            placeholder="PIN ใหม่ ตัวเลขอย่างน้อย 4 หลัก"
-            value={pin}
-            onChange={(e) => setPin(e.target.value.replace(/\D/g, ""))}
-            aria-label="PIN ใหม่"
-          />
-          <Button variant="primary" loading={busy} disabled={pin.length < 4} onClick={save}>
-            เปลี่ยน PIN
-          </Button>
-        </div>
       </div>
     </Card>
   );

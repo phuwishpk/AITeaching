@@ -1,5 +1,5 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
-import { Route, Routes } from "react-router";
+import { Route, Routes, useNavigate } from "react-router";
 import { Bell, BookMarked, Bot, LayoutDashboard, ListChecks, MessagesSquare, Sparkles, UsersRound } from "lucide-react";
 import { api, clearAuth, getAuth } from "../../lib/api";
 import { useLive } from "../../lib/hooks";
@@ -7,7 +7,7 @@ import type { Alert, Decision, StaffView, Telemetry } from "../../lib/types";
 import type { Centroid } from "../../components/charts";
 import { TopBar } from "../../components/Shell";
 import SideNav from "../../components/SideNav";
-import { StaffLogin } from "../Login";
+import { StaffEnter } from "../Login";
 import Overview from "./Overview";
 import AlertsPage from "./Alerts";
 import ContentStudio from "./ContentStudio";
@@ -57,11 +57,18 @@ export function useTeacher() {
 
 export default function TeacherApp() {
   const [auth, setAuthState] = useState(() => getAuth("teacher"));
-  if (!auth) return <StaffLogin role="teacher" onDone={() => setAuthState(getAuth("teacher"))} />;
+  const navigate = useNavigate();
+  if (!auth) return <StaffEnter role="teacher" onDone={() => setAuthState(getAuth("teacher"))} />;
   return (
     <TeacherShell
       onLogout={() => {
+        // ไม่มี PIN แล้ว อยู่หน้าเดิมจะเข้าใหม่ทันที จึงพากลับหน้าเลือกบทบาท
         api("teacher", "/api/auth/logout", { method: "POST" }).catch(() => {});
+        clearAuth("teacher");
+        navigate("/");
+      }}
+      onExpired={() => {
+        // token หมดอายุ (เช่น server เริ่มใหม่): ขอ token ใหม่แล้วอยู่หน้าเดิม
         clearAuth("teacher");
         setAuthState(null);
       }}
@@ -69,7 +76,7 @@ export default function TeacherApp() {
   );
 }
 
-function TeacherShell({ onLogout }: { onLogout: () => void }) {
+function TeacherShell({ onLogout, onExpired }: { onLogout: () => void; onExpired: () => void }) {
   const [data, setData] = useState<OverviewData | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [feed, setFeed] = useState<FeedEntry[]>([]);
@@ -81,8 +88,8 @@ function TeacherShell({ onLogout }: { onLogout: () => void }) {
   openTab.current = student;
   const [liveVersion, setLiveVersion] = useState(0);
   const [lastEvent, setLastEvent] = useState<{ code: string; n: number } | null>(null);
-  const logout = useRef(onLogout);
-  logout.current = onLogout;
+  const expire = useRef(onExpired);
+  expire.current = onExpired;
 
   const reload = useCallback(async () => {
     try {
@@ -97,7 +104,7 @@ function TeacherShell({ onLogout }: { onLogout: () => void }) {
     reload();
     // ตัวชี้วัดรวม (Telemetry, กลุ่มผู้เรียน) คำนวณใหม่เป็นระยะ ส่วนสถานะรายคนมาทาง WebSocket
     const id = setInterval(reload, 30000);
-    const expired = () => logout.current();
+    const expired = () => expire.current();
     window.addEventListener("auth-expired", expired);
     return () => {
       clearInterval(id);

@@ -40,6 +40,15 @@ def test_rule_text_follows_current_settings():
     assert param["value"] == 20 and param["default"] == 15 and param["changed"]
 
 
+def test_staff_enter_without_pin_but_roles_stay_separate():
+    client = TestClient(app)
+    teacher = client.post("/api/auth/staff", json={"role": "teacher"}).json()["token"]
+    admin = client.post("/api/auth/staff", json={"role": "admin"}).json()["token"]
+    assert client.post("/api/auth/staff", json={"role": "student"}).status_code == 400
+    assert client.get("/api/admin/flow", headers={"Authorization": f"Bearer {admin}"}).status_code == 200
+    assert client.get("/api/admin/flow", headers={"Authorization": f"Bearer {teacher}"}).status_code in (401, 403)
+
+
 def test_rules_endpoint_is_staff_only():
     client = TestClient(app)
     student = issue_token("student", "S-01")

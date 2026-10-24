@@ -1,4 +1,4 @@
-"""การเข้าระบบ: Student ใช้ Student Code, Teacher และ Admin ใช้ PIN ของตัวเอง"""
+"""การเข้าระบบ: Student ใช้ Student Code, Teacher และ Admin เข้าได้ทันที แต่ละบทบาทใช้ token ของตัวเอง"""
 
 import secrets
 import time

@@ -19,7 +19,7 @@
 | หน้าที่หลัก | ทำชุดคำถาม | ดูแลนักเรียนรายคน | ดูว่าระบบคิดอย่างไร และตั้งค่าระบบ |
 | เห็นอะไร | Mastery Bar, คำใบ้, แชต | สถานะเป็นภาษาคน, Risk Score, Student Cluster, Teacher Alert | Flow Position, Decision Trace, ตัวแปรทุกตัว, ค่า Fuzzy, prompt |
 | สั่งอะไรได้ | ตอบ, ขอคำใบ้, ยกเลิกคำตอบ | Manual Override, สร้างและแก้ชุดคำถาม, ยืนยัน AI-Suggested Tag, สร้าง Student Code | API key, ค่าพารามิเตอร์, เล่น Scenario, Stress Test, Simulated Cohort |
-| เข้าระบบด้วย | Student Code | PIN ครู | PIN Admin |
+| เข้าระบบด้วย | Student Code | กดเข้าได้ทันที (ไม่มี PIN) | กดเข้าได้ทันที (ไม่มี PIN) |
 | ชื่อจริง | ไม่เกี่ยว | เห็นผ่าน Roster | ไม่เห็น เห็นแค่ Student Code |
 
 ## 1. ที่มาและสภาพปัญหา

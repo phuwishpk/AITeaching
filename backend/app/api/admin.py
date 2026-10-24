@@ -44,10 +44,6 @@ class SecretBody(BaseModel):
     key: str | None = None
 
 
-class PinBody(BaseModel):
-    role: str
-    pin: str
-
 
 class TickBody(BaseModel):
     students: int = 10
@@ -369,7 +365,6 @@ def get_settings(auth: dict = Depends(admin)):
         "params": settings_store.params(),
         "param_labels": PARAM_LABELS,
         "demo": settings_store.demo(),
-        "pins_default": {r: settings_store.pin_is_default(r) for r in ("teacher", "admin")},
     }
 
 
@@ -409,10 +404,3 @@ async def test_provider(provider: str, auth: dict = Depends(admin)):
         return {"ok": False, "error": str(error)}
     return {"ok": True, "latency_ms": int((time.perf_counter() - started) * 1000), "models": models}
 
-
-@router.put("/pins")
-def put_pin(body: PinBody, auth: dict = Depends(admin)):
-    if body.role not in ("teacher", "admin") or not body.pin.strip().isdigit() or len(body.pin.strip()) < 4:
-        raise HTTPException(400, "PIN ต้องเป็นตัวเลขอย่างน้อย 4 หลัก")
-    settings_store.set_pin(body.role, body.pin.strip())
-    return {"ok": True}

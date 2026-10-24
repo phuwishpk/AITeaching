@@ -9,7 +9,7 @@ import type { Principle } from "../../components/PrincipleCard";
 import { TopBar } from "../../components/Shell";
 import SideNav from "../../components/SideNav";
 import { Button } from "../../components/ui";
-import { StaffLogin } from "../Login";
+import { StaffEnter } from "../Login";
 import Topic1 from "./Topic1";
 import Topic2 from "./Topic2";
 import Topic3 from "./Topic3";
@@ -83,11 +83,18 @@ const PRESENT_KEY = "adaptive-tutor:present";
 
 export default function AdminApp() {
   const [auth, setAuthState] = useState(() => getAuth("admin"));
-  if (!auth) return <StaffLogin role="admin" onDone={() => setAuthState(getAuth("admin"))} />;
+  const navigate = useNavigate();
+  if (!auth) return <StaffEnter role="admin" onDone={() => setAuthState(getAuth("admin"))} />;
   return (
     <AdminShell
       onLogout={() => {
+        // ไม่มี PIN แล้ว อยู่หน้าเดิมจะเข้าใหม่ทันที จึงพากลับหน้าเลือกบทบาท
         api("admin", "/api/auth/logout", { method: "POST" }).catch(() => {});
+        clearAuth("admin");
+        navigate("/");
+      }}
+      onExpired={() => {
+        // token หมดอายุ (เช่น server เริ่มใหม่): ขอ token ใหม่แล้วอยู่หน้าเดิม
         clearAuth("admin");
         setAuthState(null);
       }}
@@ -95,7 +102,7 @@ export default function AdminApp() {
   );
 }
 
-function AdminShell({ onLogout }: { onLogout: () => void }) {
+function AdminShell({ onLogout, onExpired }: { onLogout: () => void; onExpired: () => void }) {
   const navigate = useNavigate();
   const location = useLocation();
   const [flow, setFlow] = useState<FlowData | null>(null);
@@ -109,8 +116,8 @@ function AdminShell({ onLogout }: { onLogout: () => void }) {
       return false;
     }
   });
-  const logout = useRef(onLogout);
-  logout.current = onLogout;
+  const expire = useRef(onExpired);
+  expire.current = onExpired;
 
   const reloadFlow = useCallback(async () => {
     try {
@@ -122,7 +129,7 @@ function AdminShell({ onLogout }: { onLogout: () => void }) {
 
   useEffect(() => {
     reloadFlow();
-    const expired = () => logout.current();
+    const expired = () => expire.current();
     window.addEventListener("auth-expired", expired);
     return () => window.removeEventListener("auth-expired", expired);
   }, [reloadFlow]);
@@ -231,7 +238,7 @@ function AdminShell({ onLogout }: { onLogout: () => void }) {
               },
               {
                 title: "ระบบ",
-                items: [{ to: "/admin/settings", label: "ตั้งค่า (API key, PIN)", icon: <SettingsIcon size={17} /> }],
+                items: [{ to: "/admin/settings", label: "ตั้งค่า (API key)", icon: <SettingsIcon size={17} /> }],
               },
             ]}
             footer="หน้านี้เห็นนักเรียนเป็นรหัสเท่านั้น ใช้ Presentation View ตอนฉายจอ"

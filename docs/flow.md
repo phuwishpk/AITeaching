@@ -26,12 +26,12 @@ flowchart LR
     P1["Claude"]
     P2["Gemini"]
   end
-  subgraph TCH["Teacher · PIN ครู"]
+  subgraph TCH["Teacher"]
     T1["แดชบอร์ด<br/>สถานะภาษาคน · Risk Score<br/>Cluster · Teacher Alert"]
     T2["Manual Override"]
     T3["สร้าง Question Set<br/>อัปโหลดเอกสาร"]
   end
-  subgraph ADM["Admin · PIN Admin"]
+  subgraph ADM["Admin"]
     A1["7 แท็บตาม outline<br/>ผังสดพร้อมตำแหน่งนักเรียน"]
     A2["ตั้งค่า AI · API key<br/>ค่าพารามิเตอร์"]
     A3["Scenario · Stress Test"]

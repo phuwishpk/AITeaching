@@ -91,7 +91,5 @@ PARAM_LABELS: dict[str, str] = {
 # น้ำหนักต่อข้อของ Mastery: ถูกครั้งแรก / แก้เองถูก / หลังคำใบ้ระดับ 1-3
 WEIGHTS = {"first": 1.0, "self": 0.8, 1: 0.7, 2: 0.4, 3: 0.2}
 
-DEFAULT_PINS = {"teacher": "1234", "admin": "4321"}
-
 CLAUDE_DEFAULT_MODEL = "claude-opus-5-5"
 GEMINI_DEFAULT_MODEL = "gemini-3.8-flash"

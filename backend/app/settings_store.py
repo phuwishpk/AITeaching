@@ -1,19 +1,16 @@
-"""ค่าตั้งค่าระบบ: API key, Provider, พารามิเตอร์ของกลไก, Demo Mode และ PIN
+"""ค่าตั้งค่าระบบ: API key, Provider, พารามิเตอร์ของกลไก และ Demo Mode
 
 API key เก็บในไฟล์ runtime/secrets.json (ไม่ขึ้น git) ถ้ามีตัวแปร environment
 ANTHROPIC_API_KEY หรือ GEMINI_API_KEY จะใช้ค่านั้นแทน และหน้าเว็บเห็นแค่ 4 ตัวท้าย
 """
 
-import hashlib
 import json
 import os
-import secrets as pysecrets
 
 from . import db
 from .config import (
     CLAUDE_DEFAULT_MODEL,
     DEFAULT_PARAMS,
-    DEFAULT_PINS,
     GEMINI_DEFAULT_MODEL,
     SECRETS_PATH,
 )
@@ -107,22 +104,3 @@ def save_demo(updates: dict) -> dict:
     db.set_setting("demo", current)
     return current
 
-
-def _hash(pin: str, salt: str) -> str:
-    return hashlib.sha256(f"{salt}:{pin}".encode()).hexdigest()
-
-
-def check_pin(role: str, pin: str) -> bool:
-    stored = db.get_setting(f"pin_{role}")
-    if not stored:
-        return pin == DEFAULT_PINS.get(role)
-    return pysecrets.compare_digest(stored["hash"], _hash(pin, stored["salt"]))
-
-
-def set_pin(role: str, pin: str) -> None:
-    salt = pysecrets.token_hex(8)
-    db.set_setting(f"pin_{role}", {"salt": salt, "hash": _hash(pin, salt)})
-
-
-def pin_is_default(role: str) -> bool:
-    return db.get_setting(f"pin_{role}") is None

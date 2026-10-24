@@ -1,7 +1,7 @@
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 
-from .. import db, settings_store
+from .. import db
 from .deps import current, issue_token, revoke_token
 
 router = APIRouter(prefix="/api/auth", tags=["auth"])
@@ -13,7 +13,6 @@ class StudentLogin(BaseModel):
 
 class StaffLogin(BaseModel):
     role: str
-    pin: str
 
 
 @router.post("/student")
@@ -27,10 +26,9 @@ def login_student(body: StudentLogin):
 
 @router.post("/staff")
 def login_staff(body: StaffLogin):
+    """ครูและ Admin เข้าได้ทันทีโดยไม่ใช้ PIN แต่ละบทบาทยังได้ token ของตัวเอง สิทธิ์จึงแยกกันเหมือนเดิม"""
     if body.role not in ("teacher", "admin"):
         raise HTTPException(400, "บทบาทไม่ถูกต้อง")
-    if not settings_store.check_pin(body.role, body.pin.strip()):
-        raise HTTPException(401, "PIN ไม่ถูกต้อง")
     return {"token": issue_token(body.role), "role": body.role}
 
 
@@ -44,8 +42,3 @@ def logout(auth: dict = Depends(current)):
     revoke_token(auth["token"])
     return {"ok": True}
 
-
-@router.get("/pin-hints")
-def pin_hints():
-    """บอกหน้าเข้าสู่ระบบว่ายังใช้ PIN เริ่มต้นอยู่หรือไม่ (เพื่อแสดงคำแนะนำตอนสาธิต)"""
-    return {role: settings_store.pin_is_default(role) for role in ("teacher", "admin")}
