@@ -1625,3 +1625,244 @@
   padding: 3px 10px;
   line-height: 1.45;
 }
+
+/* ---------- หน้ากฎทั้งหมด ---------- */
+.topic-sep {
+  flex: none;
+  width: 1px;
+  margin: 6px 6px;
+  background: var(--border-strong);
+}
+
+.rules-tools {
+  flex-wrap: nowrap;
+}
+
+.search-box {
+  position: relative;
+  display: flex;
+  align-items: center;
+  width: min(340px, 100%);
+}
+
+.search-box svg {
+  position: absolute;
+  left: 12px;
+  color: var(--text-3);
+  pointer-events: none;
+}
+
+.search-box .input {
+  padding-left: 36px;
+}
+
+.rule-toc {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.rule-toc a {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 12px 6px 6px;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  background: var(--surface);
+  color: var(--text-2);
+  font-size: var(--fs-sm);
+  transition: border-color 0.15s ease, color 0.15s ease;
+}
+
+.rule-toc a:hover {
+  border-color: var(--accent);
+  color: var(--text);
+  text-decoration: none;
+}
+
+.rule-toc a.is-empty {
+  opacity: 0.45;
+}
+
+.rule-toc-mark {
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  background: var(--accent-soft);
+  color: var(--accent-ink);
+  font-weight: 600;
+  font-size: var(--fs-xs);
+}
+
+.rule-toc-count {
+  font-size: var(--fs-xs);
+  color: var(--text-3);
+}
+
+.rule-group {
+  scroll-margin-top: 140px;
+}
+
+.rule-list-full {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.rule {
+  display: grid;
+  grid-template-columns: 56px minmax(0, 1fr);
+  gap: 14px;
+  padding: 18px 22px;
+  border-bottom: 1px solid var(--border);
+  scroll-margin-top: 140px;
+}
+
+.rule:last-child {
+  border-bottom: none;
+}
+
+.rule:target {
+  background: var(--accent-soft);
+}
+
+.rule-id {
+  font-size: var(--fs-xs);
+  font-weight: 500;
+  color: var(--text-3);
+  padding-top: 3px;
+}
+
+.rule-body {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  min-width: 0;
+}
+
+.rule-title {
+  font-size: var(--fs-md);
+}
+
+.rule-wt {
+  margin: 0;
+  display: grid;
+  grid-template-columns: 44px minmax(0, 1fr);
+  gap: 6px 12px;
+  line-height: 1.7;
+}
+
+.rule-wt dt {
+  font-size: var(--fs-xs);
+  font-weight: 600;
+  color: var(--text-3);
+  padding-top: 3px;
+}
+
+.rule-wt dd {
+  margin: 0;
+  max-width: 92ch;
+}
+
+.param-chips {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.param-chip {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 6px;
+  padding: 4px 10px;
+  border-radius: 8px;
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  font-size: var(--fs-xs);
+  color: var(--text-2);
+}
+
+.param-chip strong {
+  color: var(--text);
+  font-size: var(--fs-sm);
+}
+
+.param-chip.changed {
+  background: var(--warning-soft);
+  border-color: color-mix(in srgb, var(--warning) 35%, var(--border));
+}
+
+.param-note {
+  color: var(--text-3);
+}
+
+.rule-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 16px;
+  font-size: var(--fs-xs);
+  color: var(--text-3);
+}
+
+.rule-meta > span,
+.rule-meta > a {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+}
+
+.rule-meta .topic-link {
+  font-size: var(--fs-xs);
+}
+
+@media (max-width: 640px) {
+  .rules-tools {
+    flex-wrap: wrap;
+    width: 100%;
+  }
+
+  .search-box {
+    width: 100%;
+  }
+
+  .rule {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 4px;
+    padding: 16px;
+  }
+}
+
+/* พิมพ์หน้ากฎไว้อ่านเตรียมตอบคำถาม: เอาแถบเมนูและเครื่องมือออก */
+@media print {
+  .topbar,
+  .topic-nav,
+  .sidebar,
+  .rules-tools,
+  .rule-toc,
+  .toasts {
+    display: none !important;
+  }
+
+  .side-layout {
+    display: block;
+  }
+
+  body {
+    background: #fff;
+  }
+
+  .card {
+    box-shadow: none;
+    break-inside: auto;
+  }
+
+  .rule {
+    break-inside: avoid;
+  }
+}

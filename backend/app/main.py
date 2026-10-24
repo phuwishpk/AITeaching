@@ -10,7 +10,7 @@ from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 
 from . import db, seed, services
-from .api import admin, auth, student, teacher
+from .api import admin, auth, rules, student, teacher
 from .api.deps import resolve_token
 from .config import FRONTEND_DIST
 from .hub import hub
@@ -28,6 +28,7 @@ app.include_router(auth.router)
 app.include_router(student.router)
 app.include_router(teacher.router)
 app.include_router(admin.router)
+app.include_router(rules.router)
 
 
 @app.exception_handler(services.NotFound)

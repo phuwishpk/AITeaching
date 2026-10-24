@@ -1,6 +1,6 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { NavLink, Route, Routes } from "react-router";
-import { Bell, BookMarked, Bot, LayoutDashboard, Sparkles, UsersRound } from "lucide-react";
+import { Bell, BookMarked, Bot, LayoutDashboard, ListChecks, Sparkles, UsersRound } from "lucide-react";
 import { api, clearAuth, getAuth } from "../../lib/api";
 import { useLive } from "../../lib/hooks";
 import type { Alert, Decision, StaffView, Telemetry } from "../../lib/types";
@@ -15,6 +15,7 @@ import Roster from "./Roster";
 import TagReview from "./TagReview";
 import AiReview from "./AiReview";
 import StudentDrawer from "./StudentDrawer";
+import RulesPage from "../shared/RulesPage";
 
 export interface OverviewData {
   students: StaffView[];
@@ -176,6 +177,9 @@ function TeacherShell({ onLogout }: { onLogout: () => void }) {
             <NavItem to="/teacher/ai" icon={<Bot size={17} />}>
               ตรวจคำตอบของ AI
             </NavItem>
+            <NavItem to="/teacher/rules" icon={<ListChecks size={17} />}>
+              กฎของระบบ
+            </NavItem>
             <div className="sidebar-foot xsmall faint">
               ครูเห็นชื่อจริงและ Risk Score ได้คนเดียว ฝั่งนักเรียนเห็นเพียงแถบความก้าวหน้า
             </div>
@@ -189,6 +193,7 @@ function TeacherShell({ onLogout }: { onLogout: () => void }) {
               <Route path="roster" element={<Roster />} />
               <Route path="tags" element={<TagReview />} />
               <Route path="ai" element={<AiReview />} />
+              <Route path="rules" element={<RulesPage role="teacher" />} />
             </Routes>
           </main>
         </div>
