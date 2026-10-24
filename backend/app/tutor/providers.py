@@ -5,6 +5,7 @@
 ถ้าตัวที่เลือกใช้ไม่ได้ service จะลองตัวถัดไปตามลำดับสำรอง แล้วจบที่คำใบ้ต้นฉบับ (Offline)
 """
 
+import asyncio
 import time
 from dataclasses import dataclass
 
@@ -98,24 +99,41 @@ def _gemini_model(model: str) -> str:
     return model.removeprefix("models/")
 
 
-async def call_gemini(api_key: str, model: str, system: str, user: str, max_tokens: int = 4096) -> LLMResult:
+async def _post_gemini(url: str, body: dict, api_key: str) -> httpx.Response:
+    """ส่งคำขอหนึ่งครั้ง ถ้า Google ตอบว่าคิวเต็มชั่วคราว (429, 500, 503) รอสั้น ๆ แล้วลองอีกครั้งเดียว"""
+    for attempt in range(2):
+        try:
+            async with httpx.AsyncClient(timeout=TIMEOUT) as client:
+                response = await client.post(url, json=body, headers={"x-goog-api-key": api_key})
+        except httpx.HTTPError as error:
+            raise ProviderError("เชื่อมต่อ Gemini ไม่ได้ หรือรอนานเกินไป") from error
+        if response.status_code not in (429, 500, 503) or attempt == 1:
+            return response
+        await asyncio.sleep(1.0)
+    return response
+
+
+async def call_gemini(api_key: str, model: str, system: str, user: str, max_tokens: int = 1024) -> LLMResult:
     started = time.perf_counter()
     body = {
         "systemInstruction": {"parts": [{"text": system}]},
         "contents": [{"role": "user", "parts": [{"text": user}]}],
-        "generationConfig": {"maxOutputTokens": max_tokens},
+        # คำใบ้ยาวแค่ 2–3 ประโยค ให้โมเดลคิดน้อยที่สุด: ลดโทเคนที่ใช้คิดจากหลายร้อยเหลือศูนย์และตอบเร็วขึ้น
+        "generationConfig": {"maxOutputTokens": max_tokens, "thinkingConfig": {"thinkingLevel": "minimal"}},
     }
     url = f"{GEMINI_BASE}/models/{_gemini_model(model)}:generateContent"
-    try:
-        async with httpx.AsyncClient(timeout=TIMEOUT) as client:
-            response = await client.post(url, json=body, headers={"x-goog-api-key": api_key})
-    except httpx.HTTPError as error:
-        raise ProviderError("เชื่อมต่อ Gemini ไม่ได้ ตรวจอินเทอร์เน็ต") from error
+    response = await _post_gemini(url, body, api_key)
+    if response.status_code == 400 and "thinking" in response.text.lower():
+        # โมเดลรุ่นที่ไม่รองรับการตั้งระดับการคิด: ส่งใหม่แบบไม่ตั้ง
+        body["generationConfig"].pop("thinkingConfig")
+        response = await _post_gemini(url, body, api_key)
     if response.status_code in (400, 401, 403):
         message = response.json().get("error", {}).get("message", "") if response.content else ""
         raise ProviderError(f"Gemini ไม่รับคำขอ: {message[:120] or response.status_code}")
     if response.status_code == 404:
         raise ProviderError("ไม่พบโมเดล Gemini ที่เลือก")
+    if response.status_code in (429, 503):
+        raise ProviderError("Gemini มีผู้ใช้มากชั่วคราว ลองโมเดลอื่นหรือรอสักครู่")
     if response.status_code >= 300:
         raise ProviderError(f"Gemini ตอบกลับสถานะ {response.status_code}")
     data = response.json()
@@ -123,6 +141,9 @@ async def call_gemini(api_key: str, model: str, system: str, user: str, max_toke
     if not candidates:
         reason = (data.get("promptFeedback") or {}).get("blockReason", "ไม่มีคำตอบ")
         raise ProviderError(f"Gemini ไม่ได้ตอบ: {reason}")
+    if candidates[0].get("finishReason") == "MAX_TOKENS":
+        # คำตอบถูกตัดกลางประโยค ไม่ส่งให้นักเรียน ใช้คำใบ้ต้นฉบับแทน
+        raise ProviderError("คำตอบของ Gemini ถูกตัดเพราะเกินจำนวนโทเคน")
     parts = (candidates[0].get("content") or {}).get("parts") or []
     text = "".join(p.get("text", "") for p in parts if not p.get("thought")).strip()
     if not text:

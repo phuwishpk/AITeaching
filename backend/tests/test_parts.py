@@ -131,3 +131,45 @@ def test_pdf_cleanup_and_bad_files():
     assert rag.clean_pdf_text("นํา") == "นำ"  # สระอำที่แยกเป็นสองอักขระ
     text, warning = rag.extract_text("broken.pdf", b"%PDF-1.4 garbage")
     assert text == "" and "PDF" in warning
+
+
+def _fake_gemini(monkeypatch, payloads):
+    """แทนการเรียก Google จริงด้วยคำตอบที่กำหนด แล้วเก็บ body ที่ส่งไปไว้ตรวจ"""
+    import asyncio
+
+    import httpx
+
+    from app.tutor import providers
+
+    sent = []
+
+    async def fake_post(url, body, api_key):
+        sent.append(body)
+        status, data = payloads.pop(0)
+        return httpx.Response(status, json=data)
+
+    monkeypatch.setattr(providers, "_post_gemini", fake_post)
+    return providers, sent, asyncio.run
+
+
+def test_gemini_minimal_thinking_and_truncation(monkeypatch):
+    import pytest
+
+    ok = {"candidates": [{"finishReason": "STOP", "content": {"parts": [{"text": "ลองดูฝั่งซ้ายนะ"}]}}],
+          "usageMetadata": {"promptTokenCount": 10, "candidatesTokenCount": 5}}
+    providers, sent, run = _fake_gemini(monkeypatch, [(200, ok)])
+    result = run(providers.call_gemini("k", "gemini-x", "sys", "user"))
+    assert result.text == "ลองดูฝั่งซ้ายนะ"
+    assert sent[0]["generationConfig"]["thinkingConfig"] == {"thinkingLevel": "minimal"}
+
+    cut = {"candidates": [{"finishReason": "MAX_TOKENS", "content": {"parts": [{"text": "ลองดูฝั่ง"}]}}]}
+    providers, _, run = _fake_gemini(monkeypatch, [(200, cut)])
+    with pytest.raises(providers.ProviderError):
+        run(providers.call_gemini("k", "gemini-x", "sys", "user"))
+
+
+def test_gemini_retries_without_thinking_when_unsupported(monkeypatch):
+    ok = {"candidates": [{"finishReason": "STOP", "content": {"parts": [{"text": "ตอบแล้ว"}]}}]}
+    providers, sent, run = _fake_gemini(monkeypatch, [(400, {"error": {"message": "thinking level is not supported"}}), (200, ok)])
+    assert run(providers.call_gemini("k", "gemini-x", "sys", "user")).text == "ตอบแล้ว"
+    assert "thinkingConfig" not in sent[1]["generationConfig"]
