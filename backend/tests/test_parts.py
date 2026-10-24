@@ -111,3 +111,23 @@ def test_spa_route_cannot_read_outside_dist(tmp_path, monkeypatch):
         response = client.get(path)
         assert "API-KEY" not in response.text
     assert client.get("/student").text == "<html>app</html>"
+
+
+def test_pdf_rebuilds_paragraphs_and_thai_words():
+    from pathlib import Path
+
+    data = (Path(__file__).parent / "fixtures" / "lesson-th.pdf").read_bytes()
+    text, warning = rag.extract_text("lesson-th.pdf", data)
+    assert warning is None
+    assert "สมการยังคงเป็นจริง" in text  # คำที่ PDF ตัดกลางบรรทัดถูกต่อกลับ
+    chunks = rag.chunk_text(text)
+    assert len(chunks) >= 3 and max(len(c) for c in chunks) <= 600
+    index = rag.BM25Index([{"doc_id": 1, "filename": "lesson-th.pdf", "text": c} for c in chunks])
+    _, results = index.search("ลบด้วยจำนวนลบ", 1)
+    assert "จำนวนลบ" in results[0]["text"]
+
+
+def test_pdf_cleanup_and_bad_files():
+    assert rag.clean_pdf_text("นํา") == "นำ"  # สระอำที่แยกเป็นสองอักขระ
+    text, warning = rag.extract_text("broken.pdf", b"%PDF-1.4 garbage")
+    assert text == "" and "PDF" in warning

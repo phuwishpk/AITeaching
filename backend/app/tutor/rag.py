@@ -7,6 +7,7 @@
 import io
 import math
 import re
+import unicodedata
 from collections import Counter
 from functools import lru_cache
 
@@ -29,9 +30,25 @@ def tokenize(text: str) -> list[str]:
     return result
 
 
+def _split_long(paragraph: str, size: int) -> list[str]:
+    """ย่อหน้าที่ยาวเกินไปแบ่งตามช่องว่าง (ภาษาไทยใช้ช่องว่างคั่นประโยค) ให้แต่ละชิ้นไม่เกิน size"""
+    if len(paragraph) <= size:
+        return [paragraph]
+    pieces, buffer = [], ""
+    for sentence in re.split(r"(?<=[\s.!?])\s*", paragraph):
+        if buffer and len(buffer) + len(sentence) > size:
+            pieces.append(buffer.strip())
+            buffer = ""
+        buffer += sentence if not buffer or buffer.endswith((" ", "\n")) else " " + sentence
+    if buffer.strip():
+        pieces.append(buffer.strip())
+    return pieces
+
+
 def chunk_text(text: str, size: int = 520) -> list[str]:
-    """แบ่งเอกสารเป็นย่อหน้า ถ้าย่อหน้าสั้นเกินจะรวมกับย่อหน้าถัดไป"""
+    """แบ่งเอกสารเป็นย่อหน้า ถ้าย่อหน้าสั้นเกินจะรวมกับย่อหน้าถัดไป ถ้ายาวเกินจะแบ่งตามประโยค"""
     paragraphs = [p.strip() for p in re.split(r"\n\s*\n|\n(?=#)", text or "") if p.strip()]
+    paragraphs = [piece for p in paragraphs for piece in _split_long(p, size)]
     chunks, buffer = [], ""
     for para in paragraphs:
         if len(buffer) + len(para) < size:
@@ -45,17 +62,61 @@ def chunk_text(text: str, size: int = 520) -> list[str]:
     return chunks
 
 
+THAI = r"\u0E00-\u0E7F"
+HEADING = re.compile(r"^(?:#|\d+(?:\.\d+)*[.)]\s|บทที่|หัวข้อ|ตอนที่)")
+
+
+def clean_pdf_text(text: str) -> str:
+    """ข้อความจาก PDF ตัดบรรทัดตามความกว้างหน้ากระดาษ ไม่มีบรรทัดว่างคั่นย่อหน้า และสระบางตัวแยกเป็นสองอักขระ
+    จึงต่อบรรทัดกลับเป็นย่อหน้า: บรรทัดที่สั้นกว่าปกติหรือบรรทัดหัวข้อถือเป็นจุดจบย่อหน้า"""
+    text = unicodedata.normalize("NFC", text).replace("\u0e4d\u0e32", "\u0e33").replace("\u00a0", " ")
+    lines = [re.sub(r"[ \t]+", " ", line).strip() for line in text.splitlines()]
+    lengths = sorted(len(l) for l in lines if len(l) >= 20)
+    typical = lengths[len(lengths) // 2] if lengths else 80
+    paragraphs: list[str] = []
+    current = ""
+    for line in lines:
+        if not line:
+            if current:
+                paragraphs.append(current)
+                current = ""
+            continue
+        if HEADING.match(line) and current:
+            paragraphs.append(current)
+            current = ""
+        if not current:
+            current = line
+        elif re.search(f"[{THAI}]$", current) and re.match(f"[{THAI}]", line):
+            current += line  # คำไทยที่ถูกตัดกลางบรรทัด ต่อกันโดยไม่เว้นวรรค
+        else:
+            current += " " + line
+        if len(line) < typical * 0.6 or HEADING.match(line):
+            paragraphs.append(current)
+            current = ""
+    if current:
+        paragraphs.append(current)
+    return "\n\n".join(paragraphs)
+
+
 def extract_text(filename: str, data: bytes) -> tuple[str, str | None]:
     """อ่านข้อความจากไฟล์ คืนค่า (ข้อความ, คำเตือน)"""
     name = filename.lower()
     if name.endswith(".pdf"):
         from pypdf import PdfReader
 
-        reader = PdfReader(io.BytesIO(data))
-        text = "\n\n".join((page.extract_text() or "") for page in reader.pages)
+        try:
+            reader = PdfReader(io.BytesIO(data))
+            if reader.is_encrypted:
+                reader.decrypt("")
+            pages = [page.extract_text() or "" for page in reader.pages]
+        except Exception:
+            return "", "เปิดไฟล์ PDF นี้ไม่ได้ ไฟล์อาจเสียหายหรือตั้งรหัสผ่านไว้"
+        text = "\n\n".join(clean_pdf_text(page) for page in pages if page.strip())
         if len(text.strip()) < 20:
             return "", "อ่านตัวอักษรจาก PDF นี้ไม่ได้ อาจเป็นภาพสแกนซึ่งยังไม่รองรับ (ต้องใช้ OCR)"
-        return text, None
+        empty = sum(1 for page in pages if len(page.strip()) < 20)
+        warning = f"มี {empty} จาก {len(pages)} หน้าที่อ่านตัวอักษรไม่ได้ (อาจเป็นภาพสแกน)" if empty else None
+        return text, warning
     if name.endswith(".docx"):
         import docx
 
