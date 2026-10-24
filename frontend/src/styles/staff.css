@@ -2516,3 +2516,127 @@
 .answer-sheet-compact {
   grid-template-columns: minmax(0, 1fr);
 }
+
+/* ---------- ภาพรวมห้องเรียนแบบเรียบ ---------- */
+.attention-card {
+  border-color: color-mix(in srgb, var(--warning) 45%, var(--border));
+}
+
+.attention-list {
+  list-style: none;
+  margin: 0;
+  padding: 6px 12px 12px;
+}
+
+.attention {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 12px 10px;
+  border-radius: 10px;
+}
+
+.attention + .attention {
+  border-top: 1px solid var(--border);
+}
+
+.attention-urgent {
+  background: var(--danger-soft);
+}
+
+.calm-banner {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 14px 18px;
+  border-radius: var(--radius);
+  background: var(--success-soft);
+  color: var(--success);
+  font-weight: 500;
+}
+
+.status-text {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  font-size: var(--fs-sm);
+  color: var(--text);
+}
+
+.status-text::before,
+.risk-text::before {
+  content: "";
+  flex: none;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--text-3);
+}
+
+.risk-text {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  font-size: var(--fs-sm);
+  cursor: help;
+}
+
+.tone-accent::before { background: var(--accent); }
+.tone-success::before { background: var(--success); }
+.tone-warning::before { background: var(--warning); }
+.tone-danger::before { background: var(--danger); }
+.tone-info::before { background: var(--info); }
+.tone-calm::before { background: var(--calm); }
+
+.class-table td {
+  padding-top: 14px;
+  padding-bottom: 14px;
+}
+
+.stats-toggle {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 14px 18px;
+  border-radius: var(--radius);
+  border: 1px dashed var(--border-strong);
+  background: transparent;
+  color: var(--text-2);
+  font-size: var(--fs-base);
+  font-weight: 500;
+  text-align: left;
+  cursor: pointer;
+}
+
+.stats-toggle:hover {
+  border-color: var(--accent);
+  color: var(--text);
+}
+
+.class-table .status-text {
+  white-space: nowrap;
+}
+
+/* มือถือ: ตัวเลขสามช่องเรียงแถวเดียว และตารางเหลือเฉพาะคอลัมน์ที่ใช้ตัดสินใจ */
+@media (max-width: 640px) {
+  .overview-stats {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 8px;
+  }
+
+  .overview-stats > * {
+    padding: 12px;
+  }
+
+  .overview-stats .stat-sub {
+    display: none;
+  }
+
+  .class-table th:nth-child(3),
+  .class-table td:nth-child(3),
+  .class-table th:nth-child(5),
+  .class-table td:nth-child(5) {
+    display: none;
+  }
+}
