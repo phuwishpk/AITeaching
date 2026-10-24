@@ -2079,3 +2079,57 @@
   justify-self: end;
   text-align: right;
 }
+
+/* ---------- แผงข้อมูลกล่องในผัง ---------- */
+.inspector-title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: var(--fs-md);
+}
+
+.uses-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.uses-list li {
+  padding: 4px 12px;
+  border-radius: 999px;
+  background: var(--info-soft);
+  color: var(--info);
+  font-size: var(--fs-sm);
+}
+
+.param-edit {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 14px 16px;
+  border-radius: var(--radius);
+  border: 1px solid var(--border);
+  background: var(--surface-2);
+}
+
+.param-edit.is-dirty {
+  border-color: var(--accent);
+  background: var(--accent-soft);
+}
+
+.param-input {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 96px auto;
+  gap: 10px;
+  align-items: center;
+}
+
+.param-input input[type="range"] {
+  width: 100%;
+  accent-color: var(--accent);
+}
+
+.param-input .input {
+  height: 34px;
+  text-align: right;
+}

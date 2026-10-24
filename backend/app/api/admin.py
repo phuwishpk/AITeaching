@@ -4,7 +4,7 @@ import time
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 
-from .. import activity, analytics, db, demo, principles, seed, services, settings_store
+from .. import activity, analytics, db, demo, node_info, principles, seed, services, settings_store
 from ..config import PARAM_LABELS
 from ..engine import core as engine
 from ..engine import flow as F
@@ -76,6 +76,15 @@ def flow(auth: dict = Depends(admin)):
         "positions": services.all_positions(),
         "now": time.time(),
     }
+
+
+@router.get("/flow/nodes/{node_id}")
+def flow_node(node_id: str, auth: dict = Depends(admin)):
+    """กล่องหนึ่งในผัง: คืออะไร ทำหน้าที่อะไร ใช้ข้อมูลอะไร ปรับค่าอะไรได้ และใครอยู่ตรงนี้"""
+    info = node_info.describe(node_id, services.all_positions())
+    if info is None:
+        raise HTTPException(404, "ไม่พบขั้นนี้ในผัง")
+    return info
 
 
 @router.get("/students")
@@ -349,6 +358,9 @@ def put_settings(body: SettingsBody, auth: dict = Depends(admin)):
             raise HTTPException(400, "Provider ไม่ถูกต้อง")
         settings_store.save_ai_settings(body.ai)
     if body.params:
+        errors = node_info.validate_params(body.params)
+        if errors:
+            raise HTTPException(400, " · ".join(errors))
         settings_store.save_params(body.params)
     if body.demo:
         settings_store.save_demo(body.demo)

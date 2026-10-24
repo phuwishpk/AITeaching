@@ -79,3 +79,25 @@ def test_rule_edges_exist():
     for rule_id, edges in rules.RULE_EDGES.items():
         assert rule_id in {r["id"] for g in rules.GROUPS for r in g["rules"]}
         assert set(edges) <= edge_ids, rule_id
+
+
+def test_every_flow_box_explains_itself():
+    from app import node_info
+
+    for node in F.NODES:
+        info = node_info.describe(node["id"], [])
+        assert info["card"] and info["uses"], node["id"]
+    on_boxes = {key for info in node_info.NODE_INFO.values() for key in info["params"]}
+    assert set(DEFAULT_PARAMS) <= on_boxes  # ทุกค่าปรับได้จากกล่องใดกล่องหนึ่ง
+    assert set(node_info.PARAM_GUIDE) == set(DEFAULT_PARAMS)
+    for key, value in DEFAULT_PARAMS.items():
+        low, high, _ = node_info.PARAM_GUIDE[key]["range"]
+        assert low <= value <= high, key
+
+
+def test_param_validation():
+    from app import node_info
+
+    assert node_info.validate_params({"deliberate_delay": 20}) == []
+    assert node_info.validate_params({"deliberate_delay": 999})
+    assert node_info.validate_params({"standard_mastery": 0.9, "fast_track_mastery": 0.8})

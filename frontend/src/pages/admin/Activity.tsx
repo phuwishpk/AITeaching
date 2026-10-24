@@ -9,6 +9,7 @@ import { Badge, Card, CardHead, Empty, Spinner } from "../../components/ui";
 import { useAdmin } from "./AdminApp";
 import { useStudentPicker } from "./Topic2";
 import { CodePicker } from "./shared";
+import NodeInspector from "./NodeInspector";
 
 interface ActivityInput {
   action: string;
@@ -103,6 +104,7 @@ export default function Activity() {
   const [includeSim, setIncludeSim] = useState(false);
   const [selected, setSelected] = useState<string | null>(null);
   const [follow, setFollow] = useState(true);
+  const [inspect, setInspect] = useState<string | null>(null);
   const now = useNow(5000);
 
   const query = scope === "one" && code ? `?code=${code}&limit=60` : `?include_sim=${includeSim}&limit=60`;
@@ -241,7 +243,7 @@ export default function Activity() {
           <Card className="flow-card">
             <CardHead
               title="เส้นทางของการกระทำนี้ในผัง"
-              sub="เส้นสีเข้มคือเส้นทางที่การกระทำที่เลือกเดินผ่าน กล่องที่เน้นคือที่ที่นักเรียนไปอยู่ต่อ"
+              sub="เส้นสีเข้มคือเส้นทางที่การกระทำที่เลือกเดินผ่าน กล่องที่เน้นคือที่ที่นักเรียนไปอยู่ต่อ กดกล่องเพื่อดูรายละเอียดและปรับแต่ง"
             />
             <FlowMap
               nodes={flow.nodes}
@@ -250,10 +252,12 @@ export default function Activity() {
               selectedStudent={event?.code}
               selectedNode={event?.position}
               highlightEdges={event?.edges ?? []}
+              onSelectNode={setInspect}
             />
           </Card>
         </div>
       </div>
+      <NodeInspector nodeId={inspect} onClose={() => setInspect(null)} />
     </div>
   );
 }

@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { useSearchParams } from "react-router";
-import { ArrowRight, MousePointerClick } from "lucide-react";
+import { ArrowRight, MousePointerClick, SlidersHorizontal } from "lucide-react";
 import { api } from "../../lib/api";
 import { useLoad, useNow } from "../../lib/hooks";
 import { ago, clock, PATH_LABELS } from "../../lib/format";
@@ -11,6 +11,8 @@ import { Badge, Card, CardHead, Empty, Spinner } from "../../components/ui";
 import { TopicHeader, useAdmin } from "./AdminApp";
 import { useStudentPicker } from "./Topic2";
 import { CodePicker, Section, TopicLink } from "./shared";
+import NodeInspector from "./NodeInspector";
+import { Button } from "../../components/ui";
 
 const KINDS = [
   { id: "real", label: "นักเรียนจริง" },
@@ -43,6 +45,7 @@ export default function Topic3() {
   const bugs = useLoad(() => api<BugRow[]>("admin", "/api/admin/bug-library"), [Math.floor(liveVersion / 20)]);
   const now = useNow(5000);
   const node = params.get("node") ?? "G3";
+  const [inspect, setInspect] = useState<string | null>(null);
 
   useEffect(() => {
     if (params.get("node")) document.getElementById("flow-card")?.scrollIntoView({ block: "start" });
@@ -105,6 +108,7 @@ export default function Topic3() {
               <span className="lg-return">↩</span>
               เส้นวนกลับ ชี้เพื่อดูปลายทาง
             </li>
+            <li className="strong">กดกล่องเพื่อดูว่าทำอะไรและปรับแต่ง</li>
           </ul>
         </div>
         <FlowMap
@@ -113,7 +117,10 @@ export default function Topic3() {
           positions={positions}
           selectedNode={node}
           selectedStudent={code}
-          onSelectNode={(id) => setParams({ node: id }, { replace: true })}
+          onSelectNode={(id) => {
+            setParams({ node: id }, { replace: true });
+            setInspect(id);
+          }}
           onSelectStudent={setCode}
         />
       </Card>
@@ -128,6 +135,9 @@ export default function Topic3() {
             </span>
           </div>
           {card ? <PrincipleCard card={card} /> : <p className="small muted">{nodeInfo?.label}</p>}
+          <Button variant="soft" icon={<SlidersHorizontal size={16} />} onClick={() => setInspect(node)} style={{ alignSelf: "flex-start" }}>
+            ดูข้อมูลที่ใช้และปรับแต่งขั้นนี้
+          </Button>
           <div className="stack stack-sm">
             <span className="small strong">นักเรียนที่อยู่ตรงนี้ ({atNode.length})</span>
             <div className="pill-list">
@@ -326,6 +336,7 @@ export default function Topic3() {
           </table>
         </div>
       </Card>
+      <NodeInspector nodeId={inspect} onClose={() => setInspect(null)} />
     </div>
   );
 }
