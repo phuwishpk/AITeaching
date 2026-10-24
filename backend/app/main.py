@@ -70,5 +70,6 @@ def spa(path: str):
         return FileResponse(file)
     index = FRONTEND_DIST / "index.html"
     if index.exists():
-        return FileResponse(index)
+        # build ใหม่แล้วชื่อไฟล์ใน assets เปลี่ยน เบราว์เซอร์จึงต้องโหลด index.html ใหม่ทุกครั้ง
+        return FileResponse(index, headers={"Cache-Control": "no-cache"})
     return JSONResponse({"detail": "ยังไม่ได้ build หน้าเว็บ: cd frontend && npm run build"}, status_code=503)

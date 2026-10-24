@@ -509,3 +509,46 @@
     opacity: 0;
   }
 }
+
+/* ---------- ตอบถูกแล้ว ก่อนไปข้อถัดไป ---------- */
+.solved-card {
+  padding: clamp(24px, 4vw, 40px);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+  gap: 12px;
+}
+
+.small-celebrate {
+  width: 68px;
+  height: 68px;
+}
+
+.solved-recap {
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  margin: 6px 0;
+  padding: 16px;
+  border-radius: var(--radius);
+  background: var(--success-soft);
+}
+
+.solved-math {
+  font-size: clamp(26px, 3.6vw, 34px);
+  font-weight: 500;
+}
+
+.solved-answer {
+  font-size: var(--fs-md);
+  color: var(--text-2);
+}
+
+.solved-answer strong {
+  color: var(--success);
+  font-size: var(--fs-xl);
+  margin-left: 6px;
+}

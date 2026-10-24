@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState, type FormEvent } from "react"
 import { Link, useNavigate, useParams } from "react-router";
 import {
   ArrowLeft,
+  ArrowRight,
   BookOpen,
   CircleCheck,
   Coffee,
@@ -54,6 +55,16 @@ interface Result {
   message?: string;
   socratic?: string;
   remaining?: number;
+  itemNumber?: number; // ข้อความผูกกับข้อที่แสดงอยู่ เปลี่ยนข้อแล้วข้อความเก่าไม่ค้าง
+}
+
+// ข้อที่เพิ่งทำถูก แสดงก่อนพาไปข้อถัดไป
+interface Solved {
+  message: string;
+  prompt: string;
+  math: string | null;
+  answer: string;
+  nextIso: boolean;
 }
 
 type ChatMessage = { from: "me" | "tutor"; text: string };
@@ -82,6 +93,7 @@ function Room({ code, onLogout }: { code: string; onLogout: () => void }) {
   const [view, setView] = useState<View | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [feedback, setFeedback] = useState<Result | null>(null);
+  const [solved, setSolved] = useState<Solved | null>(null);
   const [socratic, setSocratic] = useState<string | null>(null);
   const [notesOpen, setNotesOpen] = useState(false);
   const previousMastery = useRef<number | null>(null);
@@ -207,16 +219,42 @@ function Room({ code, onLogout }: { code: string; onLogout: () => void }) {
 
         <div className="ws-grid">
           <div className="stack">
-            {answering && view.item ? (
+            {solved && answering && view.item ? (
+              <SolvedCard solved={solved} onNext={() => setSolved(null)} />
+            ) : answering && view.item ? (
               <ProblemCard
                 view={view}
-                feedback={feedback}
+                feedback={feedback?.itemNumber === view.item_number ? feedback : null}
                 onSubmit={async (answer) => {
+                  const before = view;
                   const response = await act("answer", { answer });
-                  if (response?.result) setFeedback(response.result);
+                  const result = response?.result;
+                  if (!result || !response) return;
+                  const next = response.view;
+                  const moved = !!next.item && next.item_number !== before.item_number;
+                  if (result.kind === "correct" && moved && before.item) {
+                    // ตอบถูกแล้วระบบเลือกข้อใหม่ให้: แสดงว่าถูกก่อน แล้วค่อยพาไปข้อถัดไป
+                    const option = before.item.options.find((o) => o.id === answer);
+                    setSolved({
+                      message: result.message ?? "ถูกต้อง",
+                      prompt: before.item.prompt,
+                      math: before.item.math,
+                      answer: option ? option.text : answer,
+                      nextIso: next.item_mode === "isomorphic",
+                    });
+                    setFeedback(null);
+                    return;
+                  }
+                  setFeedback({ ...result, itemNumber: next.item_number });
                 }}
-                onUndo={async () => setFeedback((await act("undo"))?.result ?? null)}
-                onRestart={async () => setFeedback((await act("restart-item"))?.result ?? null)}
+                onUndo={async () => {
+                  const response = await act("undo");
+                  setFeedback(response?.result ? { ...response.result, itemNumber: response.view.item_number } : null);
+                }}
+                onRestart={async () => {
+                  const response = await act("restart-item");
+                  setFeedback(response?.result ? { ...response.result, itemNumber: response.view.item_number } : null);
+                }}
                 onTimer={refresh}
                 onNotes={() => {
                   setNotesOpen(true);
@@ -238,7 +276,7 @@ function Room({ code, onLogout }: { code: string; onLogout: () => void }) {
                 if (!result) return;
                 if (result.socratic) setSocratic(result.socratic);
                 if (result.kind === "wait" || result.kind === "delay" || result.kind === "abuse" || result.kind === "cooldown")
-                  setFeedback(result);
+                  setFeedback({ ...result, itemNumber: response.view.item_number });
               }}
               onTimer={refresh}
             />
@@ -248,6 +286,31 @@ function Room({ code, onLogout }: { code: string; onLogout: () => void }) {
       </main>
       <NotesModal open={notesOpen} onClose={() => setNotesOpen(false)} setId={setId} />
     </>
+  );
+}
+
+// ---------------------------------------------------------------- ตอบถูกแล้ว ก่อนไปข้อถัดไป
+
+function SolvedCard({ solved, onNext }: { solved: Solved; onNext: () => void }) {
+  return (
+    <article className="card solved-card fade-in" role="status">
+      <span className="celebrate small-celebrate">
+        <CircleCheck size={36} />
+      </span>
+      <h2 className="title-lg">ถูกต้อง!</h2>
+      {solved.message.replace(/^ถูกต้อง\s*/, "") && <p className="muted">{solved.message.replace(/^ถูกต้อง\s*/, "")}</p>}
+      <div className="solved-recap">
+        <span className="small muted">{solved.prompt}</span>
+        {solved.math && <span className="solved-math">{solved.math}</span>}
+        <span className="solved-answer">
+          คำตอบของเรา <strong>{solved.answer}</strong>
+        </span>
+      </div>
+      {solved.nextIso && <p className="small muted">ข้อถัดไปเป็นข้อทดสอบความเข้าใจ ลองทำด้วยตัวเองโดยไม่มีคำใบ้นะ</p>}
+      <Button variant="primary" size="lg" icon={<ArrowRight size={18} />} onClick={onNext} autoFocus>
+        ไปข้อถัดไป
+      </Button>
+    </article>
   );
 }
 
