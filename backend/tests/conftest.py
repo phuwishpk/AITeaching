@@ -7,8 +7,12 @@ from app.engine.core import Content, Ctx
 
 
 @pytest.fixture(autouse=True)
-def memory_db():
+def memory_db(tmp_path, monkeypatch):
     db.use_memory_db()
+    # เทสต์ต้องไม่เรียก AI Provider จริง: ไม่อ่าน key ในเครื่องและไม่อ่านจาก environment
+    monkeypatch.setattr(settings_store, "SECRETS_PATH", tmp_path / "secrets.json")
+    for name in ("ANTHROPIC_API_KEY", "GEMINI_API_KEY", "GOOGLE_API_KEY"):
+        monkeypatch.delenv(name, raising=False)
     yield
 
 
