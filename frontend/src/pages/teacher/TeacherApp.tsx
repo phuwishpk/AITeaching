@@ -15,7 +15,7 @@ import SubjectEditor from "./SubjectEditor";
 import Roster from "./Roster";
 import TagReview from "./TagReview";
 import AiReview from "./AiReview";
-import StudentDrawer from "./StudentDrawer";
+import StudentDrawer, { type DrawerTab } from "./StudentDrawer";
 import RulesPage from "../shared/RulesPage";
 
 export interface OverviewData {
@@ -37,7 +37,8 @@ interface TeacherContextValue {
   error: string | null;
   feed: FeedEntry[];
   reload: () => Promise<void>;
-  openStudent: (code: string) => void;
+  openStudent: (code: string, tab?: DrawerTab) => void;
+  unread: Record<string, number>;
   nameOf: (code: string) => string | null;
   ackAlert: (id: number) => Promise<void>;
   liveVersion: number;
@@ -70,7 +71,11 @@ function TeacherShell({ onLogout }: { onLogout: () => void }) {
   const [data, setData] = useState<OverviewData | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [feed, setFeed] = useState<FeedEntry[]>([]);
-  const [student, setStudent] = useState<string | null>(null);
+  const [student, setStudent] = useState<{ code: string; tab: DrawerTab } | null>(null);
+  // ข้อความจากนักเรียนที่ครูยังไม่ได้เปิดอ่าน
+  const [unread, setUnread] = useState<Record<string, number>>({});
+  const openTab = useRef<{ code: string; tab: DrawerTab } | null>(null);
+  openTab.current = student;
   const [liveVersion, setLiveVersion] = useState(0);
   const [lastEvent, setLastEvent] = useState<{ code: string; n: number } | null>(null);
   const logout = useRef(onLogout);
@@ -99,6 +104,10 @@ function TeacherShell({ onLogout }: { onLogout: () => void }) {
 
   const connected = useLive("teacher", (message) => {
     if (message.code) setLastEvent((e) => ({ code: message.code, n: (e?.n ?? 0) + 1 }));
+    if (message.type === "message" && message.message?.sender === "student") {
+      const reading = openTab.current?.code === message.code && openTab.current?.tab === "messages";
+      if (!reading) setUnread((u) => ({ ...u, [message.code]: (u[message.code] ?? 0) + 1 }));
+    }
     if (message.type === "update") {
       const view = message.view as StaffView;
       setData((current) => {
@@ -137,7 +146,8 @@ function TeacherShell({ onLogout }: { onLogout: () => void }) {
     error,
     feed,
     reload,
-    openStudent: setStudent,
+    openStudent: (code, tab = "now") => setStudent({ code, tab }),
+    unread,
     nameOf: (code) => names.get(code) ?? null,
     ackAlert,
     liveVersion,
@@ -203,7 +213,15 @@ function TeacherShell({ onLogout }: { onLogout: () => void }) {
             </Routes>
           </main>
         </div>
-        <StudentDrawer code={student} onClose={() => setStudent(null)} />
+        <StudentDrawer
+          code={student?.code ?? null}
+          tab={student?.tab ?? "now"}
+          onTab={(tab) => {
+            setStudent((s) => (s ? { ...s, tab } : s));
+            if (tab === "messages" && student) setUnread((u) => ({ ...u, [student.code]: 0 }));
+          }}
+          onClose={() => setStudent(null)}
+        />
       </div>
     </TeacherContext.Provider>
   );

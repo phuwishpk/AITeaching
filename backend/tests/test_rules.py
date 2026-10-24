@@ -143,3 +143,29 @@ def test_end_boxes_explain_the_difference():
         assert compare["columns"] == ["จบชุด", "จบ Session"]
         assert all("{" not in cell for row in compare["rows"] for cell in row)
     assert node_info.describe("G1", [])["compare"] is None
+
+
+def test_teacher_and_student_exchange_messages(content):
+    from app import db, services
+    from app.engine import core as engine
+    from app.engine import flow as Flow
+    from app.engine.core import Ctx
+
+    db.save_subject(content.subject)
+    db.execute("INSERT INTO students (code, kind, persona, created_at) VALUES ('S-07', 'real', NULL, 0)")
+    state = engine.new_state("S-07", content.subject["id"], "QS-1", 1, 1000.0)
+    state["position"] = Flow.SAFETY  # ระบบหยุดรอครู
+    db.save_state(state)
+    client = TestClient(app)
+    student = {"Authorization": f"Bearer {issue_token('student', 'S-07')}"}
+    teacher = {"Authorization": f"Bearer {issue_token('teacher')}"}
+
+    reply = client.post("/api/student/sets/QS-1/chat", json={"message": "ครูครับ ผมโอเคแล้ว"}, headers=student).json()
+    assert reply["to_teacher"] and reply["reply"] is None  # ตอนหยุดรอครู AI ไม่ตอบ ข้อความไปถึงครูโดยตรง
+
+    sent = client.post("/api/teacher/students/S-07/messages", json={"text": "ครูกำลังไปหานะ"}, headers=teacher)
+    assert sent.status_code == 200 and sent.json()["sender"] == "teacher"
+
+    thread = client.get("/api/student/sets/QS-1/messages", headers=student).json()
+    assert [m["sender"] for m in thread] == ["student", "teacher"]
+    assert client.get("/api/teacher/students/S-07/messages", headers=student).status_code == 403

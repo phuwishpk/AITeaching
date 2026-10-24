@@ -2350,3 +2350,88 @@
   vertical-align: top;
   line-height: 1.6;
 }
+
+/* ---------- ข้อความครูกับนักเรียน ---------- */
+.teacher-thread {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  max-height: 420px;
+  min-height: 160px;
+  overflow-y: auto;
+  padding: 14px;
+  border-radius: var(--radius);
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+}
+
+.tmsg {
+  max-width: 82%;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 9px 13px;
+  border-radius: 14px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  align-self: flex-start;
+}
+
+.tmsg-teacher {
+  align-self: flex-end;
+  background: var(--accent);
+  border-color: var(--accent);
+  color: var(--on-accent);
+  border-bottom-right-radius: 4px;
+}
+
+.tmsg-teacher .tmsg-meta {
+  color: inherit;
+  opacity: 0.85;
+}
+
+.tmsg-student {
+  border-bottom-left-radius: 4px;
+}
+
+.tmsg-tutor,
+.tmsg-system {
+  background: var(--surface-3);
+  border-color: transparent;
+}
+
+.tmsg-meta {
+  color: var(--text-3);
+  font-weight: 600;
+}
+
+.tmsg-text {
+  font-size: var(--fs-sm);
+  line-height: 1.6;
+  white-space: pre-wrap;
+}
+
+.teacher-compose {
+  display: flex;
+  gap: 10px;
+  align-items: flex-end;
+}
+
+.teacher-compose .textarea {
+  min-height: 52px;
+}
+
+.unread-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  height: 20px;
+  padding: 0 7px;
+  border-radius: 999px;
+  border: none;
+  background: var(--accent);
+  color: var(--on-accent);
+  font-size: 11px;
+  font-weight: 700;
+  cursor: pointer;
+}

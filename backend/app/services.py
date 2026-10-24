@@ -10,9 +10,9 @@ import time
 from . import analytics, db, settings_store
 from .engine import core as engine
 from .engine import flow as F
+from .engine.answers import answer_display
 from .engine.core import Content, Ctx, Fx
 from .hub import hub
-from .engine.answers import answer_display
 from .tutor import distress, pii
 from .tutor import service as tutor
 
@@ -281,12 +281,20 @@ async def chat(code: str, set_id: str, message: str) -> dict:
     message = (message or "").strip()[:600]
     scrubbed, found = pii.scrub(message, roster_names())
     detected = distress.detect(message)
+    await post_message(code, set_id, "student", scrubbed)
     if detected["level"]:
         state, content, ctx, fx = await run_event(
             code, set_id, lambda s, c: _distress_with_trace(s, c, detected, scrubbed, found)
         )
+        await post_message(code, set_id, "system", DISTRESS_REPLY[detected["level"]])
         return {"reply": DISTRESS_REPLY[detected["level"]], "source": "safety", "distress": detected["level"],
                 "view": engine.student_view(state, ctx)}
+
+    paused = db.load_state(code, set_id)
+    if paused and paused["position"] not in F.CAN_ANSWER:
+        # ระบบหยุดรอครูหรือนักเรียนกำลังพัก: ข้อความส่งถึงครูโดยตรง AI ไม่ตอบ
+        content = content_for(paused["subject_id"], set_id)
+        return {"reply": None, "to_teacher": True, "view": engine.student_view(paused, make_ctx(content))}
 
     async with lock(code):
         state = db.load_state(code, set_id)
@@ -316,8 +324,10 @@ async def chat(code: str, set_id: str, message: str) -> dict:
         state, content, ctx, fx = await run_event(
             code, set_id, lambda s, c: engine.on_distress(s, c, "stress", "llm")
         )
+        await post_message(code, set_id, "system", DISTRESS_REPLY["stress"])
         return {"reply": DISTRESS_REPLY["stress"], "source": "safety", "distress": "stress",
                 "view": engine.student_view(state, ctx)}
+    await post_message(code, set_id, "tutor", reply["text"])
     await hub.to_staff({"type": "chat", "code": code, "log_id": reply.get("log_id")})
     return {"reply": reply["text"], "source": reply["source"], "view": engine.student_view(state, ctx)}
 
@@ -427,3 +437,23 @@ def answer_sheet(code: str, limit: int = 40) -> dict:
                         "invalid": "correct" not in data, "rt": data.get("rt"), "diagnosis": data.get("diagnosis"),
                         "isomorphic": data.get("isomorphic", False)})
     return {"current": current, "answers": answers, "position": state["position"] if state else None}
+
+
+# ---------------------------------------------------------------- ข้อความระหว่างนักเรียน AI Tutor และครู
+
+async def post_message(code: str, set_id: str | None, sender: str, text: str) -> dict:
+    """บันทึกข้อความหนึ่งรายการ แล้วส่งให้ครูแบบสด ข้อความจากครูส่งถึงนักเรียนด้วย
+    sender: student (ลบข้อมูลส่วนตัวแล้ว) · tutor (AI Tutor หรือคำถามนำต้นฉบับ) · system (ข้อความดูแลความปลอดภัย) · teacher"""
+    now = time.time()
+    cursor = db.execute("INSERT INTO messages (ts, code, set_id, sender, text) VALUES (?,?,?,?,?)",
+                        (now, code, set_id, sender, text))
+    row = {"id": cursor.lastrowid, "ts": now, "code": code, "set_id": set_id, "sender": sender, "text": text}
+    await hub.to_staff({"type": "message", "code": code, "message": row})
+    if sender == "teacher":
+        await hub.to_student(code, {"type": "message", "message": row})
+    return row
+
+
+def messages_for(code: str, limit: int = 80) -> list[dict]:
+    rows = db.query("SELECT * FROM messages WHERE code = ? ORDER BY ts DESC, id DESC LIMIT ?", (code, limit))
+    return list(reversed(rows))

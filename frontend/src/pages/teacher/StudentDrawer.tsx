@@ -1,5 +1,5 @@
-import { useEffect, useMemo, useState } from "react";
-import { ArrowRight, Check, CircleSlash, Hand, Play, RotateCcw, ShieldCheck, X } from "lucide-react";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { ArrowRight, Check, CircleSlash, Hand, Play, RotateCcw, Send, ShieldCheck, X } from "lucide-react";
 import { api } from "../../lib/api";
 import { useLoad } from "../../lib/hooks";
 import { ago, ALERT_LABEL, ALERT_TONE, clock, num, PATH_LABELS, pct, POSITION_TONE } from "../../lib/format";
@@ -53,11 +53,21 @@ const RISK_INPUTS: Record<string, string> = {
   slowness: "เวลาคิดเทียบที่คาด",
 };
 
-type Tab = "now" | "timeline" | "answers" | "ai";
+export type DrawerTab = "now" | "messages" | "timeline" | "answers" | "ai";
 
-export default function StudentDrawer({ code, onClose }: { code: string | null; onClose: () => void }) {
-  const { lastEvent, nameOf } = useTeacher();
-  const [tab, setTab] = useState<Tab>("now");
+export default function StudentDrawer({
+  code,
+  tab,
+  onTab,
+  onClose,
+}: {
+  code: string | null;
+  tab: DrawerTab;
+  onTab: (tab: DrawerTab) => void;
+  onClose: () => void;
+}) {
+  const { lastEvent, nameOf, unread } = useTeacher();
+  const setTab = onTab;
   const detail = useLoad(() => (code ? api<Detail>("teacher", `/api/teacher/students/${code}`) : Promise.resolve(null)), [code]);
 
   // นักเรียนคนนี้มีความเคลื่อนไหว: โหลดใหม่ (รวบหลายเหตุการณ์ติดกันเป็นครั้งเดียว)
@@ -68,7 +78,11 @@ export default function StudentDrawer({ code, onClose }: { code: string | null; 
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [lastEvent]);
 
-  useEffect(() => setTab("now"), [code]);
+  // เปิดแท็บข้อความมาโดยตรง (เช่น จากปุ่มตอบกลับ) ถือว่าอ่านแล้ว
+  useEffect(() => {
+    if (code && tab === "messages") onTab("messages");
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [code]);
 
   const data = detail.data;
   const name = data?.name ?? (code ? nameOf(code) : null);
@@ -100,6 +114,7 @@ export default function StudentDrawer({ code, onClose }: { code: string | null; 
             onChange={setTab}
             items={[
               { id: "now", label: "ตอนนี้และ Override" },
+              { id: "messages", label: unread[data.code] ? `ข้อความ (${unread[data.code]} ใหม่)` : "ข้อความ" },
               { id: "timeline", label: "ไทม์ไลน์การตัดสินใจ" },
               { id: "answers", label: "คำตอบ" },
               { id: "ai", label: `AI (${data.ai_logs.length})` },
@@ -125,6 +140,7 @@ export default function StudentDrawer({ code, onClose }: { code: string | null; 
               )}
             </div>
           )}
+          {tab === "messages" && <Messages code={data.code} name={name ?? data.code} position={data.states[0]?.position ?? null} />}
           {tab === "timeline" && <Timeline decisions={data.decisions} />}
           {tab === "answers" && <Answers answers={data.answers} />}
           {tab === "ai" && (
@@ -469,6 +485,123 @@ function Answers({ answers }: { answers: Answer[] }) {
           ))}
         </tbody>
       </table>
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------- ข้อความกับนักเรียน
+
+interface Message {
+  id: number;
+  ts: number;
+  sender: "student" | "tutor" | "teacher" | "system";
+  text: string;
+}
+
+const SENDER: Record<Message["sender"], string> = {
+  student: "นักเรียน",
+  tutor: "ครูผู้ช่วย (AI)",
+  system: "ระบบดูแลความปลอดภัย",
+  teacher: "ครู",
+};
+
+const QUICK_REPLIES = [
+  "ครูเห็นข้อความแล้ว กำลังมาช่วยนะ",
+  "ไม่เป็นไรนะ พักสักครู่แล้วค่อยลองใหม่ด้วยกัน",
+  "ลองอ่านตัวอย่างทีละขั้นก่อน แล้วค่อยกลับมาข้อนี้",
+  "เก่งมาก ทำต่อได้เลย",
+];
+
+function Messages({ code, name, position }: { code: string; name: string; position: string | null }) {
+  const toast = useToast();
+  const { lastEvent } = useTeacher();
+  const thread = useLoad(() => api<Message[]>("teacher", `/api/teacher/students/${code}/messages`), [code]);
+  const [text, setText] = useState("");
+  const [busy, setBusy] = useState(false);
+  const listRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (lastEvent?.code !== code) return;
+    const id = setTimeout(thread.reload, 300);
+    return () => clearTimeout(id);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [lastEvent]);
+
+  useEffect(() => {
+    listRef.current?.scrollTo({ top: listRef.current.scrollHeight });
+  }, [thread.data]);
+
+  const send = async (message: string) => {
+    const value = message.trim();
+    if (!value) return;
+    setBusy(true);
+    try {
+      await api("teacher", `/api/teacher/students/${code}/messages`, { body: { text: value } });
+      setText("");
+      thread.reload();
+    } catch (err) {
+      toast(err instanceof Error ? err.message : "ส่งไม่สำเร็จ", "warning");
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const waiting = position === "SAFETY_STOP" || position === "STAGNATION_DEADLOCK";
+  return (
+    <div className="stack">
+      {waiting && (
+        <div className="callout callout-warning">
+          <span className="small">
+            ตอนนี้ระบบหยุดรอครูอยู่ ข้อความที่นักเรียนพิมพ์ส่งถึงครูโดยตรง AI ไม่ตอบ คุยเสร็จแล้วกดปลดล็อกที่แท็บ "ตอนนี้และ Override"
+          </span>
+        </div>
+      )}
+      <div className="teacher-thread" ref={listRef}>
+        {thread.loading && !thread.data && <Spinner />}
+        {thread.data?.length === 0 && <p className="small faint">ยังไม่มีข้อความ ครูเริ่มทักนักเรียนได้เลย</p>}
+        {thread.data?.map((m) => (
+          <div key={m.id} className={`tmsg tmsg-${m.sender}`}>
+            <span className="tmsg-meta xsmall">
+              {m.sender === "student" ? name : SENDER[m.sender]} · {clock(m.ts)}
+            </span>
+            <span className="tmsg-text">{m.text}</span>
+          </div>
+        ))}
+      </div>
+      <div className="pill-list">
+        {QUICK_REPLIES.map((q) => (
+          <button key={q} type="button" className="chip-toggle" onClick={() => setText(q)}>
+            {q}
+          </button>
+        ))}
+      </div>
+      <form
+        className="teacher-compose"
+        onSubmit={(e) => {
+          e.preventDefault();
+          send(text);
+        }}
+      >
+        <textarea
+          className="textarea"
+          rows={2}
+          value={text}
+          onChange={(e) => setText(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === "Enter" && !e.shiftKey) {
+              e.preventDefault();
+              send(text);
+            }
+          }}
+          placeholder={`พิมพ์ถึง${name} (Enter ส่ง · Shift+Enter ขึ้นบรรทัดใหม่)`}
+          maxLength={1000}
+          aria-label="ข้อความถึงนักเรียน"
+        />
+        <Button variant="primary" type="submit" loading={busy} disabled={!text.trim()} icon={<Send size={16} />}>
+          ส่ง
+        </Button>
+      </form>
+      <p className="xsmall faint">ข้อความของนักเรียนที่แสดงเป็นฉบับที่ลบข้อมูลส่วนตัวแล้ว ข้อความของครูขึ้นในกล่องแชตของนักเรียนทันที</p>
     </div>
   );
 }

@@ -346,6 +346,34 @@
   border-bottom-right-radius: 4px;
 }
 
+.bubble-teacher {
+  align-self: flex-start;
+  background: var(--accent-soft);
+  color: var(--accent-ink);
+  border: 1px solid color-mix(in srgb, var(--accent) 40%, transparent);
+  border-bottom-left-radius: 4px;
+}
+
+.bubble-system {
+  align-self: flex-start;
+  background: var(--info-soft);
+  border-bottom-left-radius: 4px;
+}
+
+.bubble-from {
+  display: block;
+  font-size: var(--fs-xs);
+  font-weight: 700;
+  margin-bottom: 2px;
+}
+
+.bubble-note {
+  display: block;
+  margin-top: 2px;
+  font-size: var(--fs-xs);
+  opacity: 0.8;
+}
+
 .bubble-tutor {
   align-self: flex-start;
   background: var(--surface-3);

@@ -111,6 +111,12 @@ async def chat(set_id: str, body: Chat, auth: dict = Depends(student)):
     return await services.chat(auth["code"], set_id, body.message)
 
 
+@router.get("/sets/{set_id}/messages")
+def messages(set_id: str, auth: dict = Depends(student)):
+    """บทสนทนาในกล่องแชต: ข้อความของเรา AI Tutor และครู"""
+    return services.messages_for(auth["code"])
+
+
 @router.get("/sets/{set_id}/notes")
 async def notes(set_id: str, auth: dict = Depends(student)):
     """เนื้อหาสำหรับปุ่มทบทวนเนื้อหา: มโนทัศน์เป้าหมาย พื้นฐานที่ต้องรู้ก่อน และตัวอย่างทีละขั้น"""

@@ -68,6 +68,10 @@ CREATE INDEX IF NOT EXISTS idx_traces_code ON traces (code, ts);
 CREATE INDEX IF NOT EXISTS idx_decisions_code ON decisions (code, ts);
 CREATE INDEX IF NOT EXISTS idx_ai_logs_ts ON ai_logs (ts);
 CREATE INDEX IF NOT EXISTS idx_alerts_ts ON alerts (ts);
+CREATE TABLE IF NOT EXISTS messages (
+    id INTEGER PRIMARY KEY AUTOINCREMENT, ts REAL, code TEXT, set_id TEXT, sender TEXT, text TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_messages_code ON messages (code, ts);
 """
 
 _lock = threading.RLock()

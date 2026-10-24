@@ -104,6 +104,27 @@ def student_detail(code: str, auth: dict = Depends(teacher)):
     }
 
 
+class TeacherMessage(BaseModel):
+    text: str
+
+
+@router.get("/students/{code}/messages")
+def student_messages(code: str, auth: dict = Depends(teacher)):
+    return services.messages_for(code)
+
+
+@router.post("/students/{code}/messages")
+async def send_message(code: str, body: TeacherMessage, auth: dict = Depends(teacher)):
+    text = body.text.strip()[:1000]
+    if not text:
+        raise HTTPException(400, "พิมพ์ข้อความก่อนส่ง")
+    if not db.query_one("SELECT code FROM students WHERE code = ?", (code,)):
+        raise HTTPException(404, "ไม่พบนักเรียนรหัสนี้")
+    states = db.states_for(code)
+    set_id = max(states, key=lambda s: s["last_activity"])["set_id"] if states else None
+    return await services.post_message(code, set_id, "teacher", text)
+
+
 @router.post("/students/{code}/override")
 async def override(code: str, body: Override, auth: dict = Depends(teacher)):
     return await services.override(code, body.set_id, body.action, body.params, body.reason, "teacher")

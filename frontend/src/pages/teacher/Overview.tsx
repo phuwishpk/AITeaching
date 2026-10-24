@@ -1,5 +1,5 @@
 import { useMemo, useState } from "react";
-import { Activity, ArrowRight, BellRing, Check, HeartHandshake, Lightbulb, LifeBuoy } from "lucide-react";
+import { Activity, ArrowRight, BellRing, Check, HeartHandshake, Lightbulb, LifeBuoy, MessageCircle } from "lucide-react";
 import { api } from "../../lib/api";
 import { useLoad, useNow } from "../../lib/hooks";
 import { ago, ALERT_LABEL, ALERT_TONE, clock, CLUSTER_COLORS, CLUSTER_NAMES, CLUSTER_SHORT, PATH_LABELS, pct, POSITION_LABELS, POSITION_TONE } from "../../lib/format";
@@ -40,7 +40,7 @@ export function ClusterMark({ cluster, short }: { cluster?: { key: string; name:
 }
 
 export default function Overview() {
-  const { data, error, feed, openStudent, nameOf, ackAlert, liveVersion } = useTeacher();
+  const { data, error, feed, openStudent, nameOf, ackAlert, liveVersion, unread } = useTeacher();
   const [scope, setScope] = useState<"class" | "all">("class");
   const now = useNow(15000);
   const clusters = useLoad(
@@ -125,7 +125,22 @@ export default function Overview() {
                     <tr key={s.code} className="clickable" onClick={() => openStudent(s.code)}>
                       <td>
                         <div className="stack" style={{ gap: 0 }}>
-                          <span className="strong nowrap">{s.name ?? s.code}</span>
+                          <span className="row row-sm row-nowrap">
+                            <span className="strong nowrap">{s.name ?? s.code}</span>
+                            {!!unread[s.code] && (
+                              <button
+                                className="unread-pill"
+                                title="มีข้อความใหม่จากนักเรียน"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  openStudent(s.code, "messages");
+                                }}
+                              >
+                                <MessageCircle size={12} />
+                                {unread[s.code]}
+                              </button>
+                            )}
+                          </span>
                           <span className="xsmall faint mono">
                             {s.code}
                             {s.kind === "sim" ? " · จำลอง" : s.kind === "demo" ? " · สาธิต" : ""}
@@ -195,9 +210,14 @@ export default function Overview() {
                     </span>
                     <span className="small muted">{a.message}</span>
                   </button>
-                  <Button size="sm" variant="ghost" icon={<Check size={15} />} onClick={() => ackAlert(a.id)} aria-label="รับทราบ">
-                    รับทราบ
-                  </Button>
+                  <span className="stack" style={{ gap: 2 }}>
+                    <Button size="sm" variant="ghost" icon={<MessageCircle size={15} />} onClick={() => openStudent(a.code, "messages")}>
+                      ตอบกลับ
+                    </Button>
+                    <Button size="sm" variant="ghost" icon={<Check size={15} />} onClick={() => ackAlert(a.id)} aria-label="รับทราบ">
+                      รับทราบ
+                    </Button>
+                  </span>
                 </div>
               ))}
             </div>

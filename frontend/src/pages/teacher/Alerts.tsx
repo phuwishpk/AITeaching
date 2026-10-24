@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Check } from "lucide-react";
+import { Check, MessageCircle } from "lucide-react";
 import { useNow } from "../../lib/hooks";
 import { ago, ALERT_LABEL, ALERT_TONE, clock } from "../../lib/format";
 import { Badge, Button, Card, Empty, Segmented, Spinner } from "../../components/ui";
@@ -66,6 +66,9 @@ export default function AlertsPage() {
                   {clock(a.ts)} · {ago(a.ts, now)}
                 </span>
               </button>
+              <Button size="sm" variant="ghost" icon={<MessageCircle size={15} />} onClick={() => openStudent(a.code, "messages")}>
+                ตอบกลับ
+              </Button>
               {a.acknowledged ? (
                 <span className="xsmall faint row row-sm">
                   <Check size={14} />
