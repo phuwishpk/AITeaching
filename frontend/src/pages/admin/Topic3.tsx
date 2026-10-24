@@ -10,7 +10,7 @@ import { BarList } from "../../components/charts";
 import { Badge, Card, CardHead, Empty, Spinner } from "../../components/ui";
 import { TopicHeader, useAdmin } from "./AdminApp";
 import { useStudentPicker } from "./Topic2";
-import { CodePicker, Section } from "./shared";
+import { CodePicker, Section, TopicLink } from "./shared";
 
 const KINDS = [
   { id: "real", label: "นักเรียนจริง" },
@@ -63,7 +63,10 @@ export default function Topic3() {
         id="3"
         lead="ผังนี้คือตรรกะจริงที่ engine ใช้ตัดสินทุกคำตอบ ชิปบนกล่องคือนักเรียนที่อยู่ตรงนั้นตอนนี้ เส้นสีเข้มคือเส้นทางล่าสุดของนักเรียนที่เลือก"
       >
-        <CodePicker codes={students} value={code} onChange={setCode} label="ติดตาม" />
+        <div className="row">
+          <TopicLink to="activity">ดูทีละการกระทำ</TopicLink>
+          <CodePicker codes={students} value={code} onChange={setCode} label="ติดตาม" />
+        </div>
       </TopicHeader>
 
       <Card id="flow-card" className="flow-card">

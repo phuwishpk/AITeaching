@@ -409,6 +409,35 @@ GROUPS = [
     },
 ]
 
+# เส้นในผังที่หมายถึงกฎแต่ละข้อทำงาน (ใช้บอกว่าการกระทำหนึ่งครั้งไปเจอกฎข้อไหน)
+# นับเฉพาะเส้นของทางแยกที่เลือกจริง ไม่ใช่ทุกกล่องที่เดินผ่าน
+RULE_EDGES = {
+    "R-01": ["e_clean_reject"], "R-02": ["e_clean_reject"],
+    "R-04": ["e_idle", "e_idle_back"],
+    "R-08": ["e_g1_correct", "e_g1_wrong"],
+    "R-09": ["e_mastery_finish"],
+    "R-11": ["e_mastery_iso"],
+    "R-12": ["e_iso_retry", "e_iso_fail", "e_iso_impasse"],
+    "R-13": ["e_finish_yes"], "R-14": ["e_finish_cap"],
+    "R-15": ["e_path_next"], "R-16": ["e_path_next"],
+    "R-17": ["e_g2_fast", "e_lock_done"],
+    "R-18": ["e_hint_button"],
+    "R-21": ["e_diag"],
+    "R-22": ["e_g3_1", "e_delay_l1", "e_delay_l2"],
+    "R-23": ["e_g3_2"],
+    "R-24": ["e_g3_3", "e_trend_yes", "e_trend_no"],
+    "R-25": ["e_g3_4"],
+    "R-27": ["e_impasse", "e_rounds_ok"],
+    "R-28": ["e_remedial_pass", "e_remedial_next"],
+    "R-29": ["e_rounds_root"],
+    "R-30": ["e_remedial_impasse", "e_walk_round"],
+    "R-31": ["e_rounds_full"],
+    "R-32": ["e_safety"],
+    "R-33": ["e_quit", "e_choose_on", "e_choose_stop"],
+    "R-34": ["e_distress", "e_cb_done"],
+    "R-47": ["e_override", "e_teacher_release", "e_teacher_safety"],
+}
+
 LABEL_RE = re.compile(r"^(.*?)\s*\(([^)]*)\)\s*$")
 
 

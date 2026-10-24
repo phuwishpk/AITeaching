@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Link } from "react-router";
 import { ArrowUpRight, BookOpen, Code2, FlaskConical, Printer, Quote, Search, Timer, Workflow } from "lucide-react";
 import { api, type Role } from "../../lib/api";
@@ -76,6 +76,12 @@ export default function RulesPage({ role }: { role: Exclude<Role, "student"> }) 
     [rules.data, query],
   );
   const shown = groups.reduce((sum, g) => sum + g.visible.length, 0);
+
+  // เปิดมาจากลิงก์ของกฎข้อหนึ่ง (#R-22): เลื่อนไปที่ข้อนั้นหลังโหลดเสร็จ
+  useEffect(() => {
+    if (!rules.data || !location.hash) return;
+    document.getElementById(decodeURIComponent(location.hash.slice(1)))?.scrollIntoView({ block: "start" });
+  }, [rules.data]);
 
   if (rules.error) return <Empty>{rules.error}</Empty>;
   if (!rules.data) return <Spinner />;

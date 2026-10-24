@@ -1,6 +1,6 @@
 import { createContext, useCallback, useContext, useEffect, useRef, useState, type ReactNode } from "react";
 import { Navigate, NavLink, Route, Routes, useLocation, useNavigate } from "react-router";
-import { ListChecks, Presentation, Settings as SettingsIcon } from "lucide-react";
+import { Activity as ActivityIcon, ListChecks, Presentation, Settings as SettingsIcon } from "lucide-react";
 import { api, clearAuth, getAuth } from "../../lib/api";
 import { useLive } from "../../lib/hooks";
 import type { StaffView } from "../../lib/types";
@@ -18,6 +18,7 @@ import Topic6 from "./Topic6";
 import Topic7 from "./Topic7";
 import Settings from "./Settings";
 import RulesPage from "../shared/RulesPage";
+import Activity from "./Activity";
 
 export interface FlowData {
   nodes: FlowNode[];
@@ -213,6 +214,12 @@ function AdminShell({ onLogout }: { onLogout: () => void }) {
               </NavLink>
             ))}
             <span className="topic-sep" aria-hidden />
+            <NavLink to="/admin/activity" className={({ isActive }) => `topic-tab ${isActive ? "active" : ""}`} title="นักเรียนทำอะไร และการกระทำเข้าไปตรงไหนในผัง">
+              <span className="topic-num">
+                <ActivityIcon size={14} />
+              </span>
+              <span>กิจกรรมสด</span>
+            </NavLink>
             <NavLink to="/admin/rules" className={({ isActive }) => `topic-tab ${isActive ? "active" : ""}`} title="กฎทั้งหมดที่ระบบใช้ตัดสิน">
               <span className="topic-num">
                 <ListChecks size={14} />
@@ -233,6 +240,7 @@ function AdminShell({ onLogout }: { onLogout: () => void }) {
             <Route path="7" element={<Topic7 />} />
             <Route path="settings" element={<Settings />} />
             <Route path="rules" element={<RulesPage role="admin" />} />
+            <Route path="activity" element={<Activity />} />
             <Route path="*" element={<Navigate to="3" replace />} />
           </Routes>
         </main>

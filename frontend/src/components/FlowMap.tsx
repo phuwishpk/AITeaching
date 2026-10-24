@@ -164,6 +164,7 @@ export default function FlowMap({
   selectedStudent,
   onSelectNode,
   onSelectStudent,
+  highlightEdges,
 }: {
   nodes: FlowNode[];
   edges: FlowEdge[];
@@ -172,6 +173,8 @@ export default function FlowMap({
   selectedStudent?: string | null;
   onSelectNode?: (id: string) => void;
   onSelectStudent?: (code: string) => void;
+  // เส้นที่จะเน้นแทนเส้นทางล่าสุดของนักเรียนที่เลือก เช่น เส้นทางของเหตุการณ์ในอดีต
+  highlightEdges?: string[];
 }) {
   const [hover, setHover] = useState<string | null>(null);
   const nodeMap = useMemo(() => new Map(nodes.map((n) => [n.id, n])), [nodes]);
@@ -194,7 +197,7 @@ export default function FlowMap({
   }, [positions]);
 
   const selected = positions.find((p) => p.code === selectedStudent);
-  const activeEdges = new Set(selected?.last_edges ?? []);
+  const activeEdges = new Set(highlightEdges ?? selected?.last_edges ?? []);
   const activeReturn = new Set(edges.filter((e) => activeEdges.has(e.id) && isReturn(e)).map((e) => e.source));
 
   return (

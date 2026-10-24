@@ -47,3 +47,35 @@ def test_rules_endpoint_is_staff_only():
     assert client.get("/api/rules", headers={"Authorization": f"Bearer {student}"}).status_code == 403
     response = client.get("/api/rules", headers={"Authorization": f"Bearer {teacher}"})
     assert response.status_code == 200 and response.json()["total"] >= 40
+
+
+def test_activity_links_input_to_flow_path(content):
+    from app import activity, db, services
+    from app.engine import core as engine
+    from app.engine.core import Ctx
+
+    db.execute("INSERT INTO students (code, kind, persona, created_at) VALUES ('S-09', 'real', NULL, 0)")
+    state = engine.new_state("S-09", content.subject["id"], "QS-1", 1, 1000.0)
+    ctx = Ctx(content, settings_store.params(), 1.0, 1000.0)
+    services.persist(state, engine.begin(state, ctx), 1000.0)
+    ctx.now = 1020.0
+    services.persist(state, engine.submit(state, ctx, "7"), 1020.0)
+
+    latest = activity.events("S-09")[0]
+    assert latest["source"] == "student"
+    assert latest["inputs"][0]["action"] == "answer"
+    path = latest["decisions"][0]["path"]
+    assert path[:4] == ["ANSWERING", "E_SUBMIT", "G_CLEAN", "G1"] and path[-1] == "DELIBERATE_DELAY"
+    assert [r["id"] for r in latest["rules"]] == ["R-08", "R-21", "R-22"]
+
+    ctx.now = 1021.0
+    services.persist(state, engine.submit(state, ctx, "abc"), 1021.0)
+    rejected = activity.events("S-09")[0]
+    assert rejected["steps"][-1].startswith("ตีกลับ") and rejected["rules"][0]["id"] == "R-02"
+
+
+def test_rule_edges_exist():
+    edge_ids = {e["id"] for e in F.EDGES}
+    for rule_id, edges in rules.RULE_EDGES.items():
+        assert rule_id in {r["id"] for g in rules.GROUPS for r in g["rules"]}
+        assert set(edges) <= edge_ids, rule_id

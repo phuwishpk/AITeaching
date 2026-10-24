@@ -4,7 +4,7 @@ import time
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 
-from .. import analytics, db, demo, principles, seed, services, settings_store
+from .. import activity, analytics, db, demo, principles, seed, services, settings_store
 from ..config import PARAM_LABELS
 from ..engine import core as engine
 from ..engine import flow as F
@@ -116,6 +116,12 @@ def student(code: str, auth: dict = Depends(admin)):
         "features": analytics.features(code),
         "cluster": analytics.cluster_of(code),
     }
+
+
+@router.get("/activity")
+def student_activity(code: str | None = None, include_sim: bool = False, limit: int = 40, auth: dict = Depends(admin)):
+    """สิ่งที่นักเรียนป้อนเข้ามาแต่ละครั้ง และเส้นทางที่การกระทำนั้นผ่านในผังตรรกะ"""
+    return activity.events(code, include_sim, max(1, min(limit, 150)))
 
 
 @router.get("/topics")

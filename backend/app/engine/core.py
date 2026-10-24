@@ -928,6 +928,15 @@ def walkthrough_done(state: dict, ctx: Ctx) -> Fx:
 # ---------------------------------------------------------------- ปุ่มขอคำใบ้
 
 def request_hint(state: dict, ctx: Ctx) -> Fx:
+    fx = _request_hint(state, ctx)
+    # เก็บผลของการกดไว้ในร่องรอยด้วย หน้ากิจกรรมสดจึงบอกได้ว่าการกดครั้งนั้นไปจบที่กฎไหน
+    for trace in fx.traces:
+        if trace["action"] == "hint_request":
+            trace["data"]["result"] = (fx.result or {}).get("kind")
+    return fx
+
+
+def _request_hint(state: dict, ctx: Ctx) -> Fx:
     fx = Fx()
     now = ctx.now
     resolve_timers(state, ctx, fx)
