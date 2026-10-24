@@ -447,7 +447,7 @@ def gem_meta(gem: dict, version: int) -> dict:
         "id": gem["id"], "bank_version": version, "name": gem["name"], "icon": gem.get("icon"),
         "color": gem.get("color"), "instructions": gem.get("instructions", ""),
         "tools": gem.get("tools", {}), "starter_prompts": gem.get("starter_prompts", []),
-        "alert_rules": gem.get("alert_rules", {}),
+        "alert_rules": gem.get("alert_rules", {}), "live_cap": bank_sizes()["live_cap"],
     }
 
 
@@ -588,6 +588,61 @@ async def build(gem_id: str) -> None:
         db.save_gem(gem)
     finally:
         _running.discard(gem_id)
+
+
+async def generate_live(subject_id: str, request: dict) -> list[str]:
+    """Live Generation: สร้างโจทย์หลักพร้อมข้อคู่ขนานเพิ่มเข้าคลังรุ่นนี้ระหว่างเรียน ตรวจเฉลยเหมือนตอนสร้างคลัง
+
+    คืนรหัสโจทย์หลักใหม่ที่ผ่านการตรวจ ข้อที่ไม่ผ่านเก็บไว้แบบติดธงให้ครูตรวจทีหลัง
+    """
+    subject = db.get_subject(subject_id)
+    if not subject or not subject.get("gem"):
+        raise BuildError("ชุดคำถามนี้ไม่ใช่ Gem สร้างโจทย์สดไม่ได้")
+    gem = subject["gem"]
+    concepts = {c["id"]: c for c in subject["concepts"]}
+    target = concepts[subject["question_sets"][0]["target_concept"]]
+    plan = {
+        "target": {"name": target["name"], "description": target.get("description", "")},
+        "prerequisites": [concepts[c] for c in target.get("prerequisites", []) if c in concepts],
+        "bug_tags": subject["bug_tags"],
+    }
+    level = int(request.get("difficulty", 50))
+    band = f"{max(0, level - 15) / 100:.2f}–{min(100, level + 15) / 100:.2f}"
+    existing = "\n".join(f"- {it.get('math') or it['prompt']}" for it in subject["items"] if it["kind"] in ("main", "isomorphic"))
+    prompt = (items_prompt(gem, knowledge_text(gem["id"]), plan, int(request.get("count", 2)), band, 9)
+              + f"\n\nโจทย์ที่มีอยู่แล้ว ห้ามซ้ำ:\n{existing}")
+    raw = await ask_json("live", prompt)
+    bug_ids = {b["id"] for b in subject["bug_tags"]}
+    taken = {it["id"] for it in subject["items"]}
+    new_items, mains = [], []
+    for entry in listing(raw, "items"):
+        n = 1 + sum(1 for i in taken if re.fullmatch(r"L-\d+", i))  # นับเฉพาะโจทย์หลัก ไม่นับข้อคู่ขนาน L-xx-I1
+        main = to_item(entry, f"L-{n:02d}", target["id"], "main", bug_ids)
+        if main is None:
+            continue
+        iso = to_item(entry.get("isomorph") or {}, f"{main['id']}-I1", target["id"], "isomorphic", bug_ids)
+        if iso:
+            iso["iso_of"] = main["id"]
+            main["isomorphs"] = [iso["id"]]
+        main["live"] = True
+        taken |= {main["id"]} | ({iso["id"]} if iso else set())
+        mains.append(main)
+        new_items += [main] + ([iso] if iso else [])
+    if not mains:
+        raise BuildError("AI ไม่ได้ส่งโจทย์ที่ตรวจด้วยกฎได้")
+    try:
+        answers = await ask_json("verify", resolve_prompt(new_items), 2000)
+        solved = {int(a["i"]): a.get("answer") for a in listing(answers, "answers")
+                  if isinstance(a, dict) and str(a.get("i", "")).lstrip("-").isdigit()}
+    except BuildError:
+        solved = None
+    apply_checks(new_items, solved)
+    # อ่านใหม่ก่อนบันทึก ระหว่างรอ AI ครูอาจแก้คลังหรือนักเรียนคนอื่นสร้างโจทย์เพิ่ม
+    subject = db.get_subject(subject_id)
+    subject["items"] += new_items
+    subject["question_sets"][0]["main_items"] += [m["id"] for m in mains]
+    db.save_subject(subject)
+    return [m["id"] for m in mains if not m.get("flag")]
 
 
 def _draft_key(gem: dict, sizes: dict) -> str:

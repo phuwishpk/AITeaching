@@ -5,8 +5,10 @@ import {
   ArrowRight,
   BookOpen,
   CircleCheck,
+  CloudOff,
   Coffee,
   Lightbulb,
+  LoaderCircle,
   MessageCircle,
   Phone,
   RotateCcw,
@@ -44,6 +46,8 @@ interface View {
   hints: Hint[];
   hint_button: { visible: boolean; cooldown: number | null; unlock_in: number };
   timers: { delay: number | null; lock: number | null; break: number | null };
+  // AI ขัดข้องตอนสร้างโจทย์สด: ข้อความ error และวินาทีที่ระบบจะลองใหม่เอง
+  outage: { error: string | null; retry_in: number | null } | null;
   can_undo: boolean;
   undo_window: number;
   idle_timeout: number;
@@ -519,7 +523,37 @@ function StateScreen({
   onBack: () => void;
 }) {
   const breakLeft = useCountdown(view.timers.break, onTimer);
+  // ครบเวลาแล้วดึงสถานะใหม่ ระบบจะลองสร้างโจทย์ให้อีกครั้งเอง
+  const retryLeft = useCountdown(view.outage?.retry_in ?? null, onTimer);
+  const generating = view.position === "LIVE_GEN";
+  useEffect(() => {
+    if (!generating) return;
+    // ปกติได้ผลทาง WebSocket อยู่แล้ว ดึงซ้ำเผื่อสายหลุดระหว่างรอ
+    const id = setInterval(onTimer, 5000);
+    return () => clearInterval(id);
+  }, [generating, onTimer]);
   switch (view.position) {
+    case "LIVE_GEN":
+      return (
+        <article className="card state-card fade-in" role="status">
+          <LoaderCircle size={34} className="spin" color="var(--accent)" />
+          <h2 className="title-lg">กำลังเตรียมโจทย์ใหม่ให้</h2>
+          <p className="muted prose">ทำโจทย์ในชุดครบแล้ว ครูผู้ช่วยกำลังสร้างข้อต่อไปให้พอดีกับเรา รอสักครู่นะ เวลาที่รอไม่นับเป็นเวลาคิด</p>
+        </article>
+      );
+    case "AI_OUTAGE":
+      return (
+        <article className="card state-card fade-in" role="alert">
+          <CloudOff size={34} color="var(--warning)" />
+          <h2 className="title-lg">AI ขัดข้องชั่วคราว</h2>
+          <p className="muted prose">ยังสร้างโจทย์ข้อต่อไปไม่ได้ ไม่ใช่ความผิดของเรา ครูได้รับแจ้งแล้ว เวลาที่รอไม่นับเป็นเวลาคิด</p>
+          {view.outage?.error && <p className="small outage-error">{view.outage.error}</p>}
+          <Button variant="primary" size="lg" icon={<RotateCcw size={18} />} onClick={() => act("retry")}>
+            ลองอีกครั้ง
+          </Button>
+          {retryLeft != null && <p className="faint small num">ระบบจะลองใหม่เองในอีก {mmss(retryLeft)} วินาที</p>}
+        </article>
+      );
     case "CIRCUIT_BREAKER":
       return (
         <article className="card state-card fade-in">

@@ -621,3 +621,11 @@
   border-color: var(--accent);
   background: var(--accent-soft);
 }
+
+.outage-error {
+  max-width: 460px;
+  padding: 8px 14px;
+  border-radius: 10px;
+  background: var(--warning-soft);
+  color: var(--text);
+}

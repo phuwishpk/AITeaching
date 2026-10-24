@@ -67,6 +67,10 @@ const LAYOUT: Record<string, [number, number]> = {
   IDLE_PAUSE: [0, 3],
   CHOOSING_PATH: [1, 3],
   SAFETY_STOP: [2, 3],
+  // Gem (ADR-0003)
+  LIVE_GEN: [7, 0],
+  AI_OUTAGE: [7, 1],
+  TEACHER_REVIEW: [1, 4],
 };
 
 interface Box {
@@ -90,6 +94,11 @@ const ROUTES: Record<string, (s: Box, t: Box) => Pt[]> = {
   e_g3_4: (s, t) => [[s.x + W / 2, s.y + 8], [LANE_X[2], s.y + 8], [LANE_X[2], 630], [COL[5] + 10, 630], [COL[5] + 10, t.y + 8], [t.x + W / 2, t.y + 8]],
   e_trend_yes: (s, t) => [[s.x, s.y + GATE_H / 2], [s.x, 612], [COL[5] - 10, 612], [COL[5] - 10, t.y - 8], [t.x + W / 2, t.y - 8]],
   e_rounds_root: (s, t) => [[s.x, s.y + GATE_H / 2], [s.x, 628], [t.x + W / 2 - 8, 628], [t.x + W / 2 - 8, t.y + H / 2]],
+  // ไปสร้างโจทย์สดวิ่งเหนือแถวบนสุด ไม่ผ่านกล่องจบ Session
+  e_path_live: (s, t) => [[s.x, s.y - s.h / 2], [s.x, 12], [t.x, 12], [t.x, t.y - t.h / 2]],
+  // ไปและกลับระหว่างสร้างโจทย์สดกับ AI ขัดข้อง: สองเส้นขนานกัน
+  e_live_fail: (s, t) => [[s.x + 22, s.y + s.h / 2], [t.x + 22, t.y - t.h / 2]],
+  e_outage_retry: (s, t) => [[s.x - 22, s.y - s.h / 2], [t.x - 22, t.y + t.h / 2]],
 };
 
 // เส้นที่วนกลับ: แสดงเป็นสัญลักษณ์ ↩ ที่ต้นทางแทนการลากเส้น

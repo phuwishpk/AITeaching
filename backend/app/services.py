@@ -93,6 +93,19 @@ def roster_names() -> list[str]:
 ASK_TEACHER = re.compile(r"(ขอ|อยาก)(คุย|ถาม|ปรึกษา)(กับ)?ครู|เรียกครู|ครูช่วย(หน่อย|ด้วย)")
 
 
+async def live_generate(code: str, set_id: str, subject_id: str, request: dict):
+    """สร้างโจทย์สดให้นักเรียนที่คลังหมด แล้วพากลับไปทำต่อ หรือหยุดชั่วคราวถ้า AI ขัดข้อง"""
+    try:
+        new_ids, error = await gem_builder.generate_live(subject_id, request), None
+    except gem_builder.BuildError as failure:
+        new_ids, error = [], str(failure)
+    invalidate_content()
+    try:
+        await run_event(code, set_id, engine.after_live, new_ids, error)
+    except NotFound:
+        pass
+
+
 def ai_failed(result: dict) -> bool:
     """AI ถูกเรียกแต่ไม่สำเร็จทุก Provider (ไม่นับ Offline Mode ที่ตั้งใจปิด AI)"""
     errors = result.get("errors") or []
@@ -272,6 +285,8 @@ async def run_event(code: str, set_id: str, action, *args) -> tuple[dict, Conten
     await broadcast(state, content, ctx, fx, alerts)
     for job in jobs:
         asyncio.create_task(job)
+    if fx.generate:
+        asyncio.create_task(live_generate(code, set_id, state["subject_id"], fx.generate))
     if fx.tag_requests and use_ai:
         asyncio.create_task(suggest_tags(code, content, fx.tag_requests))
     return state, content, ctx, fx

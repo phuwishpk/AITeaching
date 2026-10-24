@@ -33,9 +33,13 @@ STUDENT_LABELS = {
     F.DEADLOCK: "รอครูช่วยในข้อนี้",
     F.DONE: "จบชุดแล้ว",
     F.ENDED: "จบรอบนี้แล้ว",
+    F.LIVE: "กำลังเตรียมโจทย์ใหม่ให้",
+    F.OUTAGE: "AI ขัดข้องชั่วคราว",
 }
 
 BLOCK_MESSAGES = {
+    F.LIVE: "กำลังเตรียมโจทย์ใหม่ให้ รอสักครู่นะ",
+    F.OUTAGE: "AI ขัดข้องชั่วคราว ระบบกำลังลองใหม่",
     F.LOCK: "ระบบพักปุ่มตอบไว้สักครู่ ลองอ่านโจทย์อีกครั้งนะ",
     F.CB: "ตอนนี้เป็นช่วงพักสายตา",
     F.WALK: "อ่านตัวอย่างให้จบก่อนนะ",
@@ -88,6 +92,15 @@ class Content:
         concept = self.concepts.get(concept_id)
         return list(concept.get("prerequisites", [])) if concept else []
 
+    def tool(self, name: str) -> bool:
+        """เครื่องมือการสอนที่ครูเปิดไว้ใน Gem (Starter Tools) ชุดคำถามที่ไม่ใช่ Gem เปิดทุกอย่าง"""
+        return bool(((self.subject.get("gem") or {}).get("tools") or {}).get(name, True))
+
+    def live_cap(self) -> int:
+        """จำนวนโจทย์ที่สร้างสดได้ต่อ Session (0 = ไม่ใช่ Gem สร้างสดไม่ได้)"""
+        gem = self.subject.get("gem")
+        return int(gem.get("live_cap", 10)) if gem else 0
+
     def walkthrough(self, concept_id: str | None) -> dict | None:
         return self.walks.get(concept_id) if concept_id else None
 
@@ -121,6 +134,8 @@ class Fx:
         self.tag_requests: list[dict] = []
         self.session_end: str | None = None
         self.result: dict = {}
+        # คำขอให้ services สร้างโจทย์สด (Live Generation) หลังบันทึกเหตุการณ์นี้
+        self.generate: dict | None = None
 
     def trace(self, action: str, target: str | None, data: dict | None = None, ts: float = 0.0):
         self.traces.append({"action": action, "target": target, "data": data or {}, "ts": ts})
@@ -456,9 +471,16 @@ def resolve_timers(state: dict, ctx: Ctx, fx: Fx):
             state["resume_position"] = None
             move(state, ctx, fx, back, ["e_lock_done"], "ครบเวลาล็อก กลับมาตอบได้")
             continue
+        if position == F.OUTAGE and timers.get("retry_at") and now >= timers["retry_at"]:
+            # AI ขัดข้อง: ครบเวลาแล้วลองสร้างโจทย์สดใหม่เอง (services เรียก AI ตาม fx.generate)
+            timers["retry_at"] = None
+            move(state, ctx, fx, F.LIVE, ["e_outage_retry"], f"ครบ {OUTAGE_RETRY:.0f} วินาที ลองให้ AI สร้างโจทย์ใหม่อีกครั้ง")
+            fx.generate = state.get("live_request") or {"path": state.get("path", "STANDARD"), "difficulty": 50, "count": 2}
+            continue
         if position == F.CB and timers["break_until"] and now >= timers["break_until"]:
             timers["break_until"] = None
             move(state, ctx, fx, F.WALK, ["e_cb_done"], "พักครบแล้ว ไปอ่านตัวอย่างทีละขั้น")
+            skip_walk_if_off(state, ctx, fx)
             continue
         break
 
@@ -624,6 +646,16 @@ def _submit(state: dict, ctx: Ctx, raw) -> Fx:
     feedback = _wrong_message(diag)
 
     # ---------- ด่าน 3: ผิดเป็นครั้งที่เท่าไรในข้อนี้ ----------
+    if not ctx.content.tool("hints"):
+        # ครูปิดบันไดคำใบ้ใน Gem: ไม่มีหน่วงเวลาและคำใบ้ ให้ลองใหม่เอง ผิดครบ 3 ครั้งเป็น Impasse
+        if count >= 3:
+            enter_impasse(state, ctx, fx, edges + ["e_g3_4"], f"ผิดครั้งที่ {count} และครูปิดบันไดคำใบ้ไว้ จึงเป็น Impasse", detail)
+            feedback = "ไม่เป็นไรนะ ลองทบทวนพื้นฐานก่อนแล้วค่อยกลับมาข้อนี้"
+        else:
+            move(state, ctx, fx, F.ANSWERING, edges + ["e_g3_nohint"],
+                 f"ผิดครั้งที่ {count} ครูปิดบันไดคำใบ้ใน Gem นี้ ให้ลองใหม่เอง", detail)
+        fx.result = {"kind": "wrong", "message": feedback, "diagnosis": diag["class"]}
+        return fx
     if count == 1:
         level = max(1, item["hint_floor"])
         item["pending_hint"] = level
@@ -748,7 +780,7 @@ def on_correct(state: dict, ctx: Ctx, fx: Fx, it: dict, rt: float, edges: list[s
     if mode == "challenge":
         state["challenge_correct"] = True
 
-    if item["hint_level"] >= 1 and not item["voided"]:
+    if item["hint_level"] >= 1 and not item["voided"] and ctx.content.tool("isomorphic"):
         iso = pick_isomorph(state, ctx, it["id"])
         if iso:
             serve(state, ctx, iso, "isomorphic", iso_source=it["id"])
@@ -785,6 +817,14 @@ def advance(state: dict, ctx: Ctx, fx: Fx, it: dict, rt: float, edges: list[str]
     difficulty = fuzzy.difficulty(m, slowness)
     state["path"] = path
     nxt, mode = select_next(state, ctx, path, difficulty["output"])
+    if nxt is None and state.get("live_count", 0) < ctx.content.live_cap():
+        # Gem: คลังหมดก่อนจบชุด ให้ AI สร้างโจทย์ใหม่ตามเส้นทางและความยากที่เลือก (Live Generation)
+        request = {"path": path, "difficulty": round(difficulty["output"]), "count": 2}
+        state["live_request"] = request
+        move(state, ctx, fx, F.LIVE, edges + ["e_finish_no", "e_path_live"],
+             f"โจทย์ในคลังหมด ให้ AI สร้างโจทย์ใหม่ (ความยากเป้าหมาย {difficulty['output']:.0f})", {**detail, **request})
+        fx.generate = request
+        return
     if nxt is None:
         end_session(state, ctx, fx, F.ENDED, edges + ["e_finish_cap"], "โจทย์ในชุดหมดแล้ว", "no_items")
         return
@@ -861,10 +901,12 @@ def enter_impasse(state: dict, ctx: Ctx, fx: Fx, edges: list[str], rule: str, de
 
 def start_round(state: dict, ctx: Ctx, fx: Fx, suspended: str, tag: str | None, edges: list[str]):
     rounds = state["remedial_rounds"].get(suspended, 0)
-    if rounds >= ctx.p("remedial_max_rounds"):
+    remedial_off = not ctx.content.tool("remedial")
+    if rounds >= ctx.p("remedial_max_rounds") or remedial_off:
         state["remedial"] = None
-        move(state, ctx, fx, F.DEADLOCK, edges + ["e_rounds_full"],
-             f"ส่งซ่อมเสริมข้อนี้ครบ {rounds} รอบแล้วยังติด หยุดลูปและแจ้งครู", {"suspended": suspended})
+        rule = ("ครูปิดการทบทวนพื้นฐานใน Gem นี้ จึงส่งต่อครูทันที" if remedial_off
+                else f"ส่งซ่อมเสริมข้อนี้ครบ {rounds} รอบแล้วยังติด หยุดลูปและแจ้งครู")
+        move(state, ctx, fx, F.DEADLOCK, edges + ["e_rounds_full"], rule, {"suspended": suspended})
         alert(fx, state, "normal", "deadlock", f"ติด Stagnation Deadlock ที่ข้อ {suspended} ต้องให้ครูช่วย", dedupe=False)
         fx.result = {"kind": "wrong", "message": "ข้อนี้ยากจริง ๆ ครูกำลังจะมาช่วยนะ"}
         return
@@ -887,6 +929,7 @@ def start_round(state: dict, ctx: Ctx, fx: Fx, suspended: str, tag: str | None, 
         state["walk_concept"] = concept
         move(state, ctx, fx, F.WALK, edges + ["e_rounds_root"],
              "Concept นี้ไม่มี Prerequisite ให้อ่านตัวอย่างทีละขั้นแล้วทำโจทย์ที่ง่ายลง", {"suspended": suspended})
+        skip_walk_if_off(state, ctx, fx)
         return
     nxt = next_remedial_item(state, ctx)
     serve(state, ctx, nxt, "remedial")
@@ -896,15 +939,29 @@ def start_round(state: dict, ctx: Ctx, fx: Fx, suspended: str, tag: str | None, 
     fx.result = {"kind": "wrong", "message": f"มาทบทวนเรื่อง{ctx.content.concept_name(prereq)}กันก่อน แล้วค่อยกลับไปข้อเดิม"}
 
 
+def skip_walk_if_off(state: dict, ctx: Ctx, fx: Fx):
+    """ครูปิด Walkthrough ใน Gem: ผ่านกล่องนี้ไปทันทีโดยไม่แสดงตัวอย่าง (Decision Trace ยังบอกว่าข้ามเพราะอะไร)"""
+    if state["position"] == F.WALK and not ctx.content.tool("walkthrough"):
+        finish_walk(state, ctx, fx, "ครูปิด Walkthrough ใน Gem นี้ ข้ามตัวอย่างทีละขั้น")
+
+
 def walkthrough_done(state: dict, ctx: Ctx) -> Fx:
     fx = Fx()
     resolve_timers(state, ctx, fx)
     if state["position"] != F.WALK:
         fx.result = {"kind": "blocked", "message": BLOCK_MESSAGES.get(state["position"], "")}
         return fx
+    fx.trace("walkthrough_done", state.get("walk_concept"), {"action": (state.get("after_walk") or {}).get("action", "easier")}, ctx.now)
+    finish_walk(state, ctx, fx)
+    fx.result = fx.result or {"kind": "ok"}
+    return fx
+
+
+def finish_walk(state: dict, ctx: Ctx, fx: Fx, note: str | None = None):
+    """ทางต่อหลัง Walkthrough: ปิดรอบซ่อมเสริม ฝึกโจทย์ทบทวนต่อ หรือทำโจทย์ที่ง่ายลง"""
     action = (state.get("after_walk") or {}).get("action", "easier")
     state["after_walk"] = None
-    fx.trace("walkthrough_done", state.get("walk_concept"), {"action": action}, ctx.now)
+    prefix = f"{note} · " if note else ""
     if action == "close_round" and state.get("remedial"):
         suspended = state["remedial"]["suspended"]
         state["remedial"] = None
@@ -912,7 +969,7 @@ def walkthrough_done(state: dict, ctx: Ctx) -> Fx:
     elif action in ("root_practice", "resume_remedial") and state.get("remedial"):
         nxt = next_remedial_item(state, ctx)
         serve(state, ctx, nxt, "remedial")
-        move(state, ctx, fx, F.REMEDIAL, ["e_walk_easier"], "อ่านตัวอย่างจบแล้ว ฝึกโจทย์ทบทวนต่อ")
+        move(state, ctx, fx, F.REMEDIAL, ["e_walk_easier"], f"{prefix}อ่านตัวอย่างจบแล้ว ฝึกโจทย์ทบทวนต่อ")
     else:
         state["path"] = "SUPPORTED"
         nxt, mode = select_next(state, ctx, "SUPPORTED", 20)
@@ -920,9 +977,7 @@ def walkthrough_done(state: dict, ctx: Ctx) -> Fx:
             end_session(state, ctx, fx, F.ENDED, [], "โจทย์ในชุดหมดแล้ว", "no_items")
         else:
             serve(state, ctx, nxt, mode)
-            move(state, ctx, fx, F.ANSWERING, ["e_walk_easier"], "หลังพัก ให้ทำโจทย์ที่ง่ายลงก่อน (Supported Flow)")
-    fx.result = fx.result or {"kind": "ok"}
-    return fx
+            move(state, ctx, fx, F.ANSWERING, ["e_walk_easier"], f"{prefix}หลังพัก ให้ทำโจทย์ที่ง่ายลงก่อน (Supported Flow)")
 
 
 # ---------------------------------------------------------------- ปุ่มขอคำใบ้
@@ -948,6 +1003,9 @@ def _request_hint(state: dict, ctx: Ctx) -> Fx:
         return fx
     if item["mode"] == "isomorphic":
         fx.result = {"kind": "hidden", "message": "ข้อนี้เป็นข้อทดสอบความเข้าใจ ลองทำด้วยตัวเองนะ"}
+        return fx
+    if not ctx.content.tool("hints"):
+        fx.result = {"kind": "hidden", "message": "บทเรียนนี้ไม่มีคำใบ้ ลองคิดต่ออีกนิด หรือถามครูผู้ช่วยในแชตได้"}
         return fx
     timers = state["timers"]
     if timers["cooldown_until"] and now < timers["cooldown_until"]:
@@ -1195,7 +1253,7 @@ def item_payload(it: dict) -> dict:
 def _gem_view(gem: dict | None) -> dict | None:
     if not gem:
         return None
-    return {"id": gem["id"], "name": gem["name"], "icon": gem.get("icon"), "color": gem.get("color"),
+    return {"id": gem["id"], "name": gem.get("name"), "icon": gem.get("icon"), "color": gem.get("color"),
             "tools": gem.get("tools", {}), "starter_prompts": gem.get("starter_prompts", [])}
 
 
@@ -1239,7 +1297,7 @@ def student_view(state: dict, ctx: Ctx) -> dict:
         "error_count": item["error_count"] if item else 0,
         "hints": hints,
         "hint_button": {
-            "visible": bool(item and item["mode"] != "isomorphic"),
+            "visible": bool(item and item["mode"] != "isomorphic" and content.tool("hints")),
             "cooldown": remaining(state["timers"]["cooldown_until"], now),
             "unlock_in": (round(max(0.0, ctx.dur("hint_unlock_wait") - thinking), 1)
                           if item and item["hint_level"] == 0 and item["error_count"] == 0 else 0),
@@ -1257,7 +1315,54 @@ def student_view(state: dict, ctx: Ctx) -> dict:
         if state.get("remedial") else None,
         "ended": state["ended"],
         "end_reason": state["end_reason"],
+        # AI ขัดข้องตอนสร้างโจทย์สด: ข้อความ error ที่อ่านเข้าใจได้ และเวลาที่ระบบจะลองใหม่เอง
+        "outage": {"error": state.get("outage_error"), "retry_in": remaining(state["timers"].get("retry_at"), now)}
+        if state["position"] == F.OUTAGE else None,
     }
+
+
+# ---------------------------------------------------------------- สร้างโจทย์สด (Gem)
+
+OUTAGE_RETRY = 30.0
+
+
+def after_live(state: dict, ctx: Ctx, new_ids: list[str], error: str | None) -> Fx:
+    """ผลของการสร้างโจทย์สด: ได้โจทย์ใหม่ก็ไปทำต่อ ไม่สำเร็จก็หยุดชั่วคราวและแจ้งครู (Q22)"""
+    fx = Fx()
+    if state["position"] != F.LIVE:
+        return fx
+    state["live_count"] = state.get("live_count", 0) + len(new_ids)
+    request = state.get("live_request") or {"path": state.get("path", "STANDARD"), "difficulty": 50}
+    nxt, mode = select_next(state, ctx, request["path"], request["difficulty"]) if new_ids else (None, None)
+    if nxt is None:
+        reason = error or "AI สร้างโจทย์ที่ตรวจเฉลยผ่านไม่ได้"
+        state["outage_error"] = reason
+        state["timers"]["retry_at"] = ctx.now + OUTAGE_RETRY
+        move(state, ctx, fx, F.OUTAGE, ["e_live_fail"], f"สร้างโจทย์สดไม่สำเร็จ: {reason} · หยุดชั่วคราวและลองใหม่ทุก {OUTAGE_RETRY:.0f} วินาที")
+        alert(fx, state, "normal", "ai_outage", f"AI ขัดข้องตอนสร้างโจทย์สด นักเรียนหยุดชั่วคราว: {reason}")
+        fx.result = {"kind": "outage", "message": reason}
+        return fx
+    state["outage_error"] = None
+    state["timers"]["retry_at"] = None
+    serve(state, ctx, nxt, mode)
+    move(state, ctx, fx, F.ANSWERING, ["e_live_ok"], f"AI สร้างโจทย์ใหม่ {len(new_ids)} ข้อ (สร้างสดแล้ว {state['live_count']} ข้อใน Session นี้)",
+         {"new_items": new_ids, "next_item": nxt["id"]})
+    fx.result = {"kind": "ok"}
+    return fx
+
+
+def retry_live(state: dict, ctx: Ctx) -> Fx:
+    """นักเรียนกดลองอีกครั้ง หรือหน้าจอลองเองเมื่อครบเวลา"""
+    fx = Fx()
+    if state["position"] != F.OUTAGE:
+        fx.result = {"kind": "blocked", "message": BLOCK_MESSAGES.get(state["position"], "")}
+        return fx
+    state["timers"]["retry_at"] = None
+    request = state.get("live_request") or {"path": state.get("path", "STANDARD"), "difficulty": 50, "count": 2}
+    move(state, ctx, fx, F.LIVE, ["e_outage_retry"], "ลองให้ AI สร้างโจทย์ใหม่อีกครั้ง")
+    fx.generate = request
+    fx.result = {"kind": "ok"}
+    return fx
 
 
 def staff_view(state: dict, ctx: Ctx) -> dict:

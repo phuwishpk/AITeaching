@@ -57,6 +57,8 @@ def fake_llm(monkeypatch, resolve_wrong: set[int] = frozenset()):
             payload = ITEMS_A
         elif "ชุดที่ 2" in user:
             payload = ITEMS_B
+        elif "ชุดที่ 9" in user:  # สร้างโจทย์สดระหว่างเรียน
+            payload = {"items": [_item("7x + 2 = 30", 4, 5)]}
         elif "โจทย์ทบทวนพื้นฐาน" in user:
             payload = EXTRAS
         elif "แก้โจทย์ต่อไปนี้" in user:
@@ -390,3 +392,18 @@ def test_off_topic_marker_is_stripped_and_reported(monkeypatch):
     assert reply["reply"] == "กลับมาที่โจทย์กันนะ"
     assert db.query_one("SELECT level, kind FROM alerts WHERE code = 'S-33'") == {"level": "silent", "kind": "off_topic"}
     assert "[OFF_TOPIC]" in prompt.constraints_frame()
+
+
+def test_live_generation_adds_checked_items_to_the_bank(monkeypatch):
+    fake_llm(monkeypatch)
+    gem = manage.create({"name": "สด"}, "teacher")
+    asyncio.run(builder.build(gem["id"]))
+    gem = manage.get(gem["id"])
+    new_ids = asyncio.run(builder.generate_live(gem["subject_id"], {"difficulty": 50, "count": 1}))
+    subject = db.get_subject(gem["subject_id"])
+    assert new_ids == ["L-01"] and "L-01" in subject["question_sets"][0]["main_items"]
+    live = next(it for it in subject["items"] if it["id"] == "L-01")
+    assert live["live"] and live["isomorphs"] == ["L-01-I1"] and not live.get("flag")
+    assert subject["gem"]["live_cap"] == 10
+    again = asyncio.run(builder.generate_live(gem["subject_id"], {"difficulty": 50, "count": 1}))
+    assert again == ["L-02"]  # รหัสต่อจากข้อเดิม ไม่นับรหัสของข้อคู่ขนาน

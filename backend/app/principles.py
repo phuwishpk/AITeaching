@@ -203,6 +203,27 @@ NODE_CARDS = {
         "source": "สเปก 2.4",
         "code": f"{ENGINE} › advance()",
     },
+    "LIVE_GEN": {
+        "title": "สร้างโจทย์สด",
+        "theory": "Generative AI · Adaptive Item Generation",
+        "principle": "เมื่อคลังโจทย์ของ Gem หมดก่อนนักเรียนถึงเกณฑ์จบชุด AI สร้างโจทย์ใหม่ตามเส้นทางและความยากที่ระบบเลือก ทุกข้อมีเฉลยแบบมีโครงสร้างและผ่านการตรวจเฉลยก่อนถึงนักเรียน LLM ไม่ได้ตัดสินถูกผิด",
+        "source": "ADR-0003 · decisions.md หัวข้อ Gem",
+        "code": "backend/app/gems/builder.py › generate_live()",
+    },
+    "AI_OUTAGE": {
+        "title": "AI ขัดข้อง หยุดชั่วคราว",
+        "theory": "Graceful Degradation · Human-in-the-Loop",
+        "principle": "หยุดเฉพาะเมื่อขั้นนั้นขาด AI ไม่ได้ (สร้างโจทย์สดไม่สำเร็จและคลังหมด) แสดง error ที่อ่านเข้าใจได้ ลองใหม่เองเป็นระยะ ไม่นับเวลาคิด และแจ้งครูพร้อมข้อความ error",
+        "source": "decisions.md หัวข้อ Gem (AI Outage)",
+        "code": f"{ENGINE} › after_live(), retry_live()",
+    },
+    "TEACHER_REVIEW": {
+        "title": "AI ร่างคำตอบ รอครูอนุมัติ",
+        "theory": "Human-in-the-Loop · กฎของครูข้อ 1 และ 4",
+        "principle": "เมื่อ Alert Rule ของ Gem ตั้งเป็นหยุดรอครู คำตอบแชตของ AI กลายเป็นร่าง ครูส่งตามนั้น แก้แล้วส่ง หรือทิ้ง ก่อนถึงนักเรียน นักเรียนยังทำโจทย์ต่อได้ตามปกติ",
+        "source": "decisions.md หัวข้อ Gem (Human-in-the-Loop)",
+        "code": "backend/app/services.py › broadcast(), chat()",
+    },
     "SESSION_ENDED": {
         "title": "จบ Session",
         "theory": "Drop-off Tracking",

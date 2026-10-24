@@ -43,6 +43,8 @@ export const POSITION_LABELS: Record<string, string> = {
   STAGNATION_DEADLOCK: "Stagnation Deadlock",
   COMPLETED: "จบชุด",
   SESSION_ENDED: "จบ Session",
+  LIVE_GEN: "สร้างโจทย์สด",
+  AI_OUTAGE: "AI ขัดข้อง",
 };
 
 export type Tone = "neutral" | "accent" | "success" | "warning" | "danger" | "info" | "calm";
@@ -65,6 +67,8 @@ export const POSITION_TONE: Record<string, Tone> = {
   STAGNATION_DEADLOCK: "danger",
   COMPLETED: "success",
   SESSION_ENDED: "neutral",
+  LIVE_GEN: "info",
+  AI_OUTAGE: "warning",
 };
 
 export const PATH_LABELS: Record<string, string> = {

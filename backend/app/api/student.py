@@ -74,6 +74,12 @@ async def hint(set_id: str, auth: dict = Depends(student)):
     return await services.hint(auth["code"], set_id)
 
 
+@router.post("/sets/{set_id}/retry")
+async def retry(set_id: str, auth: dict = Depends(student)):
+    """AI ขัดข้องตอนสร้างโจทย์สด: นักเรียนกดลองอีกครั้ง"""
+    return await services.simple(auth["code"], set_id, engine.retry_live)
+
+
 @router.post("/sets/{set_id}/undo")
 async def undo(set_id: str, auth: dict = Depends(student)):
     return await services.simple(auth["code"], set_id, engine.undo)

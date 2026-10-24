@@ -22,6 +22,10 @@ SAFETY = "SAFETY_STOP"
 DEADLOCK = "STAGNATION_DEADLOCK"
 DONE = "COMPLETED"
 ENDED = "SESSION_ENDED"
+# Gem (ADR-0003): สร้างโจทย์สดเมื่อคลังหมด, หยุดชั่วคราวเมื่อ AI ขัดข้อง, และร่างคำตอบรอครูอนุมัติ (ขั้นของแชต ไม่ใช่ตำแหน่ง)
+LIVE = "LIVE_GEN"
+OUTAGE = "AI_OUTAGE"
+REVIEW = "TEACHER_REVIEW"
 
 HINT_POSITIONS = {1: HINT_L1, 2: HINT_L2, 3: HINT_L3}
 ANSWER_POSITIONS = {ANSWERING, HINT_L1, HINT_L2, HINT_L3, ISO, REMEDIAL}
@@ -46,6 +50,8 @@ POSITION_LABELS = {
     DEADLOCK: "Stagnation Deadlock",
     DONE: "จบชุด",
     ENDED: "จบ Session",
+    LIVE: "สร้างโจทย์สด",
+    OUTAGE: "AI ขัดข้อง",
 }
 
 # สถานะเป็นภาษาคนสำหรับหน้าครู (ไม่มีศัพท์เทคนิค)
@@ -67,6 +73,8 @@ TEACHER_TEXT = {
     DEADLOCK: "ติดหล่มหลังซ่อมเสริม 2 รอบ รอครูช่วย",
     DONE: "จบชุดแล้ว",
     ENDED: "จบการเรียนรอบนี้",
+    LIVE: "รอ AI สร้างโจทย์ใหม่",
+    OUTAGE: "AI ขัดข้อง หยุดชั่วคราว",
 }
 
 # kind: position = ที่นักเรียนอยู่ได้, gate = ด่านตัดสินใจ, step = ขั้นประมวลผล, event = เหตุการณ์
@@ -100,6 +108,9 @@ NODES = [
     {"id": IDLE, "label": "Idle Pause", "kind": "position", "lane": "care"},
     {"id": CHOOSE, "label": "รอเลือกทางต่อ", "kind": "position", "lane": "care"},
     {"id": SAFETY, "label": "หยุดเพื่อ\nความปลอดภัย", "kind": "position", "lane": "human"},
+    {"id": LIVE, "label": "สร้างโจทย์สด", "kind": "position", "lane": "correct"},
+    {"id": OUTAGE, "label": "AI ขัดข้อง\nหยุดชั่วคราว", "kind": "position", "lane": "care"},
+    {"id": REVIEW, "label": "AI ร่างคำตอบ\nรอครูอนุมัติ", "kind": "step", "lane": "human"},
 ]
 
 EDGES = [
@@ -159,6 +170,13 @@ EDGES = [
     {"id": "e_teacher_release", "source": DEADLOCK, "target": ANSWERING, "label": "ครูปลด"},
     {"id": "e_teacher_safety", "source": SAFETY, "target": ANSWERING, "label": "ครูปลด"},
     {"id": "e_override", "source": ANSWERING, "target": ANSWERING, "label": "Manual Override", "hidden": True},
+    {"id": "e_g3_nohint", "source": "G3", "target": ANSWERING, "label": "ครูปิดบันไดคำใบ้ ลองใหม่เอง"},
+    {"id": "e_path_live", "source": "G_PATH", "target": LIVE, "label": "คลังหมด"},
+    {"id": "e_live_ok", "source": LIVE, "target": ANSWERING, "label": "ได้โจทย์ใหม่"},
+    {"id": "e_live_fail", "source": LIVE, "target": OUTAGE, "label": "AI ขัดข้อง"},
+    {"id": "e_outage_retry", "source": OUTAGE, "target": LIVE, "label": "ลองใหม่"},
+    {"id": "e_review", "source": ANSWERING, "target": REVIEW, "label": "แชตขณะหยุดรอครู"},
+    {"id": "e_review_sent", "source": REVIEW, "target": ANSWERING, "label": "ครูส่งคำตอบ"},
 ]
 
 EDGE_IDS = {edge["id"] for edge in EDGES}
