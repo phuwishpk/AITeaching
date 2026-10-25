@@ -193,7 +193,7 @@ function AdminShell({ onLogout, onExpired }: { onLogout: () => void; onExpired: 
     <AdminContext.Provider value={{ flow, reloadFlow, scenarios, present, liveVersion, lastEvent }}>
       <div className={present ? "admin present" : "admin"}>
         <TopBar
-          role="ผู้ดูแลระบบ"
+          role={getAuth("admin")?.code ? `ผู้ดูแลระบบ · ${getAuth("admin")?.code}` : "ผู้ดูแลระบบ"}
           onLogout={onLogout}
           right={
             <>

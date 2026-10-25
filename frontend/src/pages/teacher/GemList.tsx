@@ -69,6 +69,7 @@ export default function GemList() {
                     )}
                   </span>
                 )}
+                {gem.owner_name && <span className="xsmall faint">ของ {gem.owner_name}</span>}
                 {gem.files > 0 && (
                   <span className="xsmall faint row row-sm">
                     <FileText size={12} />

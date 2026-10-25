@@ -780,8 +780,42 @@ def test_staff_password_when_the_server_sets_one(monkeypatch):
     client = TestClient(app)
     assert client.post("/api/auth/staff", json={"role": "teacher"}).status_code == 200
     monkeypatch.setenv("TUTOR_TEACHER_PASSWORD", "ครู-1234")
-    assert client.get("/api/auth/staff-mode").json() == {"teacher": True, "admin": False}
+    assert client.get("/api/auth/staff-mode").json() == {"teacher": True, "admin": False, "users": False}
     assert client.post("/api/auth/staff", json={"role": "teacher"}).status_code == 401
     assert client.post("/api/auth/staff", json={"role": "teacher", "password": "ผิด"}).status_code == 401
     assert client.post("/api/auth/staff", json={"role": "teacher", "password": "ครู-1234"}).json()["token"]
     assert client.post("/api/auth/staff", json={"role": "admin"}).status_code == 200
+
+
+def test_several_staff_share_one_system_but_not_api_keys(monkeypatch):
+    from app import settings_store, users
+
+    alice = users.add("alice", "ครูอลิซ")
+    bob = users.add("bob", "ครูบ็อบ")
+    client = TestClient(app)
+    assert client.get("/api/auth/staff-mode").json()["users"] is True
+    assert client.post("/api/auth/staff", json={"role": "teacher", "username": "alice", "password": "ผิด"}).status_code == 401
+    login = lambda name, pw, role="teacher": {"Authorization": "Bearer " + client.post(
+        "/api/auth/staff", json={"role": role, "username": name, "password": pw}).json()["token"]}
+    a_admin, b_admin = login("alice", alice, "admin"), login("bob", bob, "admin")
+    # แต่ละคนใส่ key ของตัวเอง เห็นแค่ของตัวเอง
+    client.put("/api/admin/secrets", headers=a_admin, json={"provider": "gemini", "key": "AIza-alice-1111"})
+    assert client.get("/api/admin/settings", headers=a_admin).json()["keys"]["gemini"]["last4"] == "1111"
+    assert client.get("/api/admin/settings", headers=b_admin).json()["keys"]["gemini"]["configured"] is False
+    # Gem ของใครคนนั้นเป็นเจ้าของ ทุกคนเห็น Gem ชุดเดียวกัน
+    a_teacher, b_teacher = login("alice", alice), login("bob", bob)
+    gem = client.post("/api/gems", headers=a_teacher, json={"name": "เศษส่วนของอลิซ"}).json()
+    assert gem["owner"] == "alice" and gem["owner_name"] == "ครูอลิซ"
+    assert [g["id"] for g in client.get("/api/gems", headers=b_teacher).json()] == [gem["id"]]
+    # งาน AI ของ Gem คิดกับ key ของเจ้าของ แม้บ็อบเป็นคนกด และระหว่างนักเรียนเรียน
+    seen = []
+
+    async def fake_call(system, user, **options):
+        seen.append(settings_store.api_key("gemini")[0])
+        return providers.LLMResult("ลองคิดดูอีกที", "gemini", "fake", 1, 1, 1), []
+
+    monkeypatch.setattr(service, "_call", fake_call)
+    settings_store.use_keys_of("bob")
+    services.bill_to_gem_owner({"gem": {"id": gem["id"]}})
+    asyncio.run(service.chat_reply({"id": "x", "name": "คณิต", "gem": {"id": gem["id"]}}, None, "", {}, "ช่วยหน่อย", None, [], "", "S-1"))
+    assert seen == ["AIza-alice-1111"]

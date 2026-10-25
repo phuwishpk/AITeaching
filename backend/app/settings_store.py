@@ -6,6 +6,7 @@ ANTHROPIC_API_KEY หรือ GEMINI_API_KEY จะใช้ค่านั้�
 
 import json
 import os
+from contextvars import ContextVar
 
 from . import db
 from .config import (
@@ -16,6 +17,23 @@ from .config import (
 )
 
 ENV_KEYS = {"claude": ("ANTHROPIC_API_KEY",), "gemini": ("GEMINI_API_KEY", "GOOGLE_API_KEY")}
+
+# เมื่อมีผู้ใช้ฝั่งครูหลายคน (users.py) API key เป็นของแต่ละคน: คำขอที่กำลังทำงานคิดกับ key ของผู้ใช้ในตัวแปรนี้
+# ตั้งที่ deps.require (ผู้ใช้ที่ล็อกอิน) gems API (เจ้าของ Gem) และ services (เจ้าของ Gem ที่นักเรียนกำลังเรียน)
+# งานเบื้องหลังที่สร้างด้วย asyncio.create_task ได้ค่าเดียวกันไปด้วย
+_key_owner: ContextVar[str | None] = ContextVar("key_owner", default=None)
+
+
+def use_keys_of(username: str | None) -> None:
+    _key_owner.set(username)
+
+
+def key_owner() -> str | None:
+    return _key_owner.get()
+
+
+def _per_user() -> bool:
+    return db.query_one("SELECT 1 AS x FROM staff LIMIT 1") is not None
 
 
 def _read_file() -> dict:
@@ -28,7 +46,11 @@ def _read_file() -> dict:
 
 
 def api_key(provider: str) -> tuple[str | None, str]:
-    """คืนค่า (key, ที่มา) โดย environment มีสิทธิ์เหนือไฟล์"""
+    """คืนค่า (key, ที่มา) โดย environment มีสิทธิ์เหนือไฟล์ เมื่อมีผู้ใช้หลายคน ใช้เฉพาะ key ของเจ้าของงานนี้"""
+    if _per_user():
+        owner = _key_owner.get()
+        value = ((_read_file().get("users") or {}).get(owner) or {}).get(provider) if owner else None
+        return (value, "user") if value else (None, "none")
     for name in ENV_KEYS.get(provider, ()):
         if os.environ.get(name):
             return os.environ[name], "env"
@@ -38,10 +60,31 @@ def api_key(provider: str) -> tuple[str | None, str]:
 
 def save_api_key(provider: str, value: str | None) -> None:
     data = _read_file()
+    target = data
+    if _per_user():
+        owner = _key_owner.get()
+        if not owner:
+            raise PermissionError("ต้องล็อกอินเป็นผู้ใช้ก่อนใส่ API key")
+        target = data.setdefault("users", {}).setdefault(owner, {})
     if value:
-        data[provider] = value.strip()
+        target[provider] = value.strip()
     else:
-        data.pop(provider, None)
+        target.pop(provider, None)
+    _write_file(data)
+
+
+def claim_shared_keys(username: str) -> list[str]:
+    """ย้าย API key กลาง (ก่อนมีผู้ใช้หลายคน) ไปเป็นของผู้ใช้คนนี้"""
+    data = _read_file()
+    moved = [p for p in ENV_KEYS if data.get(p)]
+    mine = data.setdefault("users", {}).setdefault(username, {})
+    for provider in moved:
+        mine.setdefault(provider, data.pop(provider))
+    _write_file(data)
+    return moved
+
+
+def _write_file(data: dict) -> None:
     SECRETS_PATH.parent.mkdir(parents=True, exist_ok=True)
     SECRETS_PATH.write_text(json.dumps(data, indent=2), "utf-8")
     try:

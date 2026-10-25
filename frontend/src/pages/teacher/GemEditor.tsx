@@ -202,6 +202,11 @@ export default function GemEditor() {
         <Button variant="ghost" size="sm" className="btn-icon" icon={<ArrowLeft size={18} />} onClick={() => navigate("/teacher/gems")} aria-label="กลับไปรายการ Gem" />
         <GemIcon icon={form.icon} color={form.color} size={36} />
         <span className="subtitle grow gem-editor-title">{isNew ? "Gem ใหม่" : form.name || "Gem"}</span>
+        {gem?.owner_name && (
+          <span className="xsmall muted" title="AI ของ Gem นี้คิดกับ API key ของเจ้าของ Gem">
+            ของ {gem.owner_name} · ใช้ API key ของ {gem.owner_name}
+          </span>
+        )}
         {gem && <Badge tone={STATUS_TEXT[gem.build.status].tone}>{STATUS_TEXT[gem.build.status].label}</Badge>}
         <Button variant="primary" loading={saving} disabled={!form.name.trim() || building} onClick={save}>
           บันทึก

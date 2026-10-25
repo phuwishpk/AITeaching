@@ -104,6 +104,9 @@ export interface GemDetail {
   versions: GemVersion[];
   locked_constraints: string;
   knowledge: GemKnowledge | null;
+  // เจ้าของ Gem (มีผู้ใช้หลายคน): AI ของ Gem นี้คิดกับ API key ของคนนี้
+  owner: string | null;
+  owner_name: string | null;
   options: { icons: string[]; colors: string[] };
 }
 
@@ -142,6 +145,7 @@ export interface GemSummary {
   stats: BankStats | null;
   files: number;
   updated_at: number;
+  owner_name: string | null;
 }
 
 export const TOOL_LABELS: Record<keyof GemTools, { label: string; text: string }> = {

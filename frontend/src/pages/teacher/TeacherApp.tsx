@@ -180,7 +180,7 @@ function TeacherShell({ onLogout, onExpired }: { onLogout: () => void; onExpired
     <TeacherContext.Provider value={value}>
       <div className="teacher">
         <TopBar
-          role="ครู"
+          role={getAuth("teacher")?.code ? `ครู · ${getAuth("teacher")?.code}` : "ครู"}
           onLogout={onLogout}
           right={
             <Button

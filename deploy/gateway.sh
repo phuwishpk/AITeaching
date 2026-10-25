@@ -3,22 +3,27 @@
 # ใช้ (บนเซิร์ฟเวอร์): ./deploy/gateway.sh <รหัสบัญชี>=<ชื่อโฟลเดอร์บัญชี> ...
 #   เช่น ./deploy/gateway.sh k7m2xq=ai-tutor b9t4pw=ai-tutor-2 r3n8vd=ai-tutor-3
 # ผู้ใช้เลือกบัญชีครั้งแรกที่ <ลิงก์>/a/<รหัสบัญชี> (หรือพิมพ์รหัสในหน้าแรก) ออกจากบัญชีที่ <ลิงก์>/a/out
+# ใส่ชื่อโฟลเดอร์โดยไม่มีรหัส (เช่น ./deploy/gateway.sh ai-tutor) = ทุกคนเข้าระบบนั้นทันที ไม่มีขั้นเลือกบัญชี
 set -euo pipefail
 cd "$(dirname "$0")/gateway"
 [ $# -gt 0 ] || { sed -n 2,6p "$0"; exit 1; }
 
-maps="" networks="" netdefs=""
+maps="" networks="" netdefs="" default='""'
 for pair in "$@"; do
   code="${pair%%=*}" project="${pair#*=}"
-  [[ "$code" =~ ^[A-Za-z0-9-]+$ ]] || { echo "รหัสบัญชีใช้ได้แค่ตัวอักษรอังกฤษ ตัวเลข และ -: $code"; exit 1; }
-  maps+="    $code ${project}-app-1;"$'\n'
+  if [[ "$pair" != *=* ]]; then
+    default="${project}-app-1"
+  else
+    [[ "$code" =~ ^[A-Za-z0-9-]+$ ]] || { echo "รหัสบัญชีใช้ได้แค่ตัวอักษรอังกฤษ ตัวเลข และ -: $code"; exit 1; }
+    maps+="    $code ${project}-app-1;"$'\n'
+  fi
   networks+="      - ${project}"$'\n'
   netdefs+="  ${project}:"$'\n'"    external: true"$'\n'"    name: ${project}_default"$'\n'
 done
 
 cat > nginx.conf <<CONF
 map \$cookie_tutor_account \$tutor_app {
-    default "";
+    default $default;
 $maps}
 
 map \$http_upgrade \$connection_upgrade {
@@ -67,15 +72,17 @@ services:
       - ./nginx.conf:/etc/nginx/conf.d/default.conf:ro
       - ./choose.html:/usr/share/nginx/html/choose.html:ro
     networks:
+      - default
 $networks  quick:
+    # ต่อแค่กับ nginx (เครือข่าย default) เพิ่มหรือลดบัญชีแล้ว tunnel ไม่เริ่มใหม่ ลิงก์จึงไม่เปลี่ยน
     image: cloudflare/cloudflared:2024.12.2
     restart: unless-stopped
     command: tunnel --no-autoupdate --url http://web:80
     depends_on:
       - web
-    networks:
-$networks
+
 networks:
+  default:
 $netdefs
 COMPOSE
 
@@ -87,4 +94,5 @@ for _ in $(seq 1 20); do
   sleep 2
 done
 echo "ลิงก์เดียว: ${LINK:-ยังไม่ได้ลิงก์}"
-for pair in "$@"; do echo "  ${pair#*=}: ${LINK:-<ลิงก์>}/a/${pair%%=*}"; done
+for pair in "$@"; do [[ "$pair" == *=* ]] && echo "  ${pair#*=}: ${LINK:-<ลิงก์>}/a/${pair%%=*}"; done
+true

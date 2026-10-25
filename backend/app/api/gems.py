@@ -7,7 +7,7 @@ import time
 from fastapi import APIRouter, Depends, File, HTTPException, UploadFile
 from pydantic import BaseModel
 
-from .. import db, seed, services
+from .. import db, seed, services, settings_store
 from ..gems import alerts as gem_alerts
 from ..gems import builder, design, flows, flowspec, items, manage, versions
 from ..engine import core as engine
@@ -62,9 +62,13 @@ def _fields(body: GemBody) -> dict:
 
 def _load(gem_id: str) -> dict:
     try:
-        return manage.get(gem_id)
+        gem = manage.get(gem_id)
     except manage.GemError as error:
         raise HTTPException(404, str(error)) from error
+    # งาน AI ของ Gem นี้ (สร้างคลัง อ่านไฟล์ ออกแบบ Flow พรีวิว) คิดกับ API key ของเจ้าของ Gem ไม่ใช่ของคนที่กด
+    if gem.get("owner"):
+        settings_store.use_keys_of(gem["owner"])
+    return gem
 
 
 @router.get("")
@@ -104,7 +108,7 @@ def gem_design(gem_id: str, auth: dict = Depends(viewer)):
 @router.post("")
 def create_gem(body: GemBody, auth: dict = Depends(teacher)):
     try:
-        return manage.detail(manage.create(_fields(body), auth["role"]))
+        return manage.detail(manage.create(_fields(body), auth["role"], owner=auth.get("code")))
     except manage.GemError as error:
         raise HTTPException(400, str(error)) from error
 

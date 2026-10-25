@@ -17,6 +17,9 @@ SCHEMA = """
 CREATE TABLE IF NOT EXISTS subjects (
     id TEXT PRIMARY KEY, data TEXT NOT NULL, updated_at REAL
 );
+CREATE TABLE IF NOT EXISTS staff (
+    username TEXT PRIMARY KEY, name TEXT, password_hash TEXT, created_at REAL
+);
 CREATE TABLE IF NOT EXISTS documents (
     id INTEGER PRIMARY KEY AUTOINCREMENT, subject_id TEXT, filename TEXT, kind TEXT,
     chars INTEGER, chunks TEXT, warning TEXT, uploaded_at REAL, reader TEXT

@@ -281,12 +281,21 @@ async def suggest_tags(code: str, content: Content, requests: list[dict]):
         await hub.to_staff({"type": "suggested_tag", "id": cursor.lastrowid, "code": code})
 
 
+def bill_to_gem_owner(subject: dict | None) -> None:
+    """งาน AI ระหว่างนักเรียนเรียน (คำใบ้ แชต ประเมินคำอธิบาย สร้างโจทย์สด) คิดกับ API key ของเจ้าของ Gem"""
+    gem_id = ((subject or {}).get("gem") or {}).get("id")
+    gem = db.get_gem(gem_id) if gem_id else None
+    if gem and gem.get("owner"):
+        settings_store.use_keys_of(gem["owner"])
+
+
 async def run_event(code: str, set_id: str, action, *args) -> tuple[dict, Content, Ctx, Fx]:
     async with lock(code):
         state = db.load_state(code, set_id)
         if not state:
             raise NotFound("ยังไม่ได้เริ่มชุดคำถามนี้")
         content = content_for(state["subject_id"], set_id)
+        bill_to_gem_owner(content.subject)
         ctx = make_ctx(content)
         fx = action(state, ctx, *args)
         for request in fx.tag_requests:
@@ -309,6 +318,7 @@ async def run_event(code: str, set_id: str, action, *args) -> tuple[dict, Conten
 
 async def start(code: str, set_id: str, restart: bool = False) -> dict:
     subject, qs = find_set(set_id)
+    bill_to_gem_owner(subject)
     content = content_for(subject["id"], set_id)
     fx = Fx()
     async with lock(code):
@@ -363,6 +373,10 @@ async def simple(code: str, set_id: str, action, *args) -> dict:
 
 async def chat(code: str, set_id: str, message: str) -> dict:
     message = (message or "").strip()[:600]
+    try:
+        bill_to_gem_owner(find_set(set_id)[0])
+    except NotFound:
+        pass
     scrubbed, found = pii.scrub(message, roster_names())
     detected = distress.detect(message)
     await post_message(code, set_id, "student", scrubbed)
@@ -448,6 +462,7 @@ async def reflect(code: str, set_id: str, text: str) -> dict:
     if not state:
         raise NotFound("ยังไม่ได้เริ่มชุดคำถามนี้")
     content = content_for(state["subject_id"], set_id)
+    bill_to_gem_owner(content.subject)
     step = gemflow.flow_step(state, make_ctx(content)) if content.spec else None
     verdict = None
     if step and step.get("judge") and state["position"] == F.REFLECT:

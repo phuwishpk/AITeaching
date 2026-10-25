@@ -7,7 +7,7 @@
 import secrets
 import time
 
-from .. import db, settings_store
+from .. import db, settings_store, users
 from ..content.readiness import check_set
 from ..engine.answers import answer_display
 from ..tutor.prompt import constraints_frame
@@ -45,7 +45,7 @@ def clean_fields(data: dict) -> dict:
     return out
 
 
-def create(data: dict, actor: str) -> dict:
+def create(data: dict, actor: str, owner: str | None = None) -> dict:
     fields = clean_fields(data)
     if not fields.get("name"):
         raise GemError("Gem ต้องมีชื่อ")
@@ -56,6 +56,8 @@ def create(data: dict, actor: str) -> dict:
         "tools": dict(TOOLS), "starter_prompts": [], "alert_rules": alerts.defaults(),
         "bank_version": 0, "subject_id": None, "set_id": None,
         "build": {"status": "idle"}, "created_at": now, "created_by": actor,
+        # เจ้าของ Gem: AI ของ Gem นี้คิดกับ API key ของคนนี้ (มีผู้ใช้หลายคน)
+        "owner": owner,
     }
     gem.update(fields)
     db.save_gem(gem)
@@ -167,6 +169,7 @@ def summary(gem: dict) -> dict:
         "icon": gem.get("icon"), "color": gem.get("color"), "bank_version": gem.get("bank_version", 0),
         "status": build.get("status", "idle"), "stats": builder.bank_stats(subject) if subject else None,
         "files": len(files(gem["id"])),
+        "owner": gem.get("owner"), "owner_name": users.owner_name(gem.get("owner")),
         "updated_at": db.query_one("SELECT updated_at FROM gems WHERE id = ?", (gem["id"],))["updated_at"],
     }
 
@@ -190,7 +193,8 @@ def detail(gem: dict) -> dict:
             "samples": [_brief(it, concepts) for it in subject["items"] if it["kind"] == "main" and not it.get("flag")][:3],
         }
     return {
-        **{k: gem.get(k) for k in ("id", "bank_version", "build", "created_at") + EDITABLE},
+        **{k: gem.get(k) for k in ("id", "bank_version", "build", "created_at", "owner") + EDITABLE},
+        "owner_name": users.owner_name(gem.get("owner")),
         "alert_rules": alerts.normalize(gem.get("alert_rules")),
         "files": files(gem["id"]),
         "bank": bank,

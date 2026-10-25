@@ -5,7 +5,7 @@ import time
 
 from fastapi import Depends, Header, HTTPException
 
-from .. import db
+from .. import db, settings_store
 
 
 def issue_token(role: str, code: str | None = None) -> str:
@@ -34,9 +34,13 @@ def current(authorization: str | None = Header(default=None)) -> dict:
 
 
 def require(*roles: str):
-    def dependency(auth: dict = Depends(current)) -> dict:
+    async def dependency(auth: dict = Depends(current)) -> dict:
         if auth["role"] not in roles:
             raise HTTPException(403, "บทบาทนี้เข้าหน้านี้ไม่ได้")
+        # ครูและ Admin: งาน AI ของคำขอนี้คิดกับ API key ของผู้ใช้ที่ล็อกอิน (gems API เปลี่ยนเป็นเจ้าของ Gem)
+        # dependency เป็น async จึงตั้งค่าใน context เดียวกับ endpoint
+        if auth["role"] in ("teacher", "admin"):
+            settings_store.use_keys_of(auth.get("code"))
         return auth
 
     return dependency

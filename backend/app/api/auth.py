@@ -5,7 +5,7 @@ import secrets
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 
-from .. import db
+from .. import db, users
 from .deps import current, issue_token, revoke_token
 
 router = APIRouter(prefix="/api/auth", tags=["auth"])
@@ -17,6 +17,7 @@ class StudentLogin(BaseModel):
 
 class StaffLogin(BaseModel):
     role: str
+    username: str | None = None
     password: str | None = None
 
 
@@ -31,8 +32,10 @@ def staff_password(role: str) -> str | None:
 
 @router.get("/staff-mode")
 def staff_mode():
-    """บทบาทไหนต้องใส่รหัสผ่าน หน้าเว็บใช้ตัดสินว่าจะแสดงช่องรหัสหรือเข้าเลย"""
-    return {role: staff_password(role) is not None for role in PASSWORD_ENV}
+    """บทบาทไหนต้องใส่รหัสผ่าน และต้องใส่ชื่อผู้ใช้ไหม (มีผู้ใช้หลายคน) หน้าเว็บใช้ตัดสินว่าจะแสดงช่องอะไร"""
+    if users.exist():
+        return {"teacher": True, "admin": True, "users": True}
+    return {**{role: staff_password(role) is not None for role in PASSWORD_ENV}, "users": False}
 
 
 @router.post("/student")
@@ -49,6 +52,14 @@ async def login_staff(body: StaffLogin):
     """ครูและ Admin: ใส่รหัสผ่านเมื่อเซิร์ฟเวอร์ตั้งไว้ แต่ละบทบาทได้ token ของตัวเอง สิทธิ์จึงแยกกันเหมือนเดิม"""
     if body.role not in PASSWORD_ENV:
         raise HTTPException(400, "บทบาทไม่ถูกต้อง")
+    if users.exist():
+        # หลายผู้ใช้: ทุกคนเข้าได้ทั้งหน้าครูและ Admin ข้อมูลชุดเดียวกัน แต่ AI ใช้ API key ของแต่ละคน
+        user = users.verify(body.username or "", body.password or "")
+        if user is None:
+            await asyncio.sleep(1.0)
+            raise HTTPException(401, "ชื่อผู้ใช้หรือรหัสผ่านไม่ถูกต้อง")
+        return {"token": issue_token(body.role, user["username"]), "role": body.role, "code": user["username"],
+                "name": user["name"]}
     expected = staff_password(body.role)
     if expected and not secrets.compare_digest((body.password or "").encode(), expected.encode()):
         await asyncio.sleep(1.0)  # ชะลอการเดารหัส
@@ -58,7 +69,8 @@ async def login_staff(body: StaffLogin):
 
 @router.get("/me")
 def me(auth: dict = Depends(current)):
-    return {"role": auth["role"], "code": auth.get("code")}
+    name = users.owner_name(auth.get("code")) if auth["role"] in ("teacher", "admin") else None
+    return {"role": auth["role"], "code": auth.get("code"), "name": name}
 
 
 @router.post("/logout")
