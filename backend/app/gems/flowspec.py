@@ -221,6 +221,8 @@ def normalize(raw: dict) -> tuple[dict, list[str]]:
                 notes.append(f"{PARAM_LABELS[key]} {value} อยู่นอกช่วงที่ปลอดภัย {low}–{high} ใช้ {number:g} แทน")
         except (TypeError, ValueError):
             pass
+        if number == DEFAULT_PARAMS[key]:
+            continue  # เท่ากับค่าเริ่มต้นอยู่แล้ว ไม่นับเป็นตัวเลขที่ครูกำหนด
         params[key] = int(number) if key in ("max_items", "mastery_window") else number
     start = renamed.get(str(raw.get("start")), _slug(raw.get("start"), ""))
     if start not in seen:
