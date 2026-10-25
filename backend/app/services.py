@@ -229,7 +229,7 @@ def plan_hints(state: dict, content: Content, fx: Fx, use_ai: bool) -> list:
             continue
         it = content.item(request["item_id"])
         level = request["level"]
-        authored = it.get("hints", {}).get(str(level)) or tutor.LEVEL_FALLBACK[level]
+        authored = tutor.authored_hint(it, level, item_state.get("last_tag"))
         if not use_ai:
             item_state["hints"][str(level)] = {"text": authored, "source": "authored", "status": "ready"}
             continue

@@ -22,10 +22,11 @@ interface BankRow {
   concept_name: string | null;
   iso_of: string | null;
   isomorphs: string[];
-  flag: { reasons: string[] } | null;
+  flag: { reasons: string[]; suggested?: string } | null;
   live: boolean | null;
   status: Status;
   answer_text: string;
+  bugs: { answer: string | number; tag: string; type: string | null; name: string; hints: Record<string, string> }[];
 }
 
 interface Listing {
@@ -167,6 +168,22 @@ export default function GemItems({ gemId, onChanged }: { gemId: string; onChange
                   </li>
                 ))}
               </ul>
+            )}
+            {it.flag?.suggested && (
+              <Button
+                size="sm"
+                variant="soft"
+                icon={<Check size={14} />}
+                style={{ alignSelf: "flex-start" }}
+                onClick={async () =>
+                  apply(
+                    await api<Listing>("teacher", `${base}/items/${it.id}/use-suggested`, { method: "POST" }),
+                    `แก้เฉลย ${it.id} เป็น ${it.flag!.suggested} แล้ว นักเรียนได้ข้อนี้ทันที`,
+                  )
+                }
+              >
+                ใช้เฉลย {it.flag.suggested} ที่ sympy คำนวณได้
+              </Button>
             )}
           </li>
         ))}
@@ -359,6 +376,29 @@ function ItemModal({ item, data, onClose, onSave }: { item: BankRow | null; data
         <Field label={`ความยาก ${Math.round(difficulty * 100)}`}>
           <input type="range" min={0} max={1} step={0.05} value={difficulty} onChange={(e) => setDifficulty(Number(e.target.value))} />
         </Field>
+        {!!item?.bugs?.length && (
+          <div className="stack stack-sm">
+            <span className="small strong">คำตอบผิดที่ระบบรู้จัก (Bug Library ของข้อนี้)</span>
+            <ul className="bug-answers">
+              {item.bugs.map((b, i) => (
+                <li key={i}>
+                  <span className="row row-sm">
+                    <span className="mono strong">{String(b.answer)}</span>
+                    <Badge tone={b.type === "slip" ? "info" : "warning"}>{b.type === "slip" ? "Slip" : "Misconception"}</Badge>
+                    <span className="mono xsmall faint">{b.tag}</span>
+                    <span className="small">{b.name}</span>
+                  </span>
+                  {Object.entries(b.hints).map(([level, text]) => (
+                    <span key={level} className="xsmall muted">
+                      L{level}: {text}
+                    </span>
+                  ))}
+                </li>
+              ))}
+            </ul>
+            <span className="xsmall faint">ตอบผิดตรงค่าเหล่านี้ ระบบวินิจฉัยตามรหัส และใช้คำใบ้เฉพาะคำตอบผิดนั้นก่อนคำใบ้ของข้อ แก้ได้ในหน้า "แก้คลังโจทย์"</span>
+          </div>
+        )}
       </div>
     </Modal>
   );

@@ -79,9 +79,17 @@ def _clean(text: str) -> str:
     return re.sub(r"\n{2,}", "\n", text)
 
 
+def authored_hint(item: dict, level: int, tag_id: str | None) -> str:
+    """คำใบ้ต้นฉบับ: คำใบ้ที่ครูเขียนไว้สำหรับคำตอบผิดแบบนี้ในข้อนี้ก่อน (ตาราง Bug Library ของครู) แล้วจึงคำใบ้ของข้อ"""
+    for bug in item.get("bugs", []):
+        if tag_id and bug.get("tag") == tag_id and (bug.get("hints") or {}).get(str(level)):
+            return bug["hints"][str(level)]
+    return item.get("hints", {}).get(str(level)) or LEVEL_FALLBACK[level]
+
+
 async def generate_hint(subject: dict, item: dict, concept_name: str, level: int, student: dict,
                         tag: dict | None, code: str | None) -> dict:
-    authored = item.get("hints", {}).get(str(level)) or LEVEL_FALLBACK[level]
+    authored = authored_hint(item, level, tag["id"] if tag else None)
     query = " ".join(filter(None, [item.get("prompt"), item.get("math"), concept_name, tag["name"] if tag else None, authored]))
     terms, docs = _retrieve(subject, query)
     built = prompt.hint_prompt(subject, item, concept_name, level, student, tag, docs, authored)

@@ -25,7 +25,7 @@ SAFE = re.compile(r"[0-9a-z\s+\-*/().=^]+")
 
 def _clean(math: str) -> str | None:
     text = (math or "").strip().lower()
-    for old, new in (("−", "-"), ("–", "-"), ("×", "*"), ("·", "*"), ("÷", "/"), ("²", "^2"), ("³", "^3")):
+    for old, new in (("−", "-"), ("–", "-"), ("×", "*"), ("·", "*"), ("÷", "/"), ("²", "^2"), ("³", "^3"), ("[", "("), ("]", ")")):
         text = text.replace(old, new)
     if not text or len(text) > 120 or not SAFE.fullmatch(text) or re.search(r"[a-z]{2}", text):
         return None
@@ -59,16 +59,39 @@ def sympy_answer(math: str) -> Fraction | None:
         return None
 
 
-def check_with_sympy(item: dict) -> str | None:
-    """คืนเหตุผลถ้าเฉลยตัวเลขไม่ตรงกับที่ sympy คำนวณ"""
+def sympy_check(item: dict) -> tuple[bool, str | None]:
+    """(sympy ตรวจข้อนี้ได้ไหม, เหตุผลถ้าเฉลยไม่ตรง) ตรวจได้เมื่อคำนวณนิพจน์หรือสมการได้
+    และเป็นคำตอบตัวเลข หรือปรนัยที่ตัวเลือกเป็นตัวเลข"""
+    if not item.get("math") or item.get("format") not in ("numeric", "mcq"):
+        return False, None
+    truth = sympy_answer(item["math"])
+    if truth is None:
+        return False, None
+    if item["format"] == "numeric":
+        if not same_number(truth, item["answer"]["value"]):
+            return True, f"sympy คำนวณได้ {_show(truth)} แต่เฉลยเขียน {item['answer']['value']}"
+        return True, None
+    values = {o["id"]: parse_number(o["text"]) for o in item.get("options", [])}
+    if any(v is None for v in values.values()):
+        return False, None
+    matches = [k for k, v in values.items() if same_number(truth, v)]
+    if matches != [item["answer"]["option"]]:
+        found = f"ข้อ {matches[0]}" if matches else "ไม่มีตัวเลือกที่ตรง"
+        return True, f"sympy คำนวณได้ {_show(truth)} ({found}) แต่เฉลยเป็นข้อ {item['answer']['option']}"
+    return True, None
+
+
+def suggested_answer(item: dict) -> str | None:
+    """คำตอบที่ sympy คำนวณได้ ให้ครูกดใช้แก้เฉลยของข้อที่ติดธงได้ในคลิกเดียว (ครูยังเป็นผู้ตัดสิน)"""
     if item.get("format") != "numeric" or not item.get("math"):
         return None
     truth = sympy_answer(item["math"])
-    if truth is None:
-        return None
-    if not same_number(truth, item["answer"]["value"]):
-        return f"sympy คำนวณได้ {_show(truth)} แต่เฉลยเขียน {item['answer']['value']}"
-    return None
+    return _show(truth) if truth is not None else None
+
+
+def check_with_sympy(item: dict) -> str | None:
+    """คืนเหตุผลถ้าเฉลยไม่ตรงกับที่ sympy คำนวณ"""
+    return sympy_check(item)[1]
 
 
 def check_resolved(item: dict, solved) -> str | None:

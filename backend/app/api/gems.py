@@ -402,6 +402,13 @@ def approve_item(gem_id: str, item_id: str, auth: dict = Depends(teacher)):
     return _items(lambda: items.approve(gem_id, item_id))
 
 
+@router.post("/{gem_id}/items/{item_id}/use-suggested")
+def use_suggested_answer(gem_id: str, item_id: str, auth: dict = Depends(teacher)):
+    """ข้อที่ติดธงเพราะเฉลยไม่ตรงกับ sympy: ครูกดใช้คำตอบที่ sympy คำนวณได้"""
+    _load(gem_id)
+    return _items(lambda: items.use_suggested(gem_id, item_id))
+
+
 @router.post("/{gem_id}/generate")
 async def generate_items(gem_id: str, body: GenerateBody, auth: dict = Depends(teacher)):
     """ให้ AI สร้างโจทย์เพิ่ม ข้อใหม่รอครูอนุมัติก่อนถึงนักเรียน"""

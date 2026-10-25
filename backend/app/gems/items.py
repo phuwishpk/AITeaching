@@ -41,12 +41,17 @@ def listing(gem_id: str) -> dict:
     """ทุกข้อในคลังรุ่นปัจจุบันพร้อมเฉลย สำหรับครูตรวจและแก้"""
     _, subject = _bank(gem_id)
     concepts = {c["id"]: c["name"] for c in subject["concepts"]}
+    tags = {t["id"]: t for t in subject.get("bug_tags", [])}
     rows = []
     for it in subject["items"]:
         rows.append({
             **{k: it.get(k) for k in ("id", "kind", "format", "prompt", "math", "options", "answer", "hints",
                                       "difficulty", "concept", "iso_of", "isomorphs", "flag", "live")},
             "status": status(it), "answer_text": answer_display(it), "concept_name": concepts.get(it["concept"]),
+            # คำตอบผิดที่ระบบรู้จักในข้อนี้ (Bug Library) และคำใบ้เฉพาะคำตอบผิดนั้น ถ้าครูกำหนดไว้
+            "bugs": [{"answer": b["answer"], "tag": b["tag"], "type": (tags.get(b["tag"]) or {}).get("type"),
+                      "name": (tags.get(b["tag"]) or {}).get("name", b["tag"]), "hints": b.get("hints") or {}}
+                     for b in it.get("bugs", [])],
         })
     return {
         "items": rows,
@@ -144,6 +149,25 @@ def save(gem_id: str, item_id: str | None, data: dict) -> dict:
     warning = verify.check_with_sympy(item)
     _save(gem, subject, note)
     return {**listing(gem_id), "saved": item_id, "warning": warning}
+
+
+def use_suggested(gem_id: str, item_id: str) -> dict:
+    """ครูกดใช้เฉลยที่ sympy คำนวณได้ของข้อที่ติดธง คำตอบผิดที่บันทึกไว้ซึ่งตรงกับเฉลยใหม่ถูกตัดออก"""
+    gem, subject = _bank(gem_id)
+    item = next((it for it in subject["items"] if it["id"] == item_id), None)
+    if item is None:
+        raise ItemError("ไม่พบโจทย์ข้อนี้")
+    suggested = (item.get("flag") or {}).get("suggested")
+    value = parse_number(str(suggested)) if suggested is not None else None
+    if value is None or item.get("format") != "numeric":
+        raise ItemError("ข้อนี้ไม่มีเฉลยที่ sympy คำนวณได้")
+    old = item["answer"]["value"]
+    item["answer"] = {"value": int(value) if value.denominator == 1 else round(float(value), 4)}
+    item["bugs"] = [b for b in item.get("bugs", []) if parse_number(str(b["answer"])) != value]
+    item.pop("flag", None)
+    item.pop("review", None)
+    _save(gem, subject, f"ครูแก้เฉลยข้อ {item_id} จาก {old} เป็น {suggested} ตามที่ sympy คำนวณ")
+    return listing(gem_id)
 
 
 def approve(gem_id: str, item_id: str) -> dict:

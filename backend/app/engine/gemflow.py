@@ -452,7 +452,7 @@ def submit(state: dict, ctx: C.Ctx, raw) -> C.Fx:
     fx.trace("answer", it["id"], {**base, "correct": False, "raw": data["raw"], "diagnosis": diag}, now)
     if diag["class"] == "misconception":
         fx.trace("misconception", it["id"], {"tag": diag["tag"]}, now)
-    elif diag["class"] == "unclassified":
+    elif diag["class"] == "unclassified" and not diag["tag"]:
         fx.tag_requests.append({"item_id": it["id"], "answer": data["raw"]})
     flow["last"] = {"wrong": True, "misconception": diag["class"] == "misconception", "slip": diag["class"] == "slip",
                     "rt": round(rt, 2), "rt_ratio": round(rt / expected, 3), "slow": rt > expected}
@@ -683,6 +683,16 @@ def leaked_item(text: str, items, current_id: str | None = None) -> str | None:
     return None
 
 
+def safe_walkthrough(state: dict, content: C.Content, walk: dict | None) -> dict | None:
+    """ตัวอย่างทีละขั้นที่เฉลยโจทย์ในคลังซึ่งนักเรียนยังทำไม่ได้ ไม่แสดง (Answer-Leak Guard ใช้ทั้งผังมาตรฐานและ Flow ของ Gem)"""
+    if not walk:
+        return walk
+    text = " ".join([walk.get("problem", "")] + list(walk.get("steps", [])))
+    current = (state.get("item") or {}).get("id")
+    pending = [it for it in content.items.values() if it["id"] not in state["done_items"]]
+    return None if leaked_item(text, pending, current) else walk
+
+
 def lesson_leak(content: C.Content, text: str, current_id: str | None) -> str | None:
     cache = content.__dict__.setdefault("_lesson_leaks", {})
     key = (text, current_id)
@@ -698,12 +708,7 @@ def student_extras(state: dict, ctx: C.Ctx) -> dict:
     if state["position"] == F.LESSON and step:
         concept = item["concept"] if item else ctx.content.target
         walk = ctx.content.walkthrough(concept) if step.get("walkthrough") and ctx.content.tool("walkthrough") else None
-        if walk:
-            # ตัวอย่างทีละขั้นที่เฉลยโจทย์ในคลังซึ่งนักเรียนยังทำไม่ได้ ไม่แสดง (Answer-Leak Guard ล็อกไว้ทุก Flow)
-            walk_text = " ".join([walk.get("problem", "")] + list(walk.get("steps", [])))
-            pending = [it for it in ctx.content.items.values() if it["id"] not in state["done_items"]]
-            if leaked_item(walk_text, pending, item["id"] if item else None):
-                walk = None
+        walk = safe_walkthrough(state, ctx.content, walk)
         text = step.get("text") or ""
         if lesson_leak(ctx.content, text, item["id"] if item else None):
             text = "ลองย้อนดูวิธีคิดของข้อนี้อีกครั้งทีละขั้น แล้วกลับไปลองใหม่นะ"

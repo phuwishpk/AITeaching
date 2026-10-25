@@ -147,12 +147,15 @@ def test_build_flags_wrong_keys_and_students_can_learn(monkeypatch):
 
 
 def test_second_layer_flags_disagreement_and_rebuild_retires_old_bank(monkeypatch):
-    fake_llm(monkeypatch, resolve_wrong={0})
+    fake_llm(monkeypatch, resolve_wrong=set(range(60)))
     gem = manage.create({"name": "ติวสมการ"}, "teacher")
     asyncio.run(builder.build(gem["id"]))
     first = manage.get(gem["id"])
     subject = db.get_subject(first["subject_id"])
-    assert "LLM แก้ซ้ำ" in subject["items"][0]["flag"]["reasons"][0]
+    # AI ที่แก้ซ้ำตอบผิดทุกข้อ: ข้อที่ sympy คำนวณได้และตรงเฉลยไม่ติดธง ข้อที่ sympy ตรวจไม่ได้ใช้ผลชั้นที่ 2
+    assert not subject["items"][0].get("flag")
+    no_math = next(it for it in subject["items"] if it["format"] == "mcq" and not it.get("math"))
+    assert "LLM แก้ซ้ำ" in no_math["flag"]["reasons"][0]
 
     asyncio.run(builder.build(gem["id"]))
     second = manage.get(gem["id"])
@@ -619,3 +622,50 @@ def test_teacher_reviews_and_edits_the_flow(monkeypatch):
     # Admin ดูได้ แก้ไม่ได้
     admin = {"Authorization": f"Bearer {issue_token('admin')}"}
     assert client.put(f"/api/gems/{gem['id']}/flow", headers=admin, json={"spec": edited}).status_code == 403
+
+
+def test_teacher_bug_table_is_kept_with_its_own_hint_ladder():
+    """ตาราง Bug Library ของครู: รหัสตามครู คำตอบผิดหลายค่าต่อรหัส และคำใบ้ L1–L3 เฉพาะคำตอบผิดนั้น"""
+    plan = builder.normalize_plan({
+        "target": {"name": "ลำดับการดำเนินการ (PEMDAS)"}, "prerequisites": [{"name": "จำนวนเต็ม"}],
+        "bugs": [{"id": "BUG-M01", "type": "misconception", "name": "ทำจากซ้ายไปขวาทั้งหมด"},
+                 {"id": "bug-s02", "type": "slip", "name": "คิดเลขคลาด 1"}, {"id": "BUG-M01", "type": "misconception", "name": "ซ้ำ"}],
+    })
+    assert [b["id"] for b in plan["bug_tags"]] == ["BUG-M01", "BUG-S02", "M-2"]
+    item = builder.to_item({
+        "prompt": "จงหาค่าของ", "math": "20 - 12 ÷ 2 × 3 + 2^{2}", "format": "numeric", "answer": 6,
+        "wrong_answers": [{"answer": 16, "bug": "BUG-M01", "hints": ["ลบ คูณ หาร ยกกำลัง สำคัญเท่ากันไหม", "ยกกำลังและคูณหารก่อน", "หา 2² กับ 12 ÷ 2 ก่อน"]},
+                          {"answer": [5, 7], "bug": "BUG-S02", "hints": ["ทวน 2 + 4 อีกครั้ง"]},
+                          {"answer": 6, "bug": "BUG-M01"}],
+    }, "G-01", "C-T", "main", {"BUG-M01", "BUG-S02"})
+    assert item["math"] == "20 - 12 ÷ 2 × 3 + 2^2" and verify.check_with_sympy(item) is None
+    assert [(b["answer"], b["tag"]) for b in item["bugs"]] == [(16, "BUG-M01"), (5, "BUG-S02"), (7, "BUG-S02")]
+    assert service.authored_hint(item, 3, "BUG-M01") == "หา 2² กับ 12 ÷ 2 ก่อน"
+    assert service.authored_hint(item, 2, "BUG-S02") == item["hints"]["2"], "ครูไม่ได้ให้ L2 ของคำตอบนี้ ใช้คำใบ้ของข้อ"
+    assert verify.sympy_answer("[20 - (4 + 2)] ÷ 7") == 2
+
+
+def test_sympy_overrules_a_wrong_ai_resolve_and_checks_numeric_choices():
+    good = builder.to_item({"prompt": "จงหาค่าของ", "math": "20 - 12 ÷ 2 × 3 + 2²", "format": "numeric", "answer": 6},
+                           "G-01", "C-T", "main", set())
+    mcq = builder.to_item({"prompt": "ข้อใดคือค่าของ", "math": "8 + 4² ÷ 2 - 5", "format": "mcq",
+                           "options": ["7", "9", "11", "13"], "answer": 2}, "G-02", "C-T", "main", set())
+    wrong_mcq = builder.to_item({"prompt": "ข้อใดคือค่าของ", "math": "8 + 4² ÷ 2 - 5", "format": "mcq",
+                                 "options": ["7", "9", "11", "13"], "answer": 0}, "G-03", "C-T", "main", set())
+    unknown = builder.to_item({"prompt": "สมบัติใด", "format": "short", "answer": ["สลับที่"]}, "G-04", "C-T", "main", set())
+    builder.apply_checks([good, mcq, wrong_mcq, unknown], {0: 5, 1: "a", 2: "a", 3: "เปลี่ยนหมู่"})
+    assert not good.get("flag") and not mcq.get("flag"), "sympy คำนวณได้ตรงเฉลย ไม่ติดธงแม้ AI แก้ซ้ำผิด"
+    assert "ข้อ c" in wrong_mcq["flag"]["reasons"][0]
+    assert unknown["flag"], "sympy ตรวจไม่ได้ ใช้ผลที่ AI แก้ซ้ำ"
+
+
+def test_prerequisite_by_name_and_sympy_suggested_answer(monkeypatch):
+    prereqs = [{"name": "การบวก ลบ คูณ หาร จำนวนเต็ม"}, {"name": "เลขยกกำลัง"}]
+    assert builder.prereq_index("การบวก ลบ คูณ หาร จำนวนเต็ม", prereqs) == 0
+    assert builder.prereq_index("1", prereqs) == 1 and builder.prereq_index(1, prereqs) == 1
+    assert builder.prereq_index("เรื่องอื่น", prereqs) is None
+    wrong = builder.to_item({"prompt": "จงหาค่าของ", "math": "30 - 16 ÷ 4 × 2 + 3²", "format": "numeric", "answer": 17,
+                             "wrong_answers": [{"answer": 31, "bug": "M-1"}, {"answer": 21, "bug": "M-1"}]},
+                            "G-05", "C-T", "main", {"M-1"})
+    builder.apply_checks([wrong], {0: 31})
+    assert wrong["flag"]["suggested"] == "31"

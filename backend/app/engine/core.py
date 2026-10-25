@@ -669,7 +669,7 @@ def _submit(state: dict, ctx: Ctx, raw) -> Fx:
     fx.trace("answer", it["id"], {**base, "correct": False, "raw": raw_text, "diagnosis": diag}, now)
     if diag["class"] == "misconception":
         fx.trace("misconception", it["id"], {"tag": diag["tag"]}, now)
-    elif diag["class"] == "unclassified":
+    elif diag["class"] == "unclassified" and not diag["tag"]:
         fx.tag_requests.append({"item_id": it["id"], "answer": raw_text})
     feedback = _wrong_message(diag)
 
@@ -1321,7 +1321,7 @@ def student_view(state: dict, ctx: Ctx) -> dict:
             hints.append({"level": level, "text": entry.get("text"), "status": entry.get("status", "pending")})
     walk = None
     if state["position"] == F.WALK:
-        walk = content.walkthrough(state.get("walk_concept") or (item["concept"] if item else target))
+        walk = gemflow.safe_walkthrough(state, content, content.walkthrough(state.get("walk_concept") or (item["concept"] if item else target)))
     can_undo = bool(
         item and item.get("undo") and not item["undo_used"] and now - item["undo"]["ts"] <= ctx.p("undo_window")
     )

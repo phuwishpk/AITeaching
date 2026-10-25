@@ -20,7 +20,7 @@ from fractions import Fraction
 
 from .. import db, settings_store
 from ..content.readiness import check_set
-from ..engine.answers import parse_number
+from ..engine.answers import parse_number, same_number
 from ..tutor import providers, service
 from . import flowspec, verify, versions
 
@@ -70,13 +70,14 @@ ITEM_SHAPE = """{
   "prompt": "คำสั่งของโจทย์ เช่น จงหาค่าของ x จากสมการ",
   "math": "สมการหรือนิพจน์แบบข้อความธรรมดา ห้ามใช้ LaTeX ใช้ / แทนเศษส่วน เช่น 2x + 3 = 11 หรือ 1/2 + 1/4 (ไม่มีให้ใส่ \\"\\")",
   "format": "numeric | mcq | short",
+  "solution": ["คิดวิธีทำทีละขั้นให้ครบก่อนเขียน answer เช่น ขั้นที่ 1 2² = 4"],
   "answer": "numeric: ตัวเลข เช่น 4 หรือ 2.5 · mcq: ลำดับตัวเลือกที่ถูก 0–3 · short: รายการคำตอบที่ยอมรับ เช่น [\\"สมบัติการเท่ากัน\\"]",
   "options": ["ตัวเลือก 4 ข้อ ใส่เฉพาะ mcq"],
   "difficulty": 0.5,
   "expected_time": 45,
   "hints": ["ระดับ 1 สะกิดจุดสังเกต", "ระดับ 2 อธิบายกฎสั้น ๆ", "ระดับ 3 แสดงเฉพาะขั้นแรก"],
   "socratic": ["คำถามนำสั้น ๆ 2 ข้อ"],
-  "wrong_answers": [{"answer": "คำตอบผิดที่พบบ่อย (mcq ใช้ลำดับตัวเลือก)", "bug": "รหัส Bug Library เช่น M-1"}]
+  "wrong_answers": [{"answer": "คำตอบผิดที่พบบ่อย (mcq ใช้ลำดับตัวเลือก)", "bug": "รหัส Bug Library เช่น M-1", "hints": ["คำใบ้ระดับ 1–3 เฉพาะคำตอบผิดนี้ ใส่เมื่อครูกำหนดไว้ ไม่มีให้เป็น []"]}]
 }"""
 
 
@@ -174,11 +175,14 @@ def plan_prompt(gem: dict, knowledge: str, sizes: dict) -> str:
         '  "subject_name": "ชื่อวิชาหรือหน่วย", "grade": "ระดับชั้น เช่น ม.2",\n'
         '  "target": {"name": "มโนทัศน์เป้าหมายที่บทเรียนนี้ต้องการให้ทำได้", "description": "..."},\n'
         f'  "prerequisites": [{{"name": "...", "description": "...", "grade": "..."}}]  // {sizes["prerequisites"]} เรื่อง เรียงจากพื้นฐานที่สุด,\n'
-        '  "bugs": [{"type": "misconception หรือ slip", "name": "...", "description": "ลักษณะและตัวอย่างคำตอบผิด", '
+        '  "bugs": [{"id": "รหัสที่ครูกำหนด เช่น BUG-M01 (ครูไม่ได้กำหนดให้เป็น \"\")", "type": "misconception หรือ slip", "name": "...", '
+        '"description": "ลักษณะและตัวอย่างคำตอบผิด", '
         '"response": "ระบบควรช่วยอย่างไร", "socratic": "คำถามนำ 1 ข้อ", "prerequisite": "ลำดับของ prerequisites ที่ควรทบทวน หรือ null"}]'
-        "  // misconception 3–5 รายการ slip 1–2 รายการ,\n"
+        "  // misconception 3–5 รายการ slip 1–2 รายการ ถ้าครูมีตาราง Bug Library ให้ใช้ทุกรายการของครู ชื่อ ประเภท และรหัสตามครู,\n"
         '  "walkthroughs": [{"concept": "target หรือลำดับของ prerequisites", "title": "...", "problem": "ตัวอย่างโจทย์", '
-        '"steps": ["ขั้นที่ 1 ...", "ขั้นที่ 2 ...", "ตรวจคำตอบ ..."]}]  // หนึ่งตัวอย่างต่อมโนทัศน์\n'
+        '"steps": ["ขั้นที่ 1 ...", "ขั้นที่ 2 ...", "ตรวจคำตอบ ..."]}]  // หนึ่งตัวอย่างต่อมโนทัศน์ '
+        "ถ้าครูให้ลำดับขั้นของวิธีทำไว้ ให้เขียนขั้นแบบเดียวกัน แต่ตัวอย่างโจทย์ต้องใช้ตัวเลขต่างจากโจทย์ที่ครูกำหนด "
+        "เพราะโจทย์ของครูจะอยู่ในคลังโจทย์ ตัวอย่างจะเฉลยโจทย์ในคลังไม่ได้\n"
         "}"
     )
 
@@ -187,10 +191,21 @@ def items_prompt(gem: dict, knowledge: str, plan: dict, count: int, band: str, b
     return (
         f"{gem_brief(gem, knowledge)}\n\n{plan_summary(plan)}\n\n"
         f"สร้างโจทย์หลักของมโนทัศน์เป้าหมาย {count} ข้อ ความยากช่วง {band} (ชุดที่ {batch} ห้ามใช้ตัวเลขซ้ำกับชุดอื่น) "
+        + (TEACHER_ITEMS_FIRST if batch == 1 else TEACHER_ITEMS_ELSEWHERE) +
         "คละรูปแบบคำตอบ ส่วนใหญ่เป็น numeric และมี mcq อย่างน้อย 1 ข้อ (ถ้าวิชาไม่ใช่การคำนวณ ใช้ mcq กับ short) "
         "ทุกข้อต้องมี isomorph คือโจทย์คู่ขนานที่โครงสร้างเดียวกันแต่ตัวเลขหรือรายละเอียดต่างกัน รูปแบบคำตอบเดียวกัน\n"
         f'ตอบเป็น {{"items": [ITEM พร้อมฟิลด์ "isomorph": ITEM]}} โดย ITEM มีโครงสร้าง:\n{ITEM_SHAPE}'
     )
+
+
+# โจทย์ที่ครูกำหนดไว้ในคำสั่งหรือไฟล์ความรู้ ใช้ตามที่ครูให้ทุกตัวอักษร (ชุดที่ 1 เท่านั้น กันซ้ำ)
+TEACHER_ITEMS_FIRST = (
+    "ถ้าคำสั่งของครูหรือ <knowledge> มีโจทย์ที่ครูกำหนดไว้ (เช่น คลังโจทย์มาตรฐาน พร้อมเฉลย ลำดับขั้น หรือตารางคำตอบผิด) "
+    "ให้ใส่โจทย์เหล่านั้นเป็นข้อแรก ๆ ของชุดนี้ ใช้ตัวเลข นิพจน์ และเฉลยตามที่ครูให้ทุกตัวอักษร (นับรวมในจำนวนข้อ) "
+    "ใส่ wrong_answers ทุกคำตอบผิดในตารางของครู พร้อมรหัส Bug และ hints ระดับ 1–3 ตามแนวทางคำใบ้ของครู "
+    "และใช้แนวทางนั้นเขียน hints ของข้อด้วย "
+)
+TEACHER_ITEMS_ELSEWHERE = "ห้ามใช้โจทย์ที่ครูกำหนดไว้ในคำสั่งหรือไฟล์ (ใส่ไว้ในชุดแรกแล้ว) "
 
 
 def extras_prompt(gem: dict, knowledge: str, plan: dict, sizes: dict) -> str:
@@ -244,16 +259,21 @@ def normalize_plan(raw: dict) -> dict:
     if not str(target.get("name", "")).strip():
         raise BuildError("AI ไม่ได้กำหนดมโนทัศน์เป้าหมาย")
     prereqs = [p for p in raw.get("prerequisites") or [] if str(p.get("name", "")).strip()][:4]
-    bugs, counters = [], {"misconception": 0, "slip": 0}
+    bugs, counters, used = [], {"misconception": 0, "slip": 0}, {g["id"] for g in GENERIC_SLIPS}
     for b in raw.get("bugs") or []:
         kind = "slip" if b.get("type") == "slip" else "misconception"
         if not str(b.get("name", "")).strip():
             continue
         counters[kind] += 1
-        index = b.get("prerequisite")
-        prereq = f"C-P{int(index) + 1}" if isinstance(index, (int, float)) and 0 <= int(index) < len(prereqs) else None
+        index = prereq_index(b.get("prerequisite"), prereqs)
+        prereq = f"C-P{index + 1}" if index is not None else None
+        # รหัสที่ครูกำหนด (เช่น BUG-M01) ใช้ตามครู ไม่มีหรือซ้ำก็ตั้งให้
+        given = str(b.get("id") or "").strip().upper()
+        bug_id = given if re.fullmatch(r"[A-Z][A-Z0-9-]{1,15}", given) and given not in used else (
+            f"{'M' if kind == 'misconception' else 'S'}-{counters[kind]}")
+        used.add(bug_id)
         bugs.append({
-            "id": f"{'M' if kind == 'misconception' else 'S'}-{counters[kind]}",
+            "id": bug_id,
             "type": kind, "name": b["name"].strip(), "description": str(b.get("description", "")).strip(),
             "response": str(b.get("response", "")).strip(), "socratic": str(b.get("socratic", "")).strip(),
             "prerequisite": prereq if kind == "misconception" else None,
@@ -289,9 +309,9 @@ def to_item(raw: dict, item_id: str, concept: str, kind: str, bug_ids: set[str])
         "difficulty": _clamp(raw.get("difficulty"), 0.0, 1.0, 0.5),
         "expected_time": int(_clamp(raw.get("expected_time"), 10, 300, 45)),
         "min_read_time": max(2, min(8, round(len(str(raw["prompt"])) / 40) + 2)),
-        "socratic": [str(s).strip() for s in raw.get("socratic") or [] if str(s).strip()][:3],
+        "socratic": [_plain_text(s) for s in raw.get("socratic") or [] if _plain_text(s)][:3],
     }
-    hints = [str(h).strip() for h in raw.get("hints") or [] if str(h).strip()][:3]
+    hints = [_plain_text(h) for h in raw.get("hints") or [] if _plain_text(h)][:3]
     hints += FALLBACK_HINTS[len(hints):]
     item["hints"] = {str(i + 1): text for i, text in enumerate(hints)}
 
@@ -316,19 +336,24 @@ def to_item(raw: dict, item_id: str, concept: str, kind: str, bug_ids: set[str])
 
     bugs = []
     for wrong in raw.get("wrong_answers") or []:
-        tag = str(wrong.get("bug", "")).strip() if isinstance(wrong, dict) else ""
+        tag = str(wrong.get("bug", "")).strip().upper() if isinstance(wrong, dict) else ""
         if tag not in bug_ids:
             continue
-        if answer_format == "numeric":
-            value = parse_number(str(wrong.get("answer")))
-            if value is not None:
-                bugs.append({"answer": _stored_number(value), "tag": tag})
-        elif answer_format == "mcq":
-            index = _option_index(wrong.get("answer"), len(options))
-            if index is not None and LETTERS[index] != item["answer"]["option"]:
-                bugs.append({"answer": LETTERS[index], "tag": tag})
-        elif str(wrong.get("answer", "")).strip():
-            bugs.append({"answer": str(wrong["answer"]).strip(), "tag": tag})
+        # คำใบ้เฉพาะคำตอบผิดนี้ (ตารางคำใบ้ตามลำดับของครู) ใช้แทนคำใบ้ของข้อเมื่อวินิจฉัยได้ตรงรหัสนี้
+        bug_hints = [_plain_text(h) for h in wrong.get("hints") or [] if _plain_text(h)][:3]
+        extra = {"hints": {str(i + 1): h for i, h in enumerate(bug_hints)}} if bug_hints else {}
+        answers = wrong.get("answer")
+        for one in answers if isinstance(answers, list) else [answers]:
+            if answer_format == "numeric":
+                value = parse_number(str(one))
+                if value is not None and not same_number(value, item["answer"]["value"]):
+                    bugs.append({"answer": _stored_number(value), "tag": tag, **extra})
+            elif answer_format == "mcq":
+                index = _option_index(one, len(options))
+                if index is not None and LETTERS[index] != item["answer"]["option"]:
+                    bugs.append({"answer": LETTERS[index], "tag": tag, **extra})
+            elif str(one or "").strip():
+                bugs.append({"answer": str(one).strip(), "tag": tag, **extra})
     item["bugs"] = bugs
     return item
 
@@ -343,6 +368,26 @@ def plain_math(value) -> str | None:
     text = re.sub(r"\s*=\s*\?*\s*$", "", text).replace("?", "")
     text = re.sub(r"\s+", " ", text).strip()
     return text or None
+
+
+def prereq_index(value, prereqs: list[dict]) -> int | None:
+    """ลำดับของ Prerequisite ที่ AI อ้างถึง: AI ตอบได้ทั้งเลขลำดับ ("0" หรือ 0) และชื่อเรื่อง"""
+    if isinstance(value, bool) or value is None:
+        return None
+    text = str(value).strip()
+    if isinstance(value, (int, float)) or text.isdigit():
+        index = int(float(text))
+        return index if 0 <= index < len(prereqs) else None
+    names = [str(p.get("name", "")).strip() for p in prereqs]
+    if text in names:
+        return names.index(text)
+    close = [i for i, name in enumerate(names) if name and (name in text or text in name)]
+    return close[0] if len(close) == 1 else None
+
+
+def _plain_text(value) -> str:
+    """ข้อความที่นักเรียนเห็น: เอา markdown ที่ LLM ชอบใส่ (` ** $) ออก"""
+    return re.sub(r"[`$]|\*\*", "", str(value or "")).strip()
 
 
 def _option_index(value, count: int) -> int | None:
@@ -402,10 +447,10 @@ def assemble(gem: dict, version: int, plan: dict, main_batches: list[dict], extr
     for group in listing(extras, "remedial"):
         if not isinstance(group, dict):
             continue
-        index = group.get("prerequisite")
-        if not isinstance(index, (int, float)) or not 0 <= int(index) < len(prereq_ids):
+        index = prereq_index(group.get("prerequisite"), plan["prerequisites"])
+        if index is None:
             continue
-        concept = prereq_ids[int(index)]
+        concept = prereq_ids[index]
         count = 0
         for raw in listing(group, "items"):
             item = to_item(raw, f"R-{int(index) + 1}-{count + 1:02d}", concept, "remedial", bug_ids)
@@ -417,8 +462,9 @@ def assemble(gem: dict, version: int, plan: dict, main_batches: list[dict], extr
     walkthroughs = []
     for walk in plan["walkthroughs"]:
         key = walk.get("concept")
-        concept = "C-T" if key in ("target", None) else (
-            prereq_ids[int(key)] if isinstance(key, (int, float)) and 0 <= int(key) < len(prereq_ids) else None)
+        index = prereq_index(key, plan["prerequisites"])
+        concept = prereq_ids[index] if index is not None else (
+            "C-T" if key in ("target", None, "") or str(key).strip() == plan["target"]["name"] else None)
         steps = [str(s).strip() for s in walk.get("steps") or [] if str(s).strip()]
         if concept and steps and concept not in {w["concept"] for w in walkthroughs}:
             walkthroughs.append({"concept": concept, "title": str(walk.get("title") or "ตัวอย่างทีละขั้น").strip(),
@@ -460,10 +506,17 @@ def apply_checks(items: list[dict], solved: dict[int, object] | None) -> list[st
     if solved is None:
         warnings.append("ตรวจชั้นที่ 2 (ให้ AI แก้ซ้ำ) ไม่สำเร็จ ใช้ผลจาก sympy อย่างเดียว")
     for i, item in enumerate(items):
-        reasons = [r for r in (verify.check_with_sympy(item),
-                               verify.check_resolved(item, solved.get(i)) if solved is not None else None) if r]
+        # sympy คำนวณได้จริงเป็นผู้ตัดสิน (AI ที่แก้ซ้ำคิดเลขพลาดได้) ตรวจไม่ได้จึงใช้ผลที่ AI แก้ซ้ำ
+        checked, reason = verify.sympy_check(item)
+        if checked:
+            reasons = [reason] if reason else []
+        else:
+            reasons = [r for r in (verify.check_resolved(item, solved.get(i)) if solved is not None else None,) if r]
         if reasons:
             item["flag"] = {"reasons": reasons, "at": time.time()}
+            suggestion = verify.suggested_answer(item) if checked else None
+            if suggestion:
+                item["flag"]["suggested"] = suggestion
     return warnings
 
 
