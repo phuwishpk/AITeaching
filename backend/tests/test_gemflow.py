@@ -756,7 +756,8 @@ def test_simulation_finds_dead_edges_and_shows_where_students_go():
     assert flowspec.design_problems(checked, []) == dead
     text = simulate.table_text(checked["spec"])
     assert "ตอบผิด · ผิดครั้งที่ 1 · ไม่ตรง Bug Library → ทบทวน" in text
-    assert "ตอบผิด · ผิดครั้งที่ 1 · สะเพร่า → คำใบ้ 1" in text
+    assert 'ตอบผิด · ผิดครั้งที่ 1 · สะเพร่า → คำใบ้ระดับ 1 (ขั้น "คำใบ้ 1")' in text
+    assert "ตอบถูก · ไม่ใช้คำใบ้ · โจทย์หลักครบ · Mastery 0.9 → " in text, "แถวเข้าเกณฑ์จบชุดแสดงเสมอ"
     assert "ผิดครั้งที่ 5" not in text and "ผิดครั้งที่ 0" not in text
 
 

@@ -32,6 +32,12 @@ MAX_CASES = 20000
 PROBES = {"wrong": ["bug_type", "impasse", "has_prerequisite", "rounds"],
           "correct": ["hint_level", "mastery", "mains_left", "challenge_done"]}
 SHOW_ALWAYS = {"impasse", "has_prerequisite", "rounds", "mastery", "mains_left", "challenge_done"}
+# กรณีที่ต้องเปลี่ยนหลายตัวแปรพร้อมกันถึงจะเห็นผล (ตารางปกติเปลี่ยนทีละตัว) เช่น เข้าเกณฑ์จบชุด
+COMBOS = [("ตอบถูก · ไม่ใช้คำใบ้ · โจทย์หลักครบ · Mastery 0.9", {"correct": True, "mains_left": 0, "mastery": 0.9}),
+          ("ตอบถูก · หลังใช้คำใบ้ · โจทย์หลักครบ · Mastery 0.9", {"correct": True, "hint_level": 1, "mains_left": 0, "mastery": 0.9}),
+          ("ตอบผิด · ผิดครั้งที่ 2 · โจทย์หลักครบ · Mastery 0.9 · ทำโจทย์ท้าทายได้",
+           {"wrong": True, "error_count": 2, "mains_left": 0, "mastery": 0.9, "challenge_done": True})]
+FLOOR = {"": 0, "slip": 1, "misconception": 2}
 DEAD = "เส้นที่ไม่มีวันถูกใช้: "
 
 
@@ -201,12 +207,11 @@ def table(flow_spec: dict, limit: int = 40) -> list[dict]:
             continue
         key_vars = ("correct", "wrong", "error_count", "bug_type", "hint_level")
         baseline, variants = {}, []
-        for values, edge in cases(flow_spec, step):
+        for values, edge in _shown(cases(flow_spec, step)):
             # กรณีทั่วไป = ทุกตัวแปรเป็นค่าแรก นอกจากผลการตอบ ครั้งที่ผิด ชนิดข้อผิดพลาด และการใช้คำใบ้
             changed = [n for n, v in values.items() if n not in key_vars and v != _domain(n, set())[0]]
             key = tuple(values.get(n) for n in key_vars)
-            target = "ไม่มีเส้น ระบบใช้ทางเริ่มต้น" if edge is None else (
-                "กลับไปทำข้อเดิม" if edge["to"] == "back" else steps.get(edge["to"], {}).get("label", edge["to"]))
+            target = _target(steps, edge, values)
             if not changed:
                 baseline[key] = target
             elif len(changed) == 1:
@@ -218,7 +223,7 @@ def table(flow_spec: dict, limit: int = 40) -> list[dict]:
             words += [w for n in ("error_count", "bug_type", "hint_level") if n in values for w in [_say(n, values[n])] if w]
             rows.append({"case": " · ".join(w for w in words + [extra or ""] if w), "to": target})
 
-        for values, _ in cases(flow_spec, step):
+        for values, _ in _shown(cases(flow_spec, step)):
             key = tuple(values.get(n) for n in key_vars)
             # ครั้งที่ผิดเกิน 4 ผลเหมือน "ตั้งแต่ครั้งที่ 4" ไม่ต้องแสดงซ้ำ
             if (values.get("error_count") or 0) > 4:
@@ -232,17 +237,55 @@ def table(flow_spec: dict, limit: int = 40) -> list[dict]:
             if (values.get("error_count") or 0) > 4:
                 continue
             # ตัวแปรของกรณีทดสอบมาตรฐานแสดงเสมอ (ผิดตั้งแต่ครั้งที่ 3 หรือตอบถูกโดยไม่ใช้คำใบ้) แม้ผลไม่ต่าง
-            probe = name in SHOW_ALWAYS and (values.get("error_count", 0) >= 3 if values.get("wrong")
-                                             else values.get("hint_level") == 0) and values.get("bug_type", "") == ""
+            probe = (name in PROBES["wrong"] and values.get("wrong") and values.get("error_count", 0) >= 3
+                     and values.get("bug_type", "") == "") or (name in PROBES["correct"] and values.get("correct")
+                                                                and values.get("hint_level") == 0)
+            probe = probe and name in SHOW_ALWAYS
             if (target != baseline.get(key) or probe) and (key, name, target) not in shown:
                 shown.add((key, name, target))
                 row(values, _say(name, values[name]), target)
+        if step["kind"] == "item":
+            parsed = [(e, conditions.parse(e.get("when"))) for e in edges]
+            for text, combo in COMBOS:
+                values = _consistent({**BASE, **combo})
+                rows.append({"case": text, "to": _target(steps, _winner(parsed, values, {}), values)})
         out.append({"step": step["id"], "label": step["label"], "rows": rows[:limit]})
     return out
 
 
 BASELINE = ("กรณีทั่วไปในตาราง: Mastery 0.6 โจทย์หลักยังเหลือ 3 ข้อ มีพื้นฐานให้ทบทวน ยังไม่เคยส่งไปทบทวน "
             "ไม่ติดหล่ม ถูกแล้ว 1 ข้อ แต่ละแถวเปลี่ยนจากกรณีทั่วไปเฉพาะที่เขียนไว้\n")
+
+
+def _shown(rows):
+    """กรณีที่แสดงในตาราง: ตอบถูกไม่สนครั้งที่ผิดและชนิดข้อผิดพลาด ตอบผิดไม่สนการใช้คำใบ้ (ไม่ต้องแสดงซ้ำ)"""
+    for values, edge in rows:
+        if values.get("correct") and (values.get("error_count", 1) != 1 or values.get("bug_type", "")):
+            continue
+        if values.get("wrong") and values.get("hint_level", 0):
+            continue
+        shown = dict(values)
+        if shown.get("correct"):
+            shown.pop("error_count", None)
+            shown.pop("bug_type", None)
+        if shown.get("wrong"):
+            shown.pop("hint_level", None)
+        yield shown, edge
+
+
+def _target(steps: dict, edge: dict | None, values: dict) -> str:
+    """ปลายทางที่อ่านแล้วตรงกับที่ engine ทำ: ขั้นคำใบ้บอกระดับที่นักเรียนได้จริง (auto คิดจากครั้งที่ผิดและชนิดข้อผิดพลาด)"""
+    if edge is None:
+        return "ไม่มีเส้น ระบบใช้ทางเริ่มต้น"
+    if edge["to"] == "back":
+        return "กลับไปทำข้อเดิม"
+    step = steps.get(edge["to"], {})
+    if step.get("kind") == "hint":
+        level = step.get("level", "auto")
+        if level == "auto":
+            level = max(1, min(3, max(values.get("error_count") or 1, FLOOR.get(values.get("bug_type") or "", 0))))
+        return f"คำใบ้ระดับ {level} (ขั้น \"{step.get('label', edge['to'])}\")"
+    return step.get("label", edge["to"])
 
 
 def table_text(flow_spec: dict) -> str:
