@@ -29,6 +29,7 @@ def _validate(gem: dict, raw: dict) -> dict:
     if checked["spec"] and not checked["errors"]:
         checked["warnings"] += flowspec.leak_warnings(checked["spec"], _items(gem))
         missing = flowspec.missing_keywords(checked["spec"], flowspec.teacher_keywords(gem.get("instructions", "")))
+        checked["warnings"] += flowspec.mismatched_asks(checked["spec"])
         if missing:
             checked["warnings"].append(f"คำที่ครูเขียนไว้ใน prompt ให้จับในแชตยังไม่ถูกจับ: {', '.join(missing)} "
                                        "เพิ่มในแท็บแชต AI หรือกดออกแบบใหม่")

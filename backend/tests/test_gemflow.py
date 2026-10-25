@@ -670,3 +670,34 @@ def test_prompt_guide_matches_what_the_engine_runs():
     said = "\n".join(i["say"] for i in chat["items"])
     assert {"เฉลย", "บอกคำตอบ", "ขอตัวอย่าง", "ยกตัวอย่าง"} <= set(flowspec.teacher_keywords(said))
     assert "สร้างใหม่" in guide.ADDON_NOTE and "ตีความตามบริบท" in flowspec.design_prompt({"name": "x", "instructions": ""})
+
+
+def test_play_requests_must_be_interactive_and_chat_targets_are_reachable(monkeypatch):
+    """จาก Gemini จริง: "ถ้าเด็กเบื่อให้มีมินิเกมคั่น" ถูกออกแบบเป็นขั้นพักสายตาที่ไปถึงได้จากแชตเท่านั้น"""
+    import asyncio
+
+    from app.gems import builder
+
+    def flow(kind):
+        game = {"id": "minigame", "kind": kind, "label": "มินิเกม", "reason": "ถ้าเด็กบอกว่าเบื่อ ให้มีมินิเกมจับเวลาสั้น ๆ คั่น"}
+        if kind == "widget":
+            game.update(widget="custom", goal="มินิเกมจับเวลาบวกเศษส่วน")
+        return {"start": "w", "steps": [{"id": "w", "kind": "item", "pick": "main"}, game, {"id": "e", "kind": "end"}],
+                "edges": [{"from": "w", "to": "e", "when": "correct"}, {"from": "w", "to": "w", "when": ""},
+                          {"from": "minigame", "to": "w", "when": ""}],
+                "chat": {"intents": [{"label": "เบื่อ", "keywords": ["เบื่อ"], "goto": "minigame"}]}}
+
+    assert not any("ไปไม่ถึง" in w for w in flowspec.validate(flow("break"))["warnings"]), "แชตพาไปได้"
+    assert flowspec.mismatched_asks(flowspec.validate(flow("break"))["spec"])
+    designs = [flow("break"), flow("widget")]
+    asked = []
+
+    async def fake_ask(step, user, max_tokens=12000, thinking="minimal"):
+        asked.append(step)
+        if step == "widget":
+            return {"html": "<p>มินิเกมจับเวลา</p><button>เสร็จแล้ว</button>"}
+        return designs[asked.count("flow") - 1]
+
+    monkeypatch.setattr(builder, "ask_json", fake_ask)
+    result = asyncio.run(flowspec.design({"name": "เศษส่วน", "instructions": "ถ้าเด็กบอกว่าเบื่อ ให้มีมินิเกมคั่น"}))
+    assert asked.count("flow") == 2 and next(s for s in result["spec"]["steps"] if s["id"] == "minigame")["kind"] == "widget"

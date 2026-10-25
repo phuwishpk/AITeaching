@@ -375,9 +375,13 @@ def validate(raw: dict, bugs: list[str] | None = None) -> dict:
     if errors:
         return {"spec": spec, "errors": errors, "warnings": warnings}
     reachable = _reachable(spec["start"], out)
+    # ขั้นที่แชตพาไป (เช่น นักเรียนพิมพ์ว่าเบื่อ → มินิเกม) ไปถึงได้จากแชตแม้ไม่มีเส้นจากขั้นแรก
+    for intent in (spec.get("chat") or {}).get("intents", []):
+        if intent["goto"]:
+            reachable |= _reachable(intent["goto"], out)
     for sid, step in steps.items():
         if sid not in reachable:
-            warnings.append(f"ขั้น \"{step['label']}\" ไปไม่ถึงจากขั้นแรก")
+            warnings.append(f"ขั้น \"{step['label']}\" ไปไม่ถึงจากขั้นแรกหรือจากแชต")
     if not any(steps[s]["kind"] == "end" for s in reachable):
         errors.append("Flow ต้องไปถึงขั้นจบได้ (เพดานจำนวนข้อยังจบ Session ให้อยู่แล้ว แต่ควรมีเกณฑ์จบของครู)")
     for intent in (spec.get("chat") or {}).get("intents", []):
@@ -432,6 +436,19 @@ def overlaps(steps: dict, out: dict[str, list[dict]]) -> list[str]:
     return [f"{OVERLAP}ขั้น \"{step['label']}\" ถ้า \"{_edge_name(first)}\" และ \"{_edge_name(later)}\" "
             f"เป็นจริงพร้อมกัน ระบบทำ \"{_edge_name(first)}\" ก่อน แล้วพาไปทำ \"{_edge_name(later)}\" ต่อเมื่อกลับมาที่ขั้นนี้"
             for step, first, later in clashes(steps, out)]
+
+
+# สิ่งที่นักเรียนต้องลงมือเล่นหรือโต้ตอบ ต้องเป็น widget หรือ activity ไม่ใช่ขั้นพัก อ่าน หรือแจ้งครู
+PLAY_WORDS = re.compile(r"เกม|game|บทบาทสมมติ|role.?play|ลากวาง|ลากเรียง|จำลองสถานการณ์|แข่ง", re.I)
+NOT_PLAY = ("break", "lesson", "notify", "teacher", "hint", "check", "end")
+
+
+def mismatched_asks(flow_spec: dict) -> list[str]:
+    """ขั้นที่มาจากคำขอให้นักเรียนเล่นหรือโต้ตอบ แต่ AI ใช้ชนิดขั้นที่ทำแบบนั้นไม่ได้ (เคยเกิด: มินิเกม → พักสายตา)"""
+    return [f"ขั้น \"{s['label']}\" มาจาก \"{s.get('reason') or s['label']}\" ซึ่งให้นักเรียนเล่นหรือโต้ตอบ "
+            f"แต่เป็นขั้น {s['kind']} ที่ทำแบบนั้นไม่ได้ ใช้ widget (custom ถ้าคลังไม่มี) หรือ activity"
+            for s in flow_spec["steps"]
+            if s["kind"] in NOT_PLAY and PLAY_WORDS.search(f"{s.get('reason', '')} {s['label']}")]
 
 
 def _reachable(start: str, out: dict[str, list[dict]]) -> set[str]:
@@ -881,6 +898,8 @@ async def design(gem: dict, memory: dict | None = None, bugs: list[dict] | None 
         if missing:
             checked["errors"] = [f"คำที่ครูกำหนดให้จับในแชตยังไม่อยู่ใน chat.intents: {', '.join(missing)} "
                                  "ใส่ทุกคำตามตัวอักษรใน keywords ของ intent ที่ตรงกับคำสั่งของครู"]
+        if not checked["errors"]:
+            checked["errors"] = mismatched_asks(checked["spec"])
         if not checked["errors"]:
             notes = await write_widgets(gem, checked["spec"], memory, items)
             warnings = [w for w in checked["warnings"] if not w.startswith("Widget \"")] + notes
