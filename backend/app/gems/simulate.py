@@ -285,7 +285,9 @@ def _target(steps: dict, edge: dict | None, values: dict) -> str:
         level = step.get("level", "auto")
         if level == "auto":
             level = max(1, min(3, max(values.get("error_count") or 1, FLOOR.get(values.get("bug_type") or "", 0))))
-        return f"คำใบ้ระดับ {level} (ขั้น \"{step.get('label', edge['to'])}\")"
+        name = step.get("label", edge["to"])
+        # บอกชื่อขั้นเมื่อชื่อไม่ได้บอกระดับที่นักเรียนได้จริง (เช่น ขั้นชื่อ "คำใบ้ระดับ 1" แต่ตั้ง auto)
+        return f"คำใบ้ระดับ {level}" if f"ระดับ {level}" in name else f"คำใบ้ระดับ {level} (ขั้น \"{name}\")"
     return step.get("label", edge["to"])
 
 
