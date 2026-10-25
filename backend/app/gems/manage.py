@@ -10,6 +10,7 @@ import time
 from .. import db, settings_store, users
 from ..content.readiness import check_set
 from ..engine.answers import answer_display
+from ..engine.gemflow import features
 from ..tutor.prompt import constraints_frame
 from . import alerts, builder, versions
 
@@ -192,6 +193,7 @@ def detail(gem: dict) -> dict:
             "flagged": [_brief(it, concepts) for it in subject["items"] if it.get("flag")],
             "samples": [_brief(it, concepts) for it in subject["items"] if it["kind"] == "main" and not it.get("flag")][:3],
         }
+    flow = gem.get("flow") or {}
     return {
         **{k: gem.get(k) for k in ("id", "bank_version", "build", "created_at", "owner") + EDITABLE},
         "owner_name": users.owner_name(gem.get("owner")),
@@ -202,7 +204,9 @@ def detail(gem: dict) -> dict:
         "locked_constraints": constraints_frame(),
         # สิ่งที่ AI อ่านและจดจากไฟล์ความรู้ก่อนสร้างคลังโจทย์รุ่นนี้ (ไม่ส่งต้นฉบับเต็มกลับไปที่หน้าเว็บ)
         "knowledge": {k: v for k, v in (gem.get("knowledge") or {}).items() if k != "text"} or None,
-        "options": {"icons": ICONS, "colors": COLORS, "alert_situations": alerts.catalog()},
+        "options": {"icons": ICONS, "colors": COLORS, "alert_situations": alerts.catalog(gem, chat=False)},
+        # ฟีเจอร์ที่ Flow ของ Gem ใช้จริง หน้าเว็บแสดงเฉพาะส่วนเหล่านี้
+        "features": features(flow.get("spec") if flow.get("mode") == "custom" else None),
     }
 
 

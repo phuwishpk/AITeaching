@@ -13,7 +13,7 @@ import time
 from ..config import DEFAULT_PARAMS, PARAM_LABELS
 from ..engine import conditions
 from ..engine import flow as F
-from ..engine.gemflow import PICKS, STUCK_LIMIT
+from ..engine.gemflow import PICKS, STUCK_LIMIT, features  # noqa: F401 (หน้าเว็บใช้ผ่าน flowspec)
 
 KINDS = {
     "item": {"label": "ทำโจทย์", "lane": "correct", "wait": True,
@@ -72,9 +72,6 @@ GUARDS = [
     {"id": F.OUTAGE, "label": "AI ขัดข้อง", "text": "สร้างโจทย์สดไม่สำเร็จ หยุดชั่วคราวและลองใหม่เอง"},
     {"id": F.ENDED, "label": "จบเพราะเพดานข้อ", "text": "ครบเพดานจำนวนข้อ หรือโจทย์หมด บันทึกความคืบหน้าไว้"},
 ]
-
-TOOL_KINDS = {"hints": "บันไดคำใบ้", "isomorphic": "Isomorphic Test", "walkthrough": "Walkthrough", "remedial": "ทบทวนพื้นฐาน"}
-
 
 BACK = "back"
 START_KINDS = ("item", "lesson", "activity", "reflect")
@@ -177,7 +174,8 @@ def normalize(raw: dict) -> tuple[dict, list[str]]:
             step["reason"] = _text(s.get("reason"), 240)
         if kind == "item":
             step["pick"] = s.get("pick") if s.get("pick") in PICKS else "adaptive"
-            step["hint_button"] = bool(s.get("hint_button", step["pick"] != "isomorphic"))
+            # ปุ่มขอคำใบ้มีเฉพาะเมื่อคำสั่งของครูให้นักเรียนกดขอเองได้ (ไม่มีก็ไม่แสดง)
+            step["hint_button"] = bool(s.get("hint_button", False))
         elif kind == "hint":
             level = s.get("level", "auto")
             step["level"] = level if level == "auto" else int(_number(level, 1, 3, 1))
@@ -259,7 +257,7 @@ def _clamp_step(step: dict, key: str, default: float, notes: list[str], label: s
     return number
 
 
-def validate(raw: dict, tools: dict | None = None, bugs: list[str] | None = None) -> dict:
+def validate(raw: dict, bugs: list[str] | None = None) -> dict:
     """คืน {"spec", "errors", "warnings"} ถ้ามี errors ห้ามบันทึก Flow นี้ bugs = รหัสใน Bug Library ของคลัง (ถ้ารู้)"""
     try:
         spec, warnings = normalize(raw)
@@ -326,7 +324,6 @@ def validate(raw: dict, tools: dict | None = None, bugs: list[str] | None = None
     for sid, step in steps.items():
         if step["kind"] == "item":
             warnings += _coverage(step, out[sid])
-    warnings += _tool_warnings(spec, tools or {})
     return {"spec": spec, "errors": errors, "warnings": list(dict.fromkeys(warnings))}
 
 
@@ -416,21 +413,6 @@ def leak_warnings(spec: dict, items: list[dict]) -> list[str]:
     return notes
 
 
-def _tool_warnings(spec: dict, tools: dict) -> list[str]:
-    off = {k for k, label in TOOL_KINDS.items() if tools.get(k) is False}
-    notes = []
-    for step in spec["steps"]:
-        if step["kind"] == "hint" and "hints" in off:
-            notes.append(f"ครูปิดบันไดคำใบ้ ขั้น \"{step['label']}\" จะถูกข้าม")
-        if step["kind"] == "item" and step.get("pick") == "isomorphic" and "isomorphic" in off:
-            notes.append(f"ครูปิด Isomorphic Test ขั้น \"{step['label']}\" จะใช้ข้อถัดไปตาม Mastery แทน")
-        if step["kind"] == "item" and step.get("pick") == "prerequisite" and "remedial" in off:
-            notes.append(f"ครูปิดทบทวนพื้นฐาน ขั้น \"{step['label']}\" จะใช้ข้อที่ง่ายลงแทน")
-        if step["kind"] == "lesson" and step.get("walkthrough") and not step.get("text") and "walkthrough" in off:
-            notes.append(f"ครูปิด Walkthrough ขั้น \"{step['label']}\" จะถูกข้าม")
-    return notes
-
-
 # ---------------------------------------------------------------- สิ่งที่หน้าเว็บใช้
 
 def catalog() -> dict:
@@ -500,9 +482,6 @@ STANDARD = {"mode": "standard"}
 
 def design_prompt(gem: dict, errors: list[str] | None = None, previous: dict | None = None,
                   memory: dict | None = None, bugs: list[dict] | None = None) -> str:
-    tools = gem.get("tools") or {}
-    on = [label for key, label in TOOL_KINDS.items() if tools.get(key, True)]
-    off = [label for key, label in TOOL_KINDS.items() if not tools.get(key, True)]
     kinds = "\n".join(f"- {k}: {v['about']}" for k, v in KINDS.items())
     picks = "\n".join(f"  - {k}: {v}" for k, v in PICKS.items())
     variables = "\n".join(f"- {k}: {v[0]}" for k, v in conditions.VARS.items())
@@ -516,12 +495,12 @@ def design_prompt(gem: dict, errors: list[str] | None = None, previous: dict | N
            if memory else "")
         + ("Bug Library ของคลังโจทย์ (ใช้รหัสเหล่านี้ในเงื่อนไข bug == \"รหัส\"):\n"
            + "\n".join(f"- {b['id']} ({b['type']}): {b['name']}" for b in bugs) + "\n" if bugs else "")
-        + f"เครื่องมือที่ครูเปิด: {', '.join(on) or '-'} · ที่ครูปิด (ห้ามใช้): {', '.join(off) or '-'}\n\n"
+        + "\n"
         f"ชนิดขั้นที่ใช้ได้:\n{kinds}\n"
         f"ขั้น item มี pick (วิธีเลือกโจทย์):\n{picks}\n"
         "เส้นที่ to เป็น \"back\" = กลับไปขั้นทำโจทย์ที่นักเรียนเพิ่งมาจาก (ทำข้อเดิมต่อ) ใช้กับขั้นคำใบ้ บทเรียน หรือกิจกรรม "
         "ที่หลายขั้นโจทย์ใช้ร่วมกัน ไม่ต้องเดาด้วยเงื่อนไข\n"
-        "ขั้น item มี hint_button (true/false), hint มี level (1, 2, 3 หรือ \"auto\") และ delay "
+        "ขั้น item มี hint_button (true เฉพาะเมื่อคำสั่งของครูให้นักเรียนกดขอคำใบ้เองได้ ไม่ได้สั่ง = false ไม่ต้องใส่ปุ่ม), hint มี level (1, 2, 3 หรือ \"auto\") และ delay "
         "(หน่วงเวลาหลังตอบผิดก่อนแสดงคำใบ้ วินาที 0–60 เช่น \"ผิดแล้วให้คิดเองก่อน 20 วินาที\" = delay 20 ไม่ใช่ params), "
         "lesson มี title, text (เนื้อหาสั้น ๆ ไม่เกิน 5 บรรทัด ห้ามมีคำตอบของโจทย์) และ walkthrough (true = แสดงตัวอย่างทีละขั้นของมโนทัศน์), "
         "reflect มี question, judge (true เฉพาะเมื่อครูสั่งให้ประเมินคำอธิบาย) และ rubric (เกณฑ์ของครู), "
@@ -606,7 +585,7 @@ async def design(gem: dict, memory: dict | None = None, bugs: list[dict] | None 
         # ออกแบบ Flow ต้องไล่แนวทางของครูทีละข้อ จึงให้โมเดลคิดเต็มที่ (โทเคนที่ใช้คิดนับรวมใน max_tokens)
         raw = await builder.ask_json("flow", design_prompt(gem, errors, previous, memory, bugs), 32000, thinking="high")
         raw = raw if isinstance(raw, dict) else {}
-        checked = validate(raw, gem.get("tools"), bug_ids)
+        checked = validate(raw, bug_ids)
         if not checked["errors"]:
             return record(checked["spec"], "ai", checked["warnings"], reviewed=False)
         errors, previous = checked["errors"], raw

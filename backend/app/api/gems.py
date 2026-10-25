@@ -89,7 +89,7 @@ def list_gems(auth: dict = Depends(viewer)):
 @router.get("/meta")
 def gem_meta(auth: dict = Depends(viewer)):
     """ตัวเลือกของฟอร์มสร้าง Gem: สถานการณ์แจ้งเตือนพร้อมค่าเริ่มต้น ไอคอน และสี"""
-    return {"alert_situations": gem_alerts.catalog(), "alert_defaults": gem_alerts.defaults(),
+    return {"alert_situations": gem_alerts.catalog({}, chat=False), "alert_defaults": gem_alerts.defaults(),
             "icons": manage.ICONS, "colors": manage.COLORS, "flow": flowspec.catalog()}
 
 

@@ -145,7 +145,8 @@ def build(gem_id: str) -> dict:
         "flow": flow_marks(gem),
         "frames": frames(gem),
         "students": students(gem_id),
-        "situations": alerts.catalog(),
+        "situations": alerts.catalog(gem),
+        "features": detail["features"],
         "live_cap": builder.bank_sizes()["live_cap"],
         "version": versions.history(gem_id)[0]["n"] if detail["versions"] else None,
     }

@@ -699,6 +699,33 @@ def after_live(state: dict, ctx: C.Ctx, new_ids: list[str], error: str | None) -
 
 # ---------------------------------------------------------------- มุมมอง
 
+def features(flow_spec: dict | None) -> dict:
+    """ฟีเจอร์ที่ Flow นี้ใช้จริง หน้านักเรียน ครู และ Admin แสดงเฉพาะส่วนเหล่านี้ (ไม่มีใน Flow ก็ไม่แสดง)
+    ไม่มี Flow (ชุดคำถามที่ครูเขียนเองตามผังมาตรฐาน) = ใช้ทุกอย่าง"""
+    if not flow_spec:
+        return {"all": True}
+    steps = flow_spec.get("steps") or []
+    kinds = {s["kind"] for s in steps}
+    picks = {s.get("pick") for s in steps if s["kind"] == "item"}
+    hint_button = any(s.get("hint_button") for s in steps if s["kind"] == "item")
+    return {
+        "all": False,
+        "kinds": sorted(kinds),
+        "picks": sorted(p for p in picks if p),
+        "hint_button": hint_button,
+        "hints": hint_button or "hint" in kinds,
+        "lesson": "lesson" in kinds,
+        "walkthrough": any(s.get("walkthrough") for s in steps if s["kind"] == "lesson"),
+        "reflect": "reflect" in kinds,
+        "activity": "activity" in kinds,
+        "break": "break" in kinds,
+        "notify": "notify" in kinds,
+        "teacher": "teacher" in kinds,
+        "isomorphic": "isomorphic" in picks,
+        "remedial": "prerequisite" in picks,
+    }
+
+
 def hint_allowed(state: dict, ctx: C.Ctx) -> bool:
     step = step_of(ctx, fs(state).get("item_step"))
     return bool(step and step.get("hint_button", True) and ctx.content.tool("hints"))
@@ -738,7 +765,8 @@ def lesson_leak(content: C.Content, text: str, current_id: str | None) -> str | 
 def student_extras(state: dict, ctx: C.Ctx) -> dict:
     step = flow_step(state, ctx)
     item = state.get("item")
-    extras: dict = {"hint_visible": bool(item and state["position"] in F.CAN_ANSWER and hint_allowed(state, ctx))}
+    extras: dict = {"hint_visible": bool(item and state["position"] in F.CAN_ANSWER and hint_allowed(state, ctx)),
+                    "features": features(ctx.content.spec)}
     if state["position"] == F.LESSON and step:
         concept = item["concept"] if item else ctx.content.target
         walk = ctx.content.walkthrough(concept) if step.get("walkthrough") and ctx.content.tool("walkthrough") else None

@@ -8,8 +8,15 @@ export interface AlertRule {
   mode: "notify" | "pause";
 }
 
+export interface AlertSituation {
+  key: string;
+  label: string;
+  locked: boolean;
+  chat: boolean; // เกิดจากแชตเท่านั้น ครูปิดแชตก็ไม่แสดง
+}
+
 export interface GemMeta {
-  alert_situations: { key: string; label: string; locked: boolean }[];
+  alert_situations: AlertSituation[];
   alert_defaults: Record<string, AlertRule>;
   flow: FlowCatalog;
 }
@@ -107,8 +114,41 @@ export interface GemDetail {
   // เจ้าของ Gem (มีผู้ใช้หลายคน): AI ของ Gem นี้คิดกับ API key ของคนนี้
   owner: string | null;
   owner_name: string | null;
-  options: { icons: string[]; colors: string[] };
+  // สถานการณ์แจ้งเตือนที่ Flow ของ Gem นี้เกิดได้จริง
+  options: { icons: string[]; colors: string[]; alert_situations: AlertSituation[] };
+  features: FlowFeatures;
 }
+
+// ฟีเจอร์ที่ Flow ของ Gem ใช้จริง (engine/gemflow.features) ทุกหน้าแสดงเฉพาะส่วนที่มีใน Flow
+// all = ยังไม่มี Flow ที่ออกแบบจากคำสั่ง
+export interface FlowFeatures {
+  all: boolean;
+  hint_button?: boolean;
+  hints?: boolean;
+  lesson?: boolean;
+  walkthrough?: boolean;
+  reflect?: boolean;
+  activity?: boolean;
+  break?: boolean;
+  notify?: boolean;
+  teacher?: boolean;
+  isomorphic?: boolean;
+  remedial?: boolean;
+}
+
+export const FEATURE_LABELS: [Exclude<keyof FlowFeatures, "all">, string][] = [
+  ["hint_button", "ปุ่มขอคำใบ้"],
+  ["hints", "คำใบ้หลังตอบผิด"],
+  ["isomorphic", "Isomorphic Test (ข้อคู่ขนานไม่มีคำใบ้)"],
+  ["remedial", "ทบทวนพื้นฐาน (Prerequisite)"],
+  ["lesson", "บทเรียนย่อ / ทบทวนเนื้อหา"],
+  ["walkthrough", "ตัวอย่างทีละขั้น (Walkthrough)"],
+  ["reflect", "อธิบายความคิด"],
+  ["activity", "กิจกรรมที่ AI สร้าง"],
+  ["break", "พักสายตา"],
+  ["notify", "แจ้งครู"],
+  ["teacher", "หยุดรอครู"],
+];
 
 // สิ่งที่ AI อ่านและจดจากไฟล์ความรู้ก่อนสร้างโจทย์ (backend/app/gems/builder.py › read_knowledge)
 export interface GemKnowledge {

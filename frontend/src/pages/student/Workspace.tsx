@@ -57,9 +57,21 @@ interface View {
   reflect?: { question: string };
   activity?: { title: string; status: "pending" | "ready" | "fallback"; text: string | null; question: string | null; response: "none" | "text" };
   break_text?: string | null;
+  // ฟีเจอร์ที่ Flow ของ Gem ใช้จริง ไม่มีใน Flow ก็ไม่แสดง (ไม่มีค่านี้ = ชุดคำถามผังมาตรฐาน ใช้ทุกอย่าง)
+  features?: FlowFeatures;
   remedial: { concept_name: string; round: number } | null;
   ended: boolean;
   end_reason: string | null;
+}
+
+interface FlowFeatures {
+  all: boolean;
+  hints?: boolean;
+  lesson?: boolean;
+}
+
+function uses(view: View, feature: "hints" | "lesson") {
+  return !view.features || view.features.all || Boolean(view.features[feature]);
 }
 
 interface Result {
@@ -301,7 +313,8 @@ function Room({ code, onLogout }: { code: string; onLogout: () => void }) {
           </div>
           <aside className="stack">
             {/* หน้าบทเรียนย่อและอธิบายความคิดของ Flow ใน Gem: ซ่อนคำใบ้ของข้อเดิม ลดสิ่งรบกวน (Extraneous Load) */}
-            {!["FLOW_LESSON", "FLOW_REFLECT", "FLOW_ACTIVITY"].includes(view.position) && <HintPanel
+            {!["FLOW_LESSON", "FLOW_REFLECT", "FLOW_ACTIVITY"].includes(view.position) &&
+              (uses(view, "hints") || view.hints.length > 0) && <HintPanel
               view={view}
               socratic={socratic}
               onHint={async () => {
@@ -425,9 +438,11 @@ function ProblemCard({
           {!iso && !remedial && view.concept_name && view.concept_name !== view.target.name && <Badge>{view.concept_name}</Badge>}
         </div>
         <div className="row row-sm">
-          <Button variant="ghost" size="sm" icon={<BookOpen size={16} />} onClick={onNotes}>
-            ทบทวนเนื้อหา
-          </Button>
+          {uses(view, "lesson") && (
+            <Button variant="ghost" size="sm" icon={<BookOpen size={16} />} onClick={onNotes}>
+              ทบทวนเนื้อหา
+            </Button>
+          )}
           <Button variant="ghost" size="sm" icon={<Coffee size={16} />} onClick={onRest}>
             ขอพัก
           </Button>

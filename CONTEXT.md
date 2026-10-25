@@ -93,7 +93,7 @@ _Avoid_: Bot, Assistant, AI Draft
 _Avoid_: System prompt (prompt ที่ส่งจริงรวม 4 กรอบ)
 
 **Starter Tools** (เครื่องมือเริ่มต้น):
-สวิตช์เปิดปิดเครื่องมือการสอนของ Gem (แชต, บันไดคำใบ้, Isomorphic Test, Walkthrough, ทบทวนพื้นฐาน) และ Starter Prompt
+สวิตช์แชตของ Gem และ Starter Prompt เครื่องมือการสอนอื่น (คำใบ้, Isomorphic Test, Walkthrough, ทบทวนพื้นฐาน) มาจาก Flow ที่ออกแบบจากคำสั่งของครู ไม่มีสวิตช์แยก
 
 **Starter Prompt** (คำถามเริ่มต้น):
 ปุ่มคำถามที่ครูเตรียมไว้ให้นักเรียนกดถามครูผู้ช่วยได้ทันที

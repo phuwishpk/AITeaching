@@ -7,7 +7,8 @@ import { ago } from "../../lib/format";
 import GemIcon from "../../components/GemIcon";
 import { FRAME_LABEL } from "../../components/AiLog";
 import { Badge, Button, Card, CardHead, Empty, Spinner, useToast } from "../../components/ui";
-import { STATUS_TEXT, TOOL_LABELS, type GemDetail, type GemSummary, type GemTools } from "../teacher/gemTypes";
+import { STATUS_TEXT, TOOL_LABELS, type GemDetail, type GemSummary } from "../teacher/gemTypes";
+import { FeatureList } from "../teacher/GemEditor";
 import { useAdmin } from "./AdminApp";
 import { GemFlowMap, SpecStepDrawer, type GemFlow } from "./gemFlow";
 import NodeInspector from "./NodeInspector";
@@ -16,6 +17,7 @@ import NodeInspector from "./NodeInspector";
 // Admin ดูได้อย่างเดียว การแก้ทำที่หน้าครู
 
 interface GemDesign extends Omit<GemDetail, "locked_constraints" | "options"> {
+  // สถานการณ์แจ้งเตือนเฉพาะที่ Flow ของ Gem นี้เกิดได้จริง
   flow: GemFlow;
   frames: Record<"role" | "context" | "task" | "constraints", string>;
   students: string[];
@@ -148,20 +150,18 @@ export default function AdminGems() {
 
             <div className="stack">
               <Card>
-                <CardHead title="เครื่องมือเริ่มต้น" />
-                <ul className="card-body tool-state">
-                  {(Object.keys(TOOL_LABELS) as (keyof GemTools)[]).map((key) => {
-                    const on = d.tools?.[key] !== false;
-                    return (
-                      <li key={key} className={on ? "" : "is-off"}>
-                        {on ? <Check size={15} /> : <Minus size={15} />}
-                        <span className="small">{TOOL_LABELS[key].label}</span>
-                        {!on && <span className="xsmall faint">ครูปิดไว้</span>}
-                      </li>
-                    );
-                  })}
-                </ul>
-                {d.starter_prompts.length > 0 && (
+                <CardHead title="เครื่องมือของ Gem" sub="ฟีเจอร์การสอนมาจาก Flow ที่ AI ออกแบบตามคำสั่งของครู" />
+                <div className="card-body stack stack-sm">
+                  <ul className="tool-state">
+                    <li className={d.tools?.chat !== false ? "" : "is-off"}>
+                      {d.tools?.chat !== false ? <Check size={15} /> : <Minus size={15} />}
+                      <span className="small">{TOOL_LABELS.chat.label}</span>
+                      {d.tools?.chat === false && <span className="xsmall faint">ครูปิดไว้</span>}
+                    </li>
+                  </ul>
+                  <FeatureList features={d.features} />
+                </div>
+                {d.tools?.chat !== false && d.starter_prompts.length > 0 && (
                   <div className="card-body pill-list" style={{ paddingTop: 0 }}>
                     {d.starter_prompts.map((p) => (
                       <span key={p} className="gem-starter gem-starter-view">

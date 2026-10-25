@@ -25,7 +25,7 @@ def _bugs(gem: dict) -> list[dict] | None:
 
 def _validate(gem: dict, raw: dict) -> dict:
     bugs = _bugs(gem)
-    checked = flowspec.validate(raw, gem.get("tools"), [b["id"] for b in bugs] if bugs is not None else None)
+    checked = flowspec.validate(raw, [b["id"] for b in bugs] if bugs is not None else None)
     if checked["spec"] and not checked["errors"]:
         checked["warnings"] += flowspec.leak_warnings(checked["spec"], _items(gem))
     return checked

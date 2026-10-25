@@ -10,7 +10,7 @@ from app.gems import flowspec
 
 
 def gem_content(subject, raw_flow, tools=None):
-    checked = flowspec.validate(raw_flow, tools or {})
+    checked = flowspec.validate(raw_flow)
     assert not checked["errors"], checked["errors"]
     subject = copy.deepcopy(subject)
     subject["gem"] = {"id": "gem-test", "name": "ทดสอบ", "tools": tools or {}, "live_cap": 0,
@@ -317,3 +317,32 @@ def test_flow_may_open_with_a_lesson_before_the_first_item(subject):
     assert engine.student_view(state, ctx)["lesson"]["text"] == "ทำในวงเล็บก่อน"
     engine.walkthrough_done(state, at(ctx, 1010))
     assert state["position"] == F.ANSWERING and step(state) == "w"
+
+
+def test_only_features_in_the_flow_are_shown(subject):
+    """คำสั่งไม่ได้พูดถึงคำใบ้: ไม่มีปุ่มขอคำใบ้ ไม่มีแผงคำใบ้ ไม่มีสถานการณ์กดคำใบ้รัวให้ครูตั้งค่า"""
+    from app.gems import alerts
+
+    flow = {"start": "w",
+            "steps": [{"id": "w", "kind": "item", "pick": "main"}, {"id": "tell", "kind": "notify", "text": "ผิดซ้ำ"},
+                      {"id": "e", "kind": "end"}],
+            "edges": [{"from": "w", "to": "e", "when": "correct"}, {"from": "w", "to": "tell", "when": "error_count >= 3"},
+                      {"from": "w", "to": "w", "when": ""}, {"from": "tell", "to": "w", "when": ""}]}
+    content = gem_content(subject, flow, {"hints": False})
+    state, ctx = start(content)
+    view = engine.student_view(state, ctx)
+    assert view["hint_button"]["visible"] is False
+    found = view["features"]
+    assert not found["all"] and not found["hints"] and not found["lesson"] and found["notify"]
+    gem = content.subject["gem"]
+    keys = {s["key"] for s in alerts.catalog(gem)}
+    assert "hint_abuse" not in keys and "flow_teacher" not in keys
+    assert {"flow_notify", "self_harm", "deadlock"} <= keys
+    keys = {s["key"] for s in alerts.catalog({**gem, "tools": {"chat": False}})}
+    assert "ask_teacher" not in keys and "self_harm" in keys, "ปิดแชต: ไม่มีสถานการณ์ที่เกิดจากแชต แต่ข้อที่ล็อกไว้ยังอยู่"
+
+    # Flow เป็นตัวกำหนดคำใบ้เอง สวิตช์เก่าของครูไม่ตัดขั้นคำใบ้ที่คำสั่งสั่งไว้
+    flow["steps"][0]["hint_button"] = True
+    content = gem_content(subject, flow, {"hints": False})
+    state, ctx = start(content)
+    assert engine.student_view(state, ctx)["hint_button"]["visible"] is True

@@ -73,6 +73,33 @@ def resolve(gem: dict | None, kind: str) -> dict | None:
     return rule if rule["enabled"] else None
 
 
-def catalog() -> list[dict]:
-    """รายการสถานการณ์สำหรับหน้าตั้งค่า Gem"""
-    return [{"key": s["key"], "label": s["label"], "locked": bool(s.get("locked"))} for s in SITUATIONS]
+# สถานการณ์ที่เกิดได้เฉพาะเมื่อ Gem มีฟีเจอร์นั้น (ไม่มีใน Flow หรือครูปิดแชต ก็ไม่แสดงให้ตั้งค่า)
+CHAT_SITUATIONS = ("ask_teacher", "stress", "quit", "off_topic")
+FLOW_NEEDS = {"hint_abuse": "hint_button", "flow_notify": "notify", "flow_teacher": "teacher"}
+
+
+def relevant(gem: dict | None, chat: bool = True) -> set[str]:
+    """สถานการณ์ที่ Gem นี้เกิดได้จริง ตาม Flow ที่ออกแบบจากคำสั่งของครู (และแชตที่ครูเปิด เมื่อ chat=True)
+    ข้อที่ล็อกไว้แสดงเสมอ"""
+    from ..engine.gemflow import features
+
+    keys = {s["key"] for s in SITUATIONS}
+    if gem is None:
+        return keys
+    flow = gem.get("flow") or {}
+    found = features(flow.get("spec") if flow.get("mode") == "custom" else None)
+    if found["all"]:
+        keys -= {"flow_notify", "flow_teacher"}
+    else:
+        keys -= {key for key, need in FLOW_NEEDS.items() if not found.get(need)}
+    if chat and (gem.get("tools") or {}).get("chat") is False:
+        keys -= set(CHAT_SITUATIONS)
+    return keys | {s["key"] for s in SITUATIONS if s.get("locked")}
+
+
+def catalog(gem: dict | None = None, chat: bool = True) -> list[dict]:
+    """รายการสถานการณ์สำหรับหน้าตั้งค่า Gem (ให้ Gem มา = เฉพาะที่ Gem นั้นเกิดได้)
+    chat=False ไม่กรองตามแชต ให้หน้าครูกรองเองตามสวิตช์แชตที่กำลังแก้"""
+    keys = relevant(gem, chat)
+    return [{"key": s["key"], "label": s["label"], "locked": bool(s.get("locked")), "chat": s["key"] in CHAT_SITUATIONS}
+            for s in SITUATIONS if s["key"] in keys]

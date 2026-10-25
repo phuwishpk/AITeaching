@@ -104,7 +104,10 @@ class Content:
         return list(concept.get("prerequisites", [])) if concept else []
 
     def tool(self, name: str) -> bool:
-        """เครื่องมือการสอนที่ครูเปิดไว้ใน Gem (Starter Tools) ชุดคำถามที่ไม่ใช่ Gem เปิดทุกอย่าง"""
+        """เครื่องมือการสอนที่ครูเปิดไว้ใน Gem (Starter Tools) ชุดคำถามที่ไม่ใช่ Gem เปิดทุกอย่าง
+        Gem ที่มี Flow จากคำสั่งของครู: Flow เป็นตัวกำหนดคำใบ้ ข้อคู่ขนาน Walkthrough และทบทวนพื้นฐานเอง ครูเปิดปิดได้แค่แชต"""
+        if self.spec and name != "chat":
+            return True
         return bool(((self.subject.get("gem") or {}).get("tools") or {}).get(name, True))
 
     def live_cap(self) -> int:

@@ -26,7 +26,7 @@ import SpecFlowMap from "../../components/SpecFlowMap";
 import { Badge, Button, Modal, Spinner, Tabs, useToast } from "../../components/ui";
 import { PreviewTry, Versions } from "./GemPreview";
 import GemItems from "./GemItems";
-import { FLOW_SOURCE, STATUS_TEXT, TOOL_LABELS, type AlertLevel, type AlertRule, type GemDetail, type GemFlowDetail, type GemMeta, type GemTools } from "./gemTypes";
+import { FEATURE_LABELS, FLOW_SOURCE, STATUS_TEXT, TOOL_LABELS, type AlertLevel, type AlertRule, type AlertSituation, type FlowFeatures, type GemDetail, type GemFlowDetail, type GemMeta, type GemTools } from "./gemTypes";
 
 // หน้าสร้างและแก้ Gem แบบ Gemini: ฟอร์มด้านซ้าย พรีวิวด้านขวา กดบันทึกแล้ว AI สร้างคลังโจทย์ให้
 
@@ -282,9 +282,14 @@ export default function GemEditor() {
             </div>
           </GemField>
 
-          <StarterTools form={form} onTools={(tools) => set("tools", tools)} onPrompts={(p) => set("starter_prompts", p)} />
+          <StarterTools form={form} features={gem?.features ?? null} onTools={(tools) => set("tools", tools)} onPrompts={(p) => set("starter_prompts", p)} />
 
-          <AlertRules meta={meta} rules={form.alert_rules} onChange={(r) => set("alert_rules", r)} />
+          <AlertRules
+            situations={(gem?.options.alert_situations ?? meta?.alert_situations ?? []).filter((s) => !s.chat || form.tools.chat)}
+            defaults={meta?.alert_defaults ?? null}
+            rules={form.alert_rules}
+            onChange={(r) => set("alert_rules", r)}
+          />
 
           <GemField label="ความรู้" info="ไฟล์ที่ AI ใช้สร้างโจทย์ และ RAG ใช้ค้นตอนสอน (PDF, DOCX, TXT, MD) AI อ้างอิงเฉพาะเนื้อหาในไฟล์และคำสั่ง">
             <Knowledge
@@ -428,7 +433,18 @@ function Instructions({ value, onChange, form, locked }: { value: string; onChan
   );
 }
 
-function StarterTools({ form, onTools, onPrompts }: { form: Form; onTools: (t: GemTools) => void; onPrompts: (p: string[]) => void }) {
+// ฟีเจอร์การสอนมาจาก Flow ที่ AI ออกแบบจากคำสั่งของครู (ไม่มีสวิตช์แยก) ครูเปิดปิดเองได้แค่แชต
+function StarterTools({
+  form,
+  features,
+  onTools,
+  onPrompts,
+}: {
+  form: Form;
+  features: FlowFeatures | null;
+  onTools: (t: GemTools) => void;
+  onPrompts: (p: string[]) => void;
+}) {
   const [draft, setDraft] = useState("");
   const add = () => {
     if (!draft.trim() || form.starter_prompts.length >= 4) return;
@@ -436,18 +452,18 @@ function StarterTools({ form, onTools, onPrompts }: { form: Form; onTools: (t: G
     setDraft("");
   };
   return (
-    <GemField label="เครื่องมือเริ่มต้น" info="เปิดหรือปิดเครื่องมือการสอนของ Gem นี้ และเตรียมคำถามเริ่มต้นให้นักเรียนกดถามได้ทันที">
+    <GemField label="เครื่องมือของ Gem" info="ฟีเจอร์การสอนมาจาก Flow ที่ AI ออกแบบตามคำสั่ง ฟีเจอร์ที่คำสั่งไม่ได้พูดถึงจะไม่แสดงให้นักเรียน">
       <div className="gem-tools">
-        {(Object.keys(TOOL_LABELS) as (keyof GemTools)[]).map((key) => (
-          <label key={key} className="gem-tool">
-            <input type="checkbox" checked={form.tools[key]} onChange={(e) => onTools({ ...form.tools, [key]: e.target.checked })} />
-            <span className="stack" style={{ gap: 1 }}>
-              <span className="small strong">{TOOL_LABELS[key].label}</span>
-              <span className="xsmall muted">{TOOL_LABELS[key].text}</span>
-            </span>
-          </label>
-        ))}
+        <label className="gem-tool">
+          <input type="checkbox" checked={form.tools.chat} onChange={(e) => onTools({ ...form.tools, chat: e.target.checked })} />
+          <span className="stack" style={{ gap: 1 }}>
+            <span className="small strong">{TOOL_LABELS.chat.label}</span>
+            <span className="xsmall muted">{TOOL_LABELS.chat.text}</span>
+          </span>
+        </label>
       </div>
+      <FeatureList features={features} />
+      {form.tools.chat && (
       <div className="stack stack-sm">
         <span className="small muted">คำถามเริ่มต้น (ไม่เกิน 4)</span>
         <div className="pill-list">
@@ -480,7 +496,22 @@ function StarterTools({ form, onTools, onPrompts }: { form: Form; onTools: (t: G
           </div>
         )}
       </div>
+      )}
     </GemField>
+  );
+}
+
+export function FeatureList({ features }: { features: FlowFeatures | null }) {
+  if (!features || features.all)
+    return <p className="xsmall muted">ฟีเจอร์การสอนจะมาจาก Flow ที่ AI ออกแบบตามคำสั่ง (ดูและแก้ได้ในแท็บ Flow)</p>;
+  const used = FEATURE_LABELS.filter(([key]) => features[key]);
+  return (
+    <div className="stack stack-sm">
+      <span className="small muted">Flow นี้ใช้</span>
+      <div className="pill-list">
+        {used.length ? used.map(([key, label]) => <Badge key={key}>{label}</Badge>) : <span className="xsmall muted">ทำโจทย์อย่างเดียว</span>}
+      </div>
+    </div>
   );
 }
 
@@ -491,17 +522,28 @@ const LEVELS: { id: AlertLevel; label: string }[] = [
 ];
 
 // Alert Rule: ครูเลือกเองว่าสถานการณ์ไหนแจ้งเตือน ระดับไหน และให้ AI ทำงานต่อหรือหยุดรอครู
-function AlertRules({ meta, rules, onChange }: { meta: GemMeta | null; rules: Record<string, AlertRule>; onChange: (r: Record<string, AlertRule>) => void }) {
-  if (!meta) return null;
-  const rule = (key: string) => rules[key] ?? meta.alert_defaults[key];
-  const update = (key: string, patch: Partial<AlertRule>) => onChange({ ...meta.alert_defaults, ...rules, [key]: { ...rule(key), ...patch } });
+// แสดงเฉพาะสถานการณ์ที่ Flow ของ Gem นี้เกิดได้จริง
+function AlertRules({
+  situations,
+  defaults,
+  rules,
+  onChange,
+}: {
+  situations: AlertSituation[];
+  defaults: Record<string, AlertRule> | null;
+  rules: Record<string, AlertRule>;
+  onChange: (r: Record<string, AlertRule>) => void;
+}) {
+  if (!defaults) return null;
+  const rule = (key: string) => rules[key] ?? defaults[key];
+  const update = (key: string, patch: Partial<AlertRule>) => onChange({ ...defaults, ...rules, [key]: { ...rule(key), ...patch } });
   return (
     <GemField
       label="การแจ้งเตือนครู"
       info="ด่วนและปกติเด้งแจ้งเตือนพร้อมเสียง เงียบแสดงบนแดชบอร์ดอย่างเดียว หยุดรอครู = คำตอบแชตของ AI กลายเป็นร่างรอครูอนุมัติก่อนถึงนักเรียน"
     >
       <div className="gem-alerts">
-        {meta.alert_situations.map((s) => {
+        {situations.map((s) => {
           const r = rule(s.key);
           return (
             <div key={s.key} className={`gem-alert ${r.enabled ? "" : "is-off"}`}>
