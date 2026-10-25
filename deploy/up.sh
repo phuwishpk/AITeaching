@@ -7,6 +7,12 @@ cd "$(dirname "$0")/.."
 set -a; . ./.env; set +a
 PROJECT="$(basename "$PWD")"
 mkdir -p runtime
+if docker ps --format '{{.Names}}' | grep -qx ai-tutor-gateway-web-1; then
+  # ใช้ลิงก์เดียวผ่าน gateway (deploy/gateway.sh) บัญชีนี้ไม่ต้องมีลิงก์ของตัวเอง
+  docker compose -p "$PROJECT" -f deploy/docker-compose.yml up -d --build app
+  echo "$PROJECT: เข้าผ่านลิงก์เดียวของ gateway (ดูด้วย docker compose -f ~/sites/ai-tutor/deploy/gateway/docker-compose.yml logs quick)"
+  exit 0
+fi
 docker compose -p "$PROJECT" -f deploy/docker-compose.yml --profile quick up -d --build
 for _ in $(seq 1 20); do
   LINK=$(./deploy/link.sh)
