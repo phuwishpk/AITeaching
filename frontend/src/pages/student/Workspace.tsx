@@ -845,7 +845,8 @@ function TutorChat({
   const sendText = async (message: string) => {
     if (!message || busy) return;
     setText("");
-    setBusy(!direct);
+    // ครูไม่ได้เปิดแชต AI ตอบเรื่องบทเรียนแทน จึงแสดงว่ากำลังพิมพ์ไว้เสมอ (ถึงครูอย่างเดียวจะตอบกลับทันที)
+    setBusy(true);
     await onSend(message);
     setBusy(false);
   };
@@ -869,7 +870,9 @@ function TutorChat({
           </span>
         )}
       </div>
-      {direct && <p className="xsmall muted">ตอนนี้ข้อความจะส่งถึงครูโดยตรง ครูจะตอบกลับในกล่องนี้</p>}
+      {direct && (
+        <p className="xsmall muted">ข้อความถึงครูด้วย ถ้าครูยังไม่ได้เปิดแชต ครูผู้ช่วย (AI) จะช่วยตอบเรื่องบทเรียนไปก่อน</p>
+      )}
       <div className="chat-list" ref={listRef}>
         {messages.length === 0 && (
           <p className="small faint">พิมพ์บอกได้ว่าติดตรงไหน ครูผู้ช่วยจะถามกลับให้คิดต่อ ไม่บอกคำตอบ</p>

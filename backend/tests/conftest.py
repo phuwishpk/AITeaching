@@ -13,6 +13,9 @@ def memory_db(tmp_path, monkeypatch):
     monkeypatch.setattr(settings_store, "SECRETS_PATH", tmp_path / "secrets.json")
     for name in ("ANTHROPIC_API_KEY", "GEMINI_API_KEY", "GOOGLE_API_KEY"):
         monkeypatch.delenv(name, raising=False)
+    from app import services
+
+    services._watching.clear()  # ครูที่เปิดหน้าแชตอยู่ เก็บในหน่วยความจำ ไม่ให้ค้างข้ามเทสต์
     yield
 
 

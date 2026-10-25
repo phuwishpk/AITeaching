@@ -123,6 +123,13 @@ def student_messages(code: str, before: float | None = None, hints: bool = True,
     return {**services.teacher_history(code, before, hints=hints), "mode": services.chat_mode(code)}
 
 
+@router.post("/students/{code}/watching")
+def watching(code: str, auth: dict = Depends(teacher)):
+    """หน้าแชตของครูเปิดอยู่: ระหว่างนี้ AI ร่างคำตอบให้ครูตรวจ (โหมดครู) ปิดหน้าแล้ว AI ตอบเองในขอบเขตบทเรียน"""
+    services.mark_watching(code)
+    return {"ok": True}
+
+
 @router.post("/students/{code}/chat-mode")
 async def chat_mode(code: str, body: ChatMode, auth: dict = Depends(teacher)):
     if body.mode not in ("ai", "teacher"):

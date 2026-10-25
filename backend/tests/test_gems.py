@@ -7,6 +7,7 @@ from fastapi.testclient import TestClient
 
 from app import db, services
 from app.api.deps import issue_token
+from app.engine import flow as F
 from app.gems import builder, flowspec, manage, verify
 from app.gems import design as design_module
 from app.main import app
@@ -356,6 +357,7 @@ def test_alert_rules_normalize_and_lock_self_harm():
 
 def test_ask_teacher_pauses_ai_into_drafts(monkeypatch):
     gem, client, headers = _student_on_gem(monkeypatch)
+    services.mark_watching("S-30")  # ครูเปิดหน้าแชตของนักเรียนคนนี้อยู่
     reply = client.post(f"/api/student/sets/{gem['set_id']}/chat", headers=headers, json={"message": "ขอคุยกับครูหน่อย"}).json()
     assert reply["to_teacher"] and reply["reply"] is None
     alert = db.query_one("SELECT level, kind FROM alerts WHERE code = 'S-30'")
@@ -444,6 +446,7 @@ def test_journey_shows_teacher_response_time(monkeypatch):
     from app import activity
 
     gem, client, headers = _student_on_gem(monkeypatch, code="S-40")
+    services.mark_watching("S-40")
     client.post(f"/api/student/sets/{gem['set_id']}/chat", headers=headers, json={"message": "ขอคุยกับครูหน่อย"})
     teacher = {"Authorization": f"Bearer {issue_token('teacher')}"}
     client.post("/api/teacher/students/S-40/viewed", headers=teacher)
@@ -865,3 +868,25 @@ def test_gem_without_a_designed_flow_is_not_offered_to_students(monkeypatch):
     headers = {"Authorization": f"Bearer {issue_token('student', 'S-60')}"}
     assert gem["set_id"] not in [s["id"] for s in client.get("/api/student/sets", headers=headers).json()]
     assert client.post(f"/api/student/sets/{gem['set_id']}/start", headers=headers, json={}).status_code == 404
+
+
+def test_ai_answers_in_scope_when_teacher_is_not_on_the_chat_page(monkeypatch):
+    """ครูไม่ได้เปิดหน้าแชต: นักเรียนไม่ต้องรอ AI ตอบเรื่องบทเรียนเอง ทั้งตอนโหมดครูและตอนระบบหยุดรอครู
+    ยกเว้นหยุดเพราะข้อความทำร้ายตนเอง ครูดูแลคนเดียวเสมอ"""
+    gem, client, headers = _student_on_gem(monkeypatch, code="S-50")
+    url = f"/api/student/sets/{gem['set_id']}/chat"
+    reply = client.post(url, headers=headers, json={"message": "ขอคุยกับครูหน่อย"}).json()
+    assert services.chat_mode("S-50") == "teacher" and not reply.get("to_teacher") and reply["reply"]
+    assert not db.query_one("SELECT id FROM messages WHERE code = 'S-50' AND sender = 'draft'")
+
+    state = db.load_state("S-50", gem["set_id"])
+    state["position"] = F.DEADLOCK
+    db.save_state(state)
+    assert not client.post(url, headers=headers, json={"message": "ข้อนี้ต้องทำอะไรก่อน"}).json().get("to_teacher")
+    services.mark_watching("S-50")
+    assert client.post(url, headers=headers, json={"message": "ข้อนี้ต้องทำอะไรก่อน"}).json()["to_teacher"]
+
+    services._watching.clear()
+    state["position"] = F.SAFETY
+    db.save_state(state)
+    assert client.post(url, headers=headers, json={"message": "ข้อนี้ต้องทำอะไรก่อน"}).json()["to_teacher"]

@@ -434,8 +434,10 @@ async def chat(code: str, set_id: str, message: str) -> dict:
                 "view": engine.student_view(state, ctx)}
 
     paused = db.load_state(code, set_id)
-    if paused and paused["position"] not in F.CAN_ANSWER | {F.LESSON, F.REFLECT, F.ACTIVITY, F.WIDGET}:
-        # ระบบหยุดรอครูหรือนักเรียนกำลังพัก: ข้อความส่งถึงครูโดยตรง AI ไม่ตอบ
+    if paused and paused["position"] not in F.CAN_ANSWER | {F.LESSON, F.REFLECT, F.ACTIVITY, F.WIDGET} and (
+            paused["position"] == F.SAFETY or teacher_watching(code)):
+        # ระบบหยุดรอครูหรือนักเรียนกำลังพัก และครูเปิดแชตนี้อยู่: ข้อความส่งถึงครูโดยตรง AI ไม่ตอบ
+        # หยุดเพราะข้อความทำร้ายตนเอง ครูดูแลคนเดียวเสมอ (ล็อกไว้) ที่เหลือถ้าครูไม่อยู่ AI ช่วยตอบเรื่องบทเรียนไปก่อน
         content = content_for(paused["subject_id"], set_id)
         return {"reply": None, "to_teacher": True, "view": engine.student_view(paused, make_ctx(content))}
 
@@ -466,7 +468,8 @@ async def chat(code: str, set_id: str, message: str) -> dict:
         reply = {"text": fallback, "source": "authored"}
     if ai_failed(reply):
         await raise_alert(code, set_id, "ai_outage", f"AI ขัดข้องตอนตอบแชต: {'; '.join(reply['errors'])}")
-    if ai_failed(reply) and chat_mode(code) != "teacher":
+    teacher_here = chat_mode(code) == "teacher" and teacher_watching(code)
+    if ai_failed(reply) and not teacher_here:
         # AI Outage: แชตบอก error ตรง ๆ แต่ทำโจทย์ต่อได้ และแจ้งครูพร้อมข้อความ error (Q22)
         # ถ้าครูอยู่ในแชตแล้ว ครูเป็นคนตอบ นักเรียนไม่ต้องเห็น error
         reason = reply["errors"][0].split(": ", 1)[-1]
@@ -484,8 +487,9 @@ async def chat(code: str, set_id: str, message: str) -> dict:
         await post_message(code, set_id, "system", DISTRESS_REPLY["stress"])
         return {"reply": DISTRESS_REPLY["stress"], "source": "safety", "distress": "stress",
                 "view": engine.student_view(state, ctx)}
-    if chat_mode(code) == "teacher":
-        # ครูอยู่ในแชต: คำตอบของ AI เป็นแค่ร่างให้ครูตรวจ แก้ หรือทิ้ง ก่อนถึงนักเรียน (Human-in-the-Loop)
+    if teacher_here:
+        # ครูอยู่ในแชตและเปิดหน้าแชตนี้อยู่: คำตอบของ AI เป็นแค่ร่างให้ครูตรวจ แก้ หรือทิ้ง ก่อนถึงนักเรียน (Human-in-the-Loop)
+        # ครูไม่ได้เปิดหน้าแชต: AI ตอบเองในขอบเขตบทเรียน นักเรียนไม่ต้องรอ ครูอ่านย้อนหลังได้ทุกข้อความ
         await post_message(code, set_id, "draft", reply["text"])
         await hub.to_staff({"type": "chat", "code": code, "log_id": reply.get("log_id")})
         return {"reply": None, "to_teacher": True, "view": engine.student_view(state, ctx)}
@@ -700,13 +704,27 @@ def teacher_history(code: str, before: float | None = None, limit: int = 60, hin
     return {"messages": page, "has_more": len(entries) > limit}
 
 
+# ครูที่เปิดหน้าแชตของนักเรียนคนนี้อยู่ (หน้าแชตส่งสัญญาณทุก 20 วินาทีขณะแท็บแสดงอยู่) เก็บในหน่วยความจำ worker เดียว
+WATCH_TIMEOUT = 45.0
+_watching: dict[str, float] = {}
+
+
+def mark_watching(code: str) -> None:
+    _watching[code] = time.time()
+
+
+def teacher_watching(code: str) -> bool:
+    return time.time() - _watching.get(code, 0.0) < WATCH_TIMEOUT
+
+
 def chat_mode(code: str) -> str:
     """ai = AI Tutor ตอบเอง · teacher = ครูเข้าร่วมแชต AI ร่างคำตอบให้ครูตรวจก่อน"""
     row = db.query_one("SELECT mode FROM chat_modes WHERE code = ?", (code,))
     return row["mode"] if row else "ai"
 
 
-PAUSE_TEXT = "ครูได้รับแจ้งแล้ว ต่อจากนี้ครูจะอ่านและตอบในแชตนี้เอง ทำโจทย์ต่อได้ตามปกตินะ"
+PAUSE_TEXT = ("ครูได้รับแจ้งแล้ว ครูจะอ่านและตอบในแชตนี้ ระหว่างที่ครูยังไม่เข้ามา ครูผู้ช่วย (AI) "
+              "ช่วยตอบเรื่องบทเรียนไปก่อน ทำโจทย์ต่อได้ตามปกตินะ")
 
 
 async def set_chat_mode(code: str, mode: str, text: str | None = None) -> dict:

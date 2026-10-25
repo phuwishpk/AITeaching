@@ -66,6 +66,20 @@ export default function ChatPanel({ code, name, position }: { code: string; name
 
   useEffect(() => setOlder(null), [code, hints]);
 
+  // บอกระบบว่าครูเปิดแชตนี้อยู่ (เฉพาะตอนแท็บแสดงอยู่) ปิดหน้าหรือสลับแท็บเกิน 45 วินาที AI ตอบนักเรียนเองในขอบเขตบทเรียน
+  useEffect(() => {
+    const beat = () => {
+      if (document.visibilityState === "visible") api("teacher", `/api/teacher/students/${code}/watching`, { method: "POST" }).catch(() => {});
+    };
+    beat();
+    const id = setInterval(beat, 20000);
+    document.addEventListener("visibilitychange", beat);
+    return () => {
+      clearInterval(id);
+      document.removeEventListener("visibilitychange", beat);
+    };
+  }, [code]);
+
   useEffect(() => {
     listRef.current?.scrollTo({ top: listRef.current.scrollHeight });
   }, [thread.data]);
@@ -128,7 +142,7 @@ export default function ChatPanel({ code, name, position }: { code: string; name
           <span className="small strong">{mode === "teacher" ? "ครูอยู่ในแชต" : "ครูผู้ช่วย (AI) ตอบเอง"}</span>
           <span className="xsmall muted">
             {mode === "teacher"
-              ? "AI ไม่ตอบนักเรียนเอง แต่ร่างคำตอบให้ครูตรวจ แก้ หรือทิ้งก่อนส่ง"
+              ? "ขณะที่หน้านี้เปิดอยู่ AI ร่างคำตอบให้ครูตรวจ แก้ หรือทิ้งก่อนส่ง ถ้าปิดหน้านี้ AI ตอบเรื่องบทเรียนให้นักเรียนเอง"
               : "ครูอ่านทุกข้อความได้และพิมพ์แทรกได้ทุกเมื่อ กดเข้าร่วมแชตเพื่อตรวจคำตอบของ AI ก่อนถึงนักเรียน"}
           </span>
         </div>

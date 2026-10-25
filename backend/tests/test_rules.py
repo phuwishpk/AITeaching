@@ -262,6 +262,7 @@ def test_teacher_joins_chat_and_reviews_ai_draft(content):
     teacher = {"Authorization": f"Bearer {issue_token('teacher')}"}
 
     assert client.post("/api/teacher/students/S-10/chat-mode", json={"mode": "teacher"}, headers=teacher).json()["mode"] == "teacher"
+    client.post("/api/teacher/students/S-10/watching", headers=teacher)  # ครูเปิดหน้าแชตนี้อยู่
     reply = client.post("/api/student/sets/QS-1/chat", json={"message": "ทำไมต้องลบ 3"}, headers=student).json()
     assert reply["reply"] is None and reply["to_teacher"]  # AI ไม่ตอบเอง
 
