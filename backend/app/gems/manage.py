@@ -196,6 +196,8 @@ def detail(gem: dict) -> dict:
         "bank": bank,
         "versions": versions.history(gem["id"]) or _first_version(gem),
         "locked_constraints": constraints_frame(),
+        # สิ่งที่ AI อ่านและจดจากไฟล์ความรู้ก่อนสร้างคลังโจทย์รุ่นนี้ (ไม่ส่งต้นฉบับเต็มกลับไปที่หน้าเว็บ)
+        "knowledge": {k: v for k, v in (gem.get("knowledge") or {}).items() if k != "text"} or None,
         "options": {"icons": ICONS, "colors": COLORS, "alert_situations": alerts.catalog()},
     }
 

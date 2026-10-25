@@ -64,7 +64,9 @@ SYSTEM = (
     "ตอบเป็น JSON ตามโครงสร้างที่กำหนดเท่านั้น ห้ามมีข้อความอื่นนอก JSON\n"
     "ใช้ภาษาไทยที่นักเรียนระดับนั้นอ่านเข้าใจ คำใบ้ทุกระดับต้องเป็นคำถามนำแบบโสเครตีสและห้ามบอกคำตอบสุดท้าย "
     "คำใบ้ระดับ 3 แสดงได้แค่ขั้นแรกของวิธีทำ\n"
-    "ทำตามคำสั่งของครูผู้สร้าง Gem และอ้างอิงเนื้อหาจาก <knowledge> เมื่อมี"
+    "ทำตามคำสั่งของครูผู้สร้าง Gem เมื่อมี <knowledge> (เอกสารที่ครูแนบ) ทุกอย่างต้องมาจากเอกสารนั้น: มโนทัศน์ "
+    "ความรู้พื้นฐาน ข้อผิดพลาด โจทย์ และคำใบ้ ใช้คำศัพท์ วิธีคิด และลำดับขั้นแบบที่เอกสารใช้ ห้ามใช้ความรู้นอกเอกสารที่ขัดกับเอกสาร "
+    "ใช้ <memory> (สิ่งที่จดจากเอกสารก่อนสร้าง) เป็นรายการตรวจว่าใช้ครบ"
 )
 
 ITEM_SHAPE = """{
@@ -78,6 +80,7 @@ ITEM_SHAPE = """{
   "expected_time": 45,
   "hints": ["ระดับ 1 สะกิดจุดสังเกต", "ระดับ 2 อธิบายกฎสั้น ๆ", "ระดับ 3 แสดงเฉพาะขั้นแรก"],
   "socratic": ["คำถามนำสั้น ๆ 2 ข้อ"],
+  "source": "ส่วนของเอกสารที่ใช้สร้างข้อนี้ เช่น [ชื่อไฟล์] หัวข้อหรือข้อความสั้น ๆ (ไม่มีเอกสารให้เป็น \"\")",
   "wrong_answers": [{"answer": "คำตอบผิดที่พบบ่อย (mcq ใช้ลำดับตัวเลือก)", "bug": "รหัส Bug Library เช่น M-1", "hints": ["คำใบ้ระดับ 1–3 เฉพาะคำตอบผิดนี้ ใส่เมื่อครูกำหนดไว้ ไม่มีให้เป็น []"]}]
 }"""
 
@@ -98,9 +101,15 @@ def bank_ids(gem_id: str, version: int) -> tuple[str, str]:
 # ไฟล์ความรู้ที่ AI อ่านตอนสร้างคลัง: ส่งเต็มทั้งไฟล์ได้ถึง READ_LIMIT ตัวอักษร (Gemini รับบริบทได้ราว 1 ล้านโทเคน)
 # ยาวกว่านั้นให้ AI สรุปทีละส่วน (DIGEST_SEGMENT ตัวอักษร สูงสุด DIGEST_MAX ส่วน) แล้วใช้บันทึกสรุปทั้งหมดแทน
 # จึงอ่านครบทุกหน้า ไม่ใช่แค่ต้นไฟล์
-READ_LIMIT = 200_000
-DIGEST_SEGMENT = 60_000
-DIGEST_MAX = 16
+READ_LIMIT = 600_000
+CLAUDE_READ_LIMIT = 300_000
+DIGEST_SEGMENT = 100_000
+DIGEST_MAX = 20
+
+
+def read_limit() -> int:
+    """Gemini รับบริบทได้ราว 1 ล้านโทเคน (ภาษาไทยราว 0.8 โทเคนต่อตัวอักษร) Claude รับได้น้อยกว่า"""
+    return READ_LIMIT if settings_store.ai_settings()["active"] == "gemini" else min(READ_LIMIT, CLAUDE_READ_LIMIT)
 
 
 def documents_text(gem_id: str) -> list[tuple[str, str]]:
@@ -108,8 +117,9 @@ def documents_text(gem_id: str) -> list[tuple[str, str]]:
     return [(row["filename"], "\n\n".join(db.loads(row["chunks"], []))) for row in rows]
 
 
-def knowledge_text(gem_id: str, limit: int = READ_LIMIT) -> str:
+def knowledge_text(gem_id: str, limit: int | None = None) -> str:
     """ไฟล์ความรู้ทั้งไฟล์ (ตัดที่ limit) แยกหัวข้อตามชื่อไฟล์"""
+    limit = read_limit() if limit is None else limit
     parts, used = [], 0
     for filename, text in documents_text(gem_id):
         take = text[: max(0, limit - used)]
@@ -135,8 +145,9 @@ async def read_knowledge(gem_id: str) -> dict:
     docs = documents_text(gem_id)
     total = sum(len(text) for _, text in docs)
     base = {"files": len(docs), "chars": total}
-    if total <= READ_LIMIT:
-        return {**base, "mode": "full", "read": total, "text": knowledge_text(gem_id)}
+    if total <= read_limit():
+        reading = {**base, "mode": "full", "read": total, "text": knowledge_text(gem_id)}
+        return {**reading, "memory": await remember(reading["text"])} if docs else reading
     segments = [(name, text[i:i + DIGEST_SEGMENT]) for name, text in docs for i in range(0, len(text), DIGEST_SEGMENT)]
     used = segments[:DIGEST_MAX]
     gate = asyncio.Semaphore(4)
@@ -149,7 +160,41 @@ async def read_knowledge(gem_id: str) -> dict:
 
     notes = await asyncio.gather(*(digest(i, name, seg) for i, (name, seg) in enumerate(used)))
     read = sum(len(seg) for _, seg in used)
-    return {**base, "mode": "digest", "read": read, "segments": len(used), "text": "\n\n".join(notes)}
+    text = "\n\n".join(notes)
+    return {**base, "mode": "digest", "read": read, "segments": len(used), "text": text, "memory": await remember(text)}
+
+
+MEMORY_SHAPE = """{
+  "summary": "เอกสารนี้สอนอะไร ระดับชั้น และแนวทางหลักของครู 2–3 ประโยค",
+  "concepts": [{"name": "มโนทัศน์หรือกฎ", "detail": "สาระสำคัญตามเอกสาร", "source": "[ชื่อไฟล์] หัวข้อ"}],
+  "teacher_items": [{"problem": "โจทย์ที่ครูเขียนไว้ คัดลอกตรงตัว", "answer": "เฉลยตามเอกสาร", "source": "[ชื่อไฟล์] หัวข้อ"}],
+  "misconceptions": [{"name": "ข้อผิดพลาด", "example": "ตัวอย่างคำตอบผิดตามเอกสาร", "source": "[ชื่อไฟล์] หัวข้อ"}],
+  "teaching": ["แนวทางการสอน ลำดับขั้น หรือคำใบ้ที่ครูกำหนด"]
+}"""
+
+
+async def remember(knowledge: str) -> dict | None:
+    """ขั้น "จำ" ก่อนสร้างโจทย์: AI อ่านเอกสารทั้งหมดแล้วจดสิ่งที่ต้องใช้ ครูตรวจได้ในหน้า Gem
+    และใช้เป็นรายการตรวจตอนสร้างโจทย์ จดไม่สำเร็จก็สร้างต่อได้จากต้นฉบับ"""
+    try:
+        raw = await ask_json("memory", (
+            "อ่านเอกสารที่ครูแนบใน <knowledge> ทั้งหมดอย่างละเอียด แล้วจดทุกอย่างที่ต้องใช้สร้างบทเรียน "
+            "ครบทุกไฟล์และทุกหัวข้อ โจทย์ เฉลย และตัวอย่างคำตอบผิดที่ครูเขียนให้คัดลอกตรงตัว ตอบเป็น JSON:\n"
+            f"{MEMORY_SHAPE}\n<knowledge>\n{knowledge}\n</knowledge>"), 12000)
+    except BuildError:
+        return None
+    if not isinstance(raw, dict):
+        return None
+    def rows(key: str) -> list:
+        return [r for r in raw.get(key) or [] if r][:40]
+    return {"summary": _plain_text(raw.get("summary"))[:600], "concepts": rows("concepts"), "teacher_items": rows("teacher_items"),
+            "misconceptions": rows("misconceptions"), "teaching": [_plain_text(t) for t in rows("teaching")]}
+
+
+def memory_block(memory: dict | None) -> str:
+    if not memory:
+        return ""
+    return "<memory>\nสิ่งที่จดจากเอกสารก่อนสร้าง ต้องใช้ให้ครบ:\n" + json.dumps(memory, ensure_ascii=False) + "\n</memory>"
 
 
 def reading_note(reading: dict) -> str | None:
@@ -208,7 +253,7 @@ async def ask_json(step: str, user: str, max_tokens: int = 12000) -> dict | list
     for attempt in range(len(RETRY_DELAYS) + 1):
         if attempt:
             await asyncio.sleep(RETRY_DELAYS[attempt - 1])
-        result, errors = await service._call(SYSTEM, user, max_tokens=max_tokens, json_mode=True, timeout=180.0,
+        result, errors = await service._call(SYSTEM, user, max_tokens=max_tokens, json_mode=True, timeout=300.0,
                                              backup_models=GEMINI_BACKUPS)
         service._log(None, f"gem_{step}", frames, None, result, result.text[:4000] if result else "", None, errors)
         if result is None:
@@ -366,6 +411,7 @@ def to_item(raw: dict, item_id: str, concept: str, kind: str, bug_ids: set[str])
         "expected_time": int(_clamp(raw.get("expected_time"), 10, 300, 45)),
         "min_read_time": max(2, min(8, round(len(str(raw["prompt"])) / 40) + 2)),
         "socratic": [_plain_text(s) for s in raw.get("socratic") or [] if _plain_text(s)][:3],
+        "source": _plain_text(raw.get("source"))[:200],
     }
     hints = [_plain_text(h) for h in raw.get("hints") or [] if _plain_text(h)][:3]
     hints += FALLBACK_HINTS[len(hints):]
@@ -642,7 +688,8 @@ async def build(gem_id: str) -> None:
 
         _progress(gem, "read")
         reading = await part("knowledge", lambda: read_knowledge(gem_id))
-        knowledge = reading["text"]
+        # ต้นฉบับก่อน (ส่วนที่เหมือนกันทุกคำขอ Gemini แคชให้) แล้วตามด้วยสิ่งที่จดไว้เป็นรายการตรวจ
+        knowledge = "\n\n".join(p for p in (reading["text"], memory_block(reading.get("memory"))) if p)
         _progress(gem, "read", "done")
 
         _progress(gem, "plan")
@@ -726,6 +773,11 @@ async def build(gem_id: str) -> None:
         note = reading_note(reading)
         if note:
             gem["build"]["warnings"].insert(0, note)
+            mains = [it for it in subject["items"] if it["kind"] in ("main", "challenge")]
+            cited = sum(1 for it in mains if it.get("source"))
+            gem["build"]["warnings"].insert(1, f"โจทย์หลักและโจทย์ท้าทาย {cited}/{len(mains)} ข้อระบุส่วนของเอกสารที่ใช้สร้าง")
+            if reading.get("files") and not reading.get("memory"):
+                gem["build"]["warnings"].insert(1, "AI จดสิ่งที่จำจากเอกสารไม่สำเร็จ สร้างจากต้นฉบับโดยตรงแทน")
         if flow and flow.get("mode") == "custom":
             gem["build"]["warnings"].append("AI ออกแบบ Flow การสอนจากคำสั่งแล้ว ตรวจและปรับได้ในแท็บ Flow")
         elif (gem.get("flow") or {}).get("source") == "teacher":

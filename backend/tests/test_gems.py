@@ -676,8 +676,19 @@ def test_long_knowledge_files_are_read_in_full_or_digested(monkeypatch):
 
     gem = manage.create({"name": "อ่านเอกสาร"}, "teacher")
     seed.add_document(gem["id"], "short.md", "กฎ PEMDAS: คูณและหารทำจากซ้ายไปขวา")
+    seen = []
+
+    async def fake_ask(step, user, max_tokens=12000):
+        seen.append(step)
+        if step == "memory":
+            return {"summary": "สอน PEMDAS", "concepts": [{"name": "คูณหารซ้ายไปขวา", "source": "[short.md]"}]}
+        return {"notes": "ท้ายไฟล์บอกว่าวงเล็บเหลี่ยมทำก่อน" if "ความลับท้ายไฟล์" in user else "บันทึก"}
+
+    monkeypatch.setattr(builder, "ask_json", fake_ask)
     reading = asyncio.run(builder.read_knowledge(gem["id"]))
     assert reading["mode"] == "full" and reading["read"] == reading["chars"]
+    # ขั้น "จำ": AI จดสิ่งที่ต้องใช้จากเอกสารก่อนสร้างโจทย์ และส่งต่อเป็นรายการตรวจ
+    assert reading["memory"]["summary"] == "สอน PEMDAS" and "<memory>" in builder.memory_block(reading["memory"])
     # ไฟล์สั้น: ตอนสอนส่งให้ AI ทั้งไฟล์ ไม่ต้องเดาว่าย่อหน้าไหนเกี่ยว
     terms, docs = service._retrieve({"id": "x", "gem": {"id": gem["id"]}}, "เรื่องอื่นเลย")
     assert docs and "ซ้ายไปขวา" in docs[0]["text"]
@@ -687,16 +698,11 @@ def test_long_knowledge_files_are_read_in_full_or_digested(monkeypatch):
     monkeypatch.setattr(builder, "DIGEST_SEGMENT", 2000)
     long_text = "\n\n".join(f"ย่อหน้าที่ {i} เนื้อหาบทเรียนเรื่องลำดับการดำเนินการ" for i in range(300)) + "\n\nความลับท้ายไฟล์: วงเล็บเหลี่ยมทำก่อน"
     seed.add_document(gem["id"], "long.md", long_text)
-    seen = []
-
-    async def fake_ask(step, user, max_tokens=12000):
-        seen.append(user)
-        return {"notes": "ท้ายไฟล์บอกว่าวงเล็บเหลี่ยมทำก่อน" if "ความลับท้ายไฟล์" in user else "บันทึก"}
-
-    monkeypatch.setattr(builder, "ask_json", fake_ask)
+    seen.clear()
     reading = asyncio.run(builder.read_knowledge(gem["id"]))
     assert reading["mode"] == "digest" and reading["read"] == reading["chars"]
-    assert "วงเล็บเหลี่ยมทำก่อน" in reading["text"] and len(seen) == reading["segments"]
+    assert "วงเล็บเหลี่ยมทำก่อน" in reading["text"] and seen.count("digest") == reading["segments"]
+    assert seen[-1] == "memory" and reading["memory"]
     assert "100%" in builder.reading_note(reading)
 
 

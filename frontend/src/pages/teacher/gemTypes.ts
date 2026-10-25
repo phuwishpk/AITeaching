@@ -103,7 +103,24 @@ export interface GemDetail {
   } | null;
   versions: GemVersion[];
   locked_constraints: string;
+  knowledge: GemKnowledge | null;
   options: { icons: string[]; colors: string[] };
+}
+
+// สิ่งที่ AI อ่านและจดจากไฟล์ความรู้ก่อนสร้างโจทย์ (backend/app/gems/builder.py › read_knowledge)
+export interface GemKnowledge {
+  mode: "full" | "digest";
+  files: number;
+  chars: number;
+  read: number;
+  segments?: number;
+  memory: {
+    summary: string;
+    concepts: { name: string; detail?: string; source?: string }[];
+    teacher_items: { problem: string; answer?: string; source?: string }[];
+    misconceptions: { name: string; example?: string; source?: string }[];
+    teaching: string[];
+  } | null;
 }
 
 export interface GemVersion {

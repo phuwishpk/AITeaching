@@ -23,6 +23,7 @@ interface BankRow {
   iso_of: string | null;
   isomorphs: string[];
   flag: { reasons: string[]; suggested?: string } | null;
+  source: string | null;
   live: boolean | null;
   status: Status;
   answer_text: string;
@@ -160,6 +161,7 @@ export default function GemItems({ gemId, onChanged }: { gemId: string; onChange
             <span className="xsmall">
               เฉลย: <span className="strong">{it.answer_text}</span>
             </span>
+            {it.source && <span className="xsmall faint">อ้างอิงเอกสาร: {it.source}</span>}
             {it.flag && (
               <ul className="gem-flag-reasons">
                 {it.flag.reasons.map((r) => (

@@ -4188,3 +4188,36 @@ button.route-node:hover {
   border: 1px solid var(--border);
   border-radius: 10px;
 }
+
+/* สิ่งที่ AI จำจากเอกสารก่อนสร้างโจทย์ */
+.gem-memory {
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: var(--surface-2);
+}
+
+.gem-memory-head {
+  width: 100%;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 12px;
+  border: 0;
+  background: none;
+  font: inherit;
+  color: inherit;
+  cursor: pointer;
+}
+
+.gem-memory-body {
+  padding: 0 12px 12px;
+}
+
+.gem-memory-list {
+  margin: 0;
+  padding-left: 18px;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}

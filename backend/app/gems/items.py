@@ -46,7 +46,7 @@ def listing(gem_id: str) -> dict:
     for it in subject["items"]:
         rows.append({
             **{k: it.get(k) for k in ("id", "kind", "format", "prompt", "math", "options", "answer", "hints",
-                                      "difficulty", "concept", "iso_of", "isomorphs", "flag", "live")},
+                                      "difficulty", "concept", "iso_of", "isomorphs", "flag", "live", "source")},
             "status": status(it), "answer_text": answer_display(it), "concept_name": concepts.get(it["concept"]),
             # คำตอบผิดที่ระบบรู้จักในข้อนี้ (Bug Library) และคำใบ้เฉพาะคำตอบผิดนั้น ถ้าครูกำหนดไว้
             "bugs": [{"answer": b["answer"], "tag": b["tag"], "type": (tags.get(b["tag"]) or {}).get("type"),

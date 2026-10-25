@@ -692,6 +692,56 @@ function BuildSteps({ steps }: { steps: { id: string; label: string; status: str
   );
 }
 
+// ขั้น "จำ" ก่อนสร้างโจทย์: สิ่งที่ AI อ่านและจดจากไฟล์ความรู้ ครูตรวจได้ว่า AI จำครบไหม
+function Remembered({ knowledge }: { knowledge: NonNullable<GemDetail["knowledge"]> }) {
+  const [open, setOpen] = useState(false);
+  const m = knowledge.memory;
+  const share = knowledge.chars ? Math.round((100 * knowledge.read) / knowledge.chars) : 100;
+  return (
+    <div className="gem-memory">
+      <button type="button" className="gem-memory-head" onClick={() => setOpen(!open)} aria-expanded={open}>
+        <span className="stack" style={{ gap: 2, textAlign: "left" }}>
+          <span className="small strong">AI จำอะไรจากเอกสารก่อนสร้างโจทย์</span>
+          <span className="xsmall muted">
+            อ่าน {knowledge.files} ไฟล์ {knowledge.chars.toLocaleString()} ตัวอักษร ({share}%
+            {knowledge.mode === "digest" ? ` สรุปทีละส่วน ${knowledge.segments} ส่วน` : " อ่านต้นฉบับเต็ม"})
+            {m ? ` · ${m.concepts.length} มโนทัศน์ ${m.teacher_items.length} โจทย์ของครู ${m.misconceptions.length} ข้อผิดพลาด` : ""}
+          </span>
+        </span>
+        <span className="xsmall faint">{open ? "ซ่อน" : "ดู"}</span>
+      </button>
+      {open && m && (
+        <div className="stack stack-sm gem-memory-body">
+          {m.summary && <p className="small">{m.summary}</p>}
+          <MemoryList title="มโนทัศน์และกฎ" rows={m.concepts.map((c) => [c.name, c.detail, c.source])} />
+          <MemoryList title="โจทย์ที่ครูเขียนไว้" rows={m.teacher_items.map((t) => [t.problem, t.answer ? `เฉลย ${t.answer}` : "", t.source])} />
+          <MemoryList title="ข้อผิดพลาดที่เอกสารพูดถึง" rows={m.misconceptions.map((x) => [x.name, x.example, x.source])} />
+          <MemoryList title="แนวทางการสอนของครู" rows={m.teaching.map((t) => [t, "", ""])} />
+        </div>
+      )}
+      {open && !m && <p className="xsmall muted gem-memory-body">AI จดสิ่งที่จำไม่สำเร็จในรอบนี้ ใช้ต้นฉบับสร้างโจทย์โดยตรง</p>}
+    </div>
+  );
+}
+
+function MemoryList({ title, rows }: { title: string; rows: (string | undefined)[][] }) {
+  if (!rows.length) return null;
+  return (
+    <div className="stack" style={{ gap: 4 }}>
+      <span className="xsmall strong">{title}</span>
+      <ul className="gem-memory-list">
+        {rows.map(([main, detail, source], i) => (
+          <li key={i} className="xsmall">
+            <span className="strong">{main}</span>
+            {detail ? ` — ${detail}` : ""}
+            {source ? <span className="faint"> · {source}</span> : null}
+          </li>
+        ))}
+      </ul>
+    </div>
+  );
+}
+
 function Bank({ gem, onRebuild, onReload }: { gem: GemDetail; onRebuild: () => void; onReload: () => void }) {
   const navigate = useNavigate();
   const bank = gem.bank!;
@@ -712,6 +762,7 @@ function Bank({ gem, onRebuild, onReload }: { gem: GemDetail; onRebuild: () => v
   const notes = [...(gem.build.errors ?? []), ...(gem.build.warnings ?? []).filter((w) => !w.startsWith("ติดธง"))];
   return (
     <div className="stack stack-lg">
+      {gem.knowledge && gem.knowledge.files > 0 && <Remembered knowledge={gem.knowledge} />}
       <div className="stack stack-sm">
         <span className="spread">
           <span className="small strong">คลังโจทย์รุ่นที่ {gem.bank_version}</span>
