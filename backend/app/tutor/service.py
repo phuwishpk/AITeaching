@@ -65,11 +65,19 @@ def _log(code: str | None, purpose: str, frames: dict | None, retrieved: list | 
     return cursor.lastrowid
 
 
-def _retrieve(subject: dict, query: str, k: int = 2) -> tuple[list[str], list[dict]]:
+# ไฟล์ความรู้สั้น (รวมไม่เกิน WHOLE_DOC ตัวอักษร) ส่งทั้งหมดทุกครั้ง ไม่ต้องเดาว่าย่อหน้าไหนเกี่ยว
+# ยาวกว่านั้นค้นด้วย BM25 แล้วส่ง RETRIEVE_K ย่อหน้าที่ตรงที่สุด
+WHOLE_DOC = 8000
+RETRIEVE_K = 5
+
+
+def _retrieve(subject: dict, query: str, k: int = RETRIEVE_K) -> tuple[list[str], list[dict]]:
     # Knowledge File ของ Gem ผูกกับตัว Gem ใช้ร่วมกันทุกรุ่นของคลังโจทย์
     index = rag.get_index((subject.get("gem") or {}).get("id") or subject["id"])
-    if not index:
+    if not index or not index.docs:
         return [], []
+    if sum(len(d["text"]) for d in index.docs) <= WHOLE_DOC:
+        return rag.tokenize(query), [{"filename": d["filename"], "text": d["text"], "score": None} for d in index.docs]
     return index.search(query, k)
 
 
@@ -110,10 +118,11 @@ async def generate_hint(subject: dict, item: dict, concept_name: str, level: int
 
 
 async def chat_reply(subject: dict, item: dict | None, concept_name: str, student: dict, message: str,
-                     tag: dict | None, hints_shown: list[str], fallback: str, code: str | None) -> dict:
+                     tag: dict | None, hints_shown: list[str], fallback: str, code: str | None,
+                     history: list[dict] | None = None) -> dict:
     query = " ".join(filter(None, [message, item.get("prompt") if item else None, concept_name]))
     terms, docs = _retrieve(subject, query)
-    built = prompt.chat_prompt(subject, item, concept_name, student, message, tag, docs, hints_shown)
+    built = prompt.chat_prompt(subject, item, concept_name, student, message, tag, docs, hints_shown, history)
     result, errors = await _call(built["system"], built["user"])
     retrieved = {"query_terms": terms[:30], "documents": docs, "tag": tag["id"] if tag else None}
     if result is None:

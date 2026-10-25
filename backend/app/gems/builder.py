@@ -27,6 +27,7 @@ from . import flowspec, verify, versions
 log = logging.getLogger(__name__)
 
 STEPS = [
+    ("read", "อ่านไฟล์ความรู้"),
     ("plan", "วางแผนผังความรู้และ Bug Library"),
     ("items", "สร้างโจทย์หลักและข้อคู่ขนาน"),
     ("extras", "สร้างโจทย์ทบทวนพื้นฐานและโจทย์ท้าทาย"),
@@ -94,16 +95,71 @@ def bank_ids(gem_id: str, version: int) -> tuple[str, str]:
     return subject_id, f"{subject_id}-set"
 
 
-def knowledge_text(gem_id: str, limit: int = 12000) -> str:
+# ไฟล์ความรู้ที่ AI อ่านตอนสร้างคลัง: ส่งเต็มทั้งไฟล์ได้ถึง READ_LIMIT ตัวอักษร (Gemini รับบริบทได้ราว 1 ล้านโทเคน)
+# ยาวกว่านั้นให้ AI สรุปทีละส่วน (DIGEST_SEGMENT ตัวอักษร สูงสุด DIGEST_MAX ส่วน) แล้วใช้บันทึกสรุปทั้งหมดแทน
+# จึงอ่านครบทุกหน้า ไม่ใช่แค่ต้นไฟล์
+READ_LIMIT = 200_000
+DIGEST_SEGMENT = 60_000
+DIGEST_MAX = 16
+
+
+def documents_text(gem_id: str) -> list[tuple[str, str]]:
     rows = db.query("SELECT filename, chunks FROM documents WHERE subject_id = ? ORDER BY uploaded_at", (gem_id,))
+    return [(row["filename"], "\n\n".join(db.loads(row["chunks"], []))) for row in rows]
+
+
+def knowledge_text(gem_id: str, limit: int = READ_LIMIT) -> str:
+    """ไฟล์ความรู้ทั้งไฟล์ (ตัดที่ limit) แยกหัวข้อตามชื่อไฟล์"""
     parts, used = [], 0
-    for row in rows:
-        for chunk in db.loads(row["chunks"], []):
-            if used + len(chunk) > limit:
-                return "\n".join(parts)
-            parts.append(f"[{row['filename']}] {chunk}")
-            used += len(chunk)
-    return "\n".join(parts)
+    for filename, text in documents_text(gem_id):
+        take = text[: max(0, limit - used)]
+        if not take:
+            break
+        parts.append(f"### ไฟล์: {filename}\n{take}")
+        used += len(take)
+    return "\n\n".join(parts)
+
+
+def digest_prompt(filename: str, segment: str, index: int, total: int) -> str:
+    return (
+        f"นี่คือส่วนที่ {index} จาก {total} ของไฟล์ความรู้ที่ครูแนบให้ Gem ({filename}) ระบบจะใช้บันทึกของคุณแทนต้นฉบับตอนสร้างบทเรียน "
+        "จดทุกประเด็นที่ใช้สอนให้ครบ: มโนทัศน์ นิยาม กฎ ลำดับขั้นวิธีทำ ตัวอย่าง ความรู้พื้นฐานที่ต้องรู้ก่อน "
+        "ข้อผิดพลาดที่พบบ่อยและสาเหตุ และแนวทางการสอนหรือคำใบ้ของครู "
+        "โจทย์ เฉลย ตาราง คำตอบผิด และแนวทางคำใบ้ที่ครูเขียนไว้ ให้คัดลอกตรงตัวทุกตัวอักษร ห้ามสรุปย่อ\n"
+        f'ตอบเป็น JSON: {{"notes": "บันทึกเป็นข้อความธรรมดา แบ่งหัวข้อได้"}}\n<knowledge>\n{segment}\n</knowledge>'
+    )
+
+
+async def read_knowledge(gem_id: str) -> dict:
+    """อ่านไฟล์ความรู้ทั้งหมดของ Gem คืนข้อความที่ส่งให้ AI พร้อมสถิติว่าอ่านครอบคลุมแค่ไหน"""
+    docs = documents_text(gem_id)
+    total = sum(len(text) for _, text in docs)
+    base = {"files": len(docs), "chars": total}
+    if total <= READ_LIMIT:
+        return {**base, "mode": "full", "read": total, "text": knowledge_text(gem_id)}
+    segments = [(name, text[i:i + DIGEST_SEGMENT]) for name, text in docs for i in range(0, len(text), DIGEST_SEGMENT)]
+    used = segments[:DIGEST_MAX]
+    gate = asyncio.Semaphore(4)
+
+    async def digest(i: int, name: str, segment: str) -> str:
+        async with gate:
+            raw = await ask_json("digest", digest_prompt(name, segment, i + 1, len(used)), 8000)
+        notes = raw.get("notes") if isinstance(raw, dict) else None
+        return f"### สรุปส่วนที่ {i + 1} ({name})\n{str(notes or '').strip()}"
+
+    notes = await asyncio.gather(*(digest(i, name, seg) for i, (name, seg) in enumerate(used)))
+    read = sum(len(seg) for _, seg in used)
+    return {**base, "mode": "digest", "read": read, "segments": len(used), "text": "\n\n".join(notes)}
+
+
+def reading_note(reading: dict) -> str | None:
+    if not reading.get("files"):
+        return None
+    share = 100 if not reading["chars"] else round(100 * reading["read"] / reading["chars"])
+    if reading["mode"] == "full":
+        return f"AI อ่านไฟล์ความรู้ครบ {reading['files']} ไฟล์ {reading['chars']:,} ตัวอักษร (100%)"
+    return (f"ไฟล์ความรู้ยาว {reading['chars']:,} ตัวอักษร AI สรุปทีละส่วน {reading['segments']} ส่วนก่อนสร้างบทเรียน "
+            f"อ่านครอบคลุม {share}%" + ("" if share >= 100 else " ส่วนท้ายที่เกินไม่ได้อ่าน แยกเป็นหลาย Gem จะอ่านได้ครบ"))
 
 
 def gem_brief(gem: dict, knowledge: str) -> str:
@@ -572,7 +628,6 @@ async def build(gem_id: str) -> None:
     db.save_gem(gem)
     try:
         sizes = bank_sizes()
-        knowledge = knowledge_text(gem_id)
         # ผลของขั้นที่เคยผ่านแล้วใช้ซ้ำได้ ถ้าคำสั่งและไฟล์ยังเหมือนเดิม กดสร้างใหม่จึงทำต่อจากขั้นที่ค้าง
         key = _draft_key(gem, sizes)
         if (gem.get("draft") or {}).get("key") != key:
@@ -584,6 +639,11 @@ async def build(gem_id: str) -> None:
                 parts[name] = await make()
                 db.save_gem(gem)
             return parts[name]
+
+        _progress(gem, "read")
+        reading = await part("knowledge", lambda: read_knowledge(gem_id))
+        knowledge = reading["text"]
+        _progress(gem, "read", "done")
 
         _progress(gem, "plan")
         plan = normalize_plan(await part("plan", lambda: ask_json("plan", plan_prompt(gem, knowledge, sizes), 8000)))
@@ -660,6 +720,12 @@ async def build(gem_id: str) -> None:
         )
         if flagged:
             gem["build"]["warnings"].insert(0, f"ติดธง {len(flagged)} ข้อ ซ่อนจากนักเรียนจนกว่าครูยืนยัน")
+        # สิ่งที่ AI อ่านจากไฟล์ความรู้ เก็บไว้ใช้ตอนสร้างโจทย์สดด้วย และบอกครูว่าอ่านครอบคลุมแค่ไหน
+        gem["knowledge"] = {k: reading[k] for k in reading}
+        gem["build"]["reading"] = {k: v for k, v in reading.items() if k != "text"}
+        note = reading_note(reading)
+        if note:
+            gem["build"]["warnings"].insert(0, note)
         if flow and flow.get("mode") == "custom":
             gem["build"]["warnings"].append("AI ออกแบบ Flow การสอนจากคำสั่งแล้ว ตรวจและปรับได้ในแท็บ Flow")
         elif (gem.get("flow") or {}).get("source") == "teacher":
@@ -711,7 +777,8 @@ async def generate_items(subject_id: str, request: dict, review: str) -> list[st
     level = int(request.get("difficulty", 50))
     band = f"{max(0, level - 15) / 100:.2f}–{min(100, level + 15) / 100:.2f}"
     existing = "\n".join(f"- {it.get('math') or it['prompt']}" for it in subject["items"] if it["kind"] in ("main", "isomorphic"))
-    prompt = (items_prompt(gem, knowledge_text(gem["id"]), plan, int(request.get("count", 2)), band, 9)
+    knowledge = (gem.get("knowledge") or {}).get("text") or knowledge_text(gem["id"])
+    prompt = (items_prompt(gem, knowledge, plan, int(request.get("count", 2)), band, 9)
               + f"\n\nโจทย์ที่มีอยู่แล้ว ห้ามซ้ำ:\n{existing}")
     raw = await ask_json("live", prompt)
     bug_ids = {b["id"] for b in subject["bug_tags"]}

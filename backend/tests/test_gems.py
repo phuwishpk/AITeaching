@@ -177,7 +177,7 @@ def test_build_retries_then_reports_ai_failure(monkeypatch):
     asyncio.run(builder.build(gem["id"]))
     build = manage.get(gem["id"])["build"]
     assert build["status"] == "error" and "Gemini" in build["error"]
-    assert build["steps"][0]["status"] == "error"
+    assert next(s for s in build["steps"] if s["id"] == "plan")["status"] == "error"
     assert len(attempts) == 3  # ลองใหม่ 2 ครั้งก่อนยอมแพ้
 
 
@@ -669,3 +669,48 @@ def test_prerequisite_by_name_and_sympy_suggested_answer(monkeypatch):
                             "G-05", "C-T", "main", {"M-1"})
     builder.apply_checks([wrong], {0: 31})
     assert wrong["flag"]["suggested"] == "31"
+
+
+def test_long_knowledge_files_are_read_in_full_or_digested(monkeypatch):
+    from app import seed
+
+    gem = manage.create({"name": "อ่านเอกสาร"}, "teacher")
+    seed.add_document(gem["id"], "short.md", "กฎ PEMDAS: คูณและหารทำจากซ้ายไปขวา")
+    reading = asyncio.run(builder.read_knowledge(gem["id"]))
+    assert reading["mode"] == "full" and reading["read"] == reading["chars"]
+    # ไฟล์สั้น: ตอนสอนส่งให้ AI ทั้งไฟล์ ไม่ต้องเดาว่าย่อหน้าไหนเกี่ยว
+    terms, docs = service._retrieve({"id": "x", "gem": {"id": gem["id"]}}, "เรื่องอื่นเลย")
+    assert docs and "ซ้ายไปขวา" in docs[0]["text"]
+
+    # ไฟล์ยาวเกินที่ส่งได้ในครั้งเดียว: สรุปทีละส่วนจนครบ และส่วนท้ายสุดต้องถูกอ่านด้วย
+    monkeypatch.setattr(builder, "READ_LIMIT", 3000)
+    monkeypatch.setattr(builder, "DIGEST_SEGMENT", 2000)
+    long_text = "\n\n".join(f"ย่อหน้าที่ {i} เนื้อหาบทเรียนเรื่องลำดับการดำเนินการ" for i in range(300)) + "\n\nความลับท้ายไฟล์: วงเล็บเหลี่ยมทำก่อน"
+    seed.add_document(gem["id"], "long.md", long_text)
+    seen = []
+
+    async def fake_ask(step, user, max_tokens=12000):
+        seen.append(user)
+        return {"notes": "ท้ายไฟล์บอกว่าวงเล็บเหลี่ยมทำก่อน" if "ความลับท้ายไฟล์" in user else "บันทึก"}
+
+    monkeypatch.setattr(builder, "ask_json", fake_ask)
+    reading = asyncio.run(builder.read_knowledge(gem["id"]))
+    assert reading["mode"] == "digest" and reading["read"] == reading["chars"]
+    assert "วงเล็บเหลี่ยมทำก่อน" in reading["text"] and len(seen) == reading["segments"]
+    assert "100%" in builder.reading_note(reading)
+
+
+def test_chat_prompt_remembers_the_conversation():
+    built = prompt.chat_prompt({"name": "คณิต"}, None, "PEMDAS", {}, "แล้วต่อไปทำอะไร", None, [], [],
+                               [{"sender": "student", "text": "หาร 12 ด้วย 2 ก่อนใช่ไหม"},
+                                {"sender": "tutor", "text": "ใช่ แล้วได้เท่าไรนะ"}])
+    assert "<history>" in built["user"] and "หาร 12 ด้วย 2 ก่อนใช่ไหม" in built["user"]
+
+
+def test_chat_memory_stays_within_the_same_gem():
+    db.execute("INSERT INTO messages (ts, code, set_id, sender, text) VALUES (1, 'S-50', 'gem-aaa-b1-set', 'student', 'คุยเรื่องเศษส่วน')")
+    db.execute("INSERT INTO messages (ts, code, set_id, sender, text) VALUES (2, 'S-50', 'gem-bbb-b1-set', 'student', 'คุยเรื่องสมการ')")
+    db.execute("INSERT INTO messages (ts, code, set_id, sender, text) VALUES (3, 'S-50', 'gem-bbb-b2-set', 'tutor', 'ตอบเรื่องสมการ')")
+    db.execute("INSERT INTO messages (ts, code, set_id, sender, text) VALUES (4, 'S-50', 'gem-bbb-b2-set', 'student', 'ข้อความล่าสุด')")
+    memory = services.chat_memory("S-50", "gem-bbb-b2-set")
+    assert [m["text"] for m in memory] == ["คุยเรื่องสมการ", "ตอบเรื่องสมการ"]

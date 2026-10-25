@@ -82,8 +82,17 @@ def hint_prompt(subject: dict, item: dict, concept_name: str, level: int, studen
     return _assemble(role_frame(subject), context, task, constraints_frame())
 
 
+SPEAKER = {"student": "นักเรียน", "tutor": "ครูผู้ช่วย (AI)", "teacher": "ครู", "system": "ระบบ"}
+
+
+def history_block(history: list[dict] | None) -> str:
+    """บทสนทนาก่อนหน้า (ล่าสุดอยู่ท้าย) ให้ AI จำได้ว่าคุยอะไรกันไปแล้ว ไม่ถามซ้ำและต่อเนื่องจากเดิม"""
+    lines = [f"{SPEAKER.get(m['sender'], m['sender'])}: {str(m['text'])[:400]}" for m in history or [] if m.get("text")]
+    return "<history>\n" + "\n".join(lines) + "\n</history>\n" if lines else ""
+
+
 def chat_prompt(subject: dict, item: dict | None, concept_name: str, student: dict, message: str,
-                tag: dict | None, docs: list[dict], hints_shown: list[str]) -> dict:
+                tag: dict | None, docs: list[dict], hints_shown: list[str], history: list[dict] | None = None) -> dict:
     item_line = f"โจทย์ปัจจุบัน: {item['prompt']} {item.get('math') or ''}" if item else "ตอนนี้ไม่มีโจทย์ที่กำลังทำ"
     shown = "\n".join(f"- {h}" for h in hints_shown) or "- ยังไม่มี"
     context = (
@@ -91,10 +100,12 @@ def chat_prompt(subject: dict, item: dict | None, concept_name: str, student: di
         f"ตอบผิดในข้อนี้แล้ว {student.get('error_count', 0)} ครั้ง\n"
         f"คำใบ้ที่นักเรียนเห็นแล้ว:\n{shown}\n"
         + _context_block(tag, docs, None)
-        + f"\n<student_message>{message}</student_message>"
+        + "\n" + history_block(history)
+        + f"<student_message>{message}</student_message>"
     )
     task = (
         "ตอบข้อความของนักเรียนแบบโสเครตีส: ถามกลับให้นักเรียนคิดขั้นถัดไปเอง ใน 2–3 ประโยค "
+        "ต่อเนื่องจากบทสนทนาใน <history> ไม่ถามคำถามเดิมซ้ำ "
         "ถ้านักเรียนถามนอกเรื่องหรือขอคำตอบ ให้ชวนกลับมาที่ขั้นที่กำลังทำอยู่"
     )
     return _assemble(role_frame(subject), context, task, constraints_frame())

@@ -33,6 +33,9 @@ DISTRESS_REPLY = {
 }
 
 
+CHAT_MEMORY = 12
+
+
 class NotFound(Exception):
     pass
 
@@ -400,8 +403,9 @@ async def chat(code: str, set_id: str, message: str) -> dict:
         student = _student_vars(state)
         persist(state, fx, ctx.now)
     if ai_enabled_for(code):
+        history = chat_memory(code, set_id)
         reply = await tutor.chat_reply(content.subject, it, content.concept_name(it["concept"]) if it else "",
-                                       student, scrubbed, tag, [h for h in hints_shown if h], fallback, code)
+                                       student, scrubbed, tag, [h for h in hints_shown if h], fallback, code, history)
     else:
         reply = {"text": fallback, "source": "authored"}
     if ai_failed(reply):
@@ -588,6 +592,15 @@ def messages_for(code: str, limit: int = 80, include_drafts: bool = False) -> li
     hide = "" if include_drafts else "AND sender != 'draft'"
     rows = db.query(f"SELECT * FROM messages WHERE code = ? {hide} ORDER BY ts DESC, id DESC LIMIT ?", (code, limit))
     return list(reversed(rows))
+
+
+def chat_memory(code: str, set_id: str) -> list[dict]:
+    """บทสนทนาล่าสุดใน Gem เดียวกัน (ทุกรุ่นของคลัง) ให้ AI จำได้ ไม่รวมข้อความที่เพิ่งส่ง และไม่ปนแชตของบทเรียนอื่น"""
+    gem_prefix = set_id.split("-b")[0] if set_id.startswith("gem-") else set_id
+    rows = db.query("SELECT sender, text, set_id FROM messages WHERE code = ? AND sender != 'draft' "
+                    "AND (set_id = ? OR set_id LIKE ? OR set_id IS NULL) ORDER BY ts DESC, id DESC LIMIT ?",
+                    (code, set_id, f"{gem_prefix}-b%", CHAT_MEMORY + 1))
+    return list(reversed(rows))[:-1]
 
 
 def teacher_history(code: str, before: float | None = None, limit: int = 60, hints: bool = True) -> dict:
