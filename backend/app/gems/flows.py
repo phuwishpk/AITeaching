@@ -89,7 +89,7 @@ async def write_widget(gem_id: str, step_id: str, actor: str) -> dict:
     if not step or step["kind"] != "widget" or step["widget"] != "custom":
         raise manage.GemError("ขั้นนี้ไม่ใช่ Widget ที่ AI เขียนเอง (บันทึก Flow ก่อนแล้วลองใหม่)")
     try:
-        html = await flowspec.write_widget(gem, step, (gem.get("knowledge") or {}).get("memory"))
+        html = await flowspec.write_widget(gem, step, (gem.get("knowledge") or {}).get("memory"), _items(gem))
     except builder.BuildError as error:
         raise manage.GemError(str(error)) from error
     gem = manage.get(gem_id)

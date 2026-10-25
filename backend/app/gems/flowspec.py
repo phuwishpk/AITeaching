@@ -14,6 +14,7 @@ from ..config import DEFAULT_PARAMS, PARAM_LABELS
 from ..engine import conditions
 from ..engine import flow as F
 from ..engine import widgets as W
+from ..engine.answers import normalize as plain
 from ..engine.gemflow import PICKS, STUCK_LIMIT, features  # noqa: F401 (หน้าเว็บใช้ผ่าน flowspec)
 
 KINDS = {
@@ -173,7 +174,8 @@ def normalize(raw: dict) -> tuple[dict, list[str]]:
         kind = s.get("kind") if s.get("kind") in KINDS else None
         if kind is None:
             raise FlowError(f"ขั้น \"{original}\" ใช้ชนิด \"{s.get('kind')}\" ที่ engine ไม่รู้จัก")
-        step = {"id": sid, "kind": kind, "label": _text(s.get("label"), 40) or KINDS[kind]["label"]}
+        # ไม่มีชื่อขั้น: ใช้หัวข้อที่นักเรียนเห็นก่อนชื่อชนิดขั้น (เช่น "ต้นไม้นิพจน์" แทน "Widget")
+        step = {"id": sid, "kind": kind, "label": _text(s.get("label"), 40) or _text(s.get("title"), 40) or KINDS[kind]["label"]}
         # ที่มาของขั้นนี้ในคำสั่งของครูหรือเอกสาร (ทุกขั้นต้องมาจาก prompt ครูตรวจได้ทีละขั้น)
         if _text(s.get("reason"), 240):
             step["reason"] = _text(s.get("reason"), 240)
@@ -342,6 +344,7 @@ def validate(raw: dict, bugs: list[str] | None = None) -> dict:
     for g in spec.get("guidelines", []):
         if not any(sid in steps for sid in g["steps"]):
             errors.append(f"แนวทาง \"{g['text'][:80]}\" ยังไม่มีขั้นใน Flow ที่ทำแนวทางนี้ (ใส่ id ของขั้นใน steps ของแนวทาง)")
+    warnings += overlaps(steps, out)
     loop = _instant_loop(steps, out)
     if loop:
         errors.append("มีวงที่วนผ่าน " + " → ".join(steps[s]["label"] for s in loop)
@@ -350,6 +353,32 @@ def validate(raw: dict, bugs: list[str] | None = None) -> dict:
         if step["kind"] == "item":
             warnings += _coverage(step, out[sid])
     return {"spec": spec, "errors": errors, "warnings": list(dict.fromkeys(warnings))}
+
+
+OVERLAP = "เส้นชนกัน: "
+
+
+def overlaps(steps: dict, out: dict[str, list[dict]]) -> list[str]:
+    """เส้นตอบถูกสองเส้นจากขั้นเดียวกันที่เป็นจริงพร้อมกันได้ (ใช้ตัวแปรคนละตัว) engine ไปตามเส้นแรกเท่านั้น
+    แนวทางของครูที่อยู่บนเส้นหลังจึงหายไปเงียบ ๆ เช่น "ถูกหลังใช้คำใบ้ → ข้อคู่ขนาน" ถูกข้ามเพราะ "ครบ 2 ข้อ → อธิบาย" มาก่อน"""
+    notes = []
+    for sid, edges in out.items():
+        wins = []
+        for edge in edges:
+            try:
+                used = conditions.names(edge["when"])
+            except conditions.ConditionError:
+                continue
+            target = steps.get(edge["to"])
+            if "correct" in used and "wrong" not in used and not (target and target["kind"] == "end"):
+                wins.append((edge, used - {"correct"}))
+        for i, (first, a) in enumerate(wins):
+            for later, b in wins[i + 1:]:
+                if a and b and not a <= b and not b <= a:
+                    name = lambda e: e["label"] or e["when"]
+                    notes.append(f"{OVERLAP}ขั้น \"{steps[sid]['label']}\" ถ้า \"{name(first)}\" และ \"{name(later)}\" "
+                                 f"เป็นจริงพร้อมกัน ระบบไปตาม \"{name(first)}\" อย่างเดียว \"{name(later)}\" จะถูกข้าม")
+    return notes
 
 
 def _reachable(start: str, out: dict[str, list[dict]]) -> set[str]:
@@ -436,8 +465,11 @@ def leak_warnings(spec: dict, items: list[dict]) -> list[str]:
                 notes.append(f"บทเรียนย่อ \"{step['label']}\" มีโจทย์ข้อ {found} พร้อมคำตอบ ระบบจะซ่อนข้อความนี้จากนักเรียน "
                              "แก้ให้เป็นตัวอย่างที่ไม่อยู่ในคลังโจทย์")
         if step["kind"] == "widget":
-            found = leaked_item(W.text_of(step["widget"], step["config"]), items)
-            if found:
+            found = bank_collision(step, items)
+            if found and step["widget"] == "custom" and not leaked_item(W.text_of("custom", step["config"]), items):
+                notes.append(f"Widget \"{step['label']}\" ใช้โจทย์ข้อ {found} ในคลัง นักเรียนจะได้ทำข้อนั้นผ่าน Widget "
+                             "ให้ AI เขียน Widget ใหม่ในแท็บ Flow")
+            elif found:
                 notes.append(f"Widget \"{step['label']}\" ใช้โจทย์ข้อ {found} ในคลังพร้อมเฉลย ระบบจะข้ามขั้นนี้ไปจนกว่านักเรียน"
                              "จะทำข้อนั้นผ่าน แก้ให้ใช้ตัวเลขอื่น")
     return notes
@@ -556,7 +588,10 @@ def design_prompt(gem: dict, errors: list[str] | None = None, previous: dict | N
         "เงื่อนไขบนเส้น (when) เขียนแบบ Python ใช้ได้แค่ and, or, not, ==, !=, <, <=, >, >=, ตัวเลข ข้อความในเครื่องหมายคำพูด "
         "และตัวแปรเหล่านี้ (แยกทางตามข้อผิดพลาดได้ เช่น wrong and bug == \"BUG-M01\" หรือ bug_type == \"slip\"):\n"
         f"{variables}\n"
-        "เส้นออกจากขั้นเดียวกันเรียงตามลำดับ เส้นแรกที่เป็นจริงชนะ ให้เส้นสุดท้ายเป็น \"\" (ทุกกรณีที่เหลือ) เสมอ\n\n"
+        "เส้นออกจากขั้นเดียวกันเรียงตามลำดับ เส้นแรกที่เป็นจริงชนะ ให้เส้นสุดท้ายเป็น \"\" (ทุกกรณีที่เหลือ) เสมอ\n"
+        "แนวทางสองข้อที่เกิดพร้อมกันได้ (เช่น ถูกหลังใช้คำใบ้ → ข้อคู่ขนาน และ ถูกครบ 2 ข้อ → อธิบายความคิด) ต้องได้ทำครบทั้งคู่ "
+        "อย่าให้เส้นแรกทำให้อีกแนวทางหายไป ให้ต่อจากขั้นแรกไปอีกขั้นด้วยเงื่อนไขของอีกแนวทาง "
+        "(ตัวแปรของข้อล่าสุด เช่น hint_level ยังใช้ได้หลังขั้นอธิบายความคิด Widget หรือพัก)\n\n"
         f"ตัวเลขของทั้ง Flow (params) ใส่เฉพาะที่คำสั่งของครูพูดถึงตรง ๆ ต้องอยู่ในช่วง "
         f"(hint_unlock_wait คือเวลาที่ต้องคิดก่อนกดขอคำใบ้เองได้ ก่อนลองตอบครั้งแรก):\n{params}\n"
         "ตัวเลขในขั้นและในเงื่อนไขให้เอามาจากคำสั่งของครู ถ้าครูไม่ได้บอกให้ใช้ค่าของแม่แบบ\n\n"
@@ -618,13 +653,15 @@ FORMAT_EXAMPLE = {
 
 # ---------------------------------------------------------------- Widget ที่ AI เขียนเอง
 
-def widget_prompt(gem: dict, step: dict, memory: dict | None = None) -> str:
+def widget_prompt(gem: dict, step: dict, memory: dict | None = None, avoid: list[str] | None = None) -> str:
     return (
         "เขียน Widget เล็ก ๆ ให้นักเรียนลงมือทำ เป็นหน้าเว็บ HTML ไฟล์เดียว ใช้ในบทเรียนของติวเตอร์ภาษาไทย\n\n"
         f"ชื่อ Gem: {gem.get('name', '')}\nคำสั่งของครู:\n\"\"\"\n{gem.get('instructions', '')[:4000]}\n\"\"\"\n"
         + (f"สิ่งที่ AI จดจากเอกสารของครู:\n{json.dumps(memory, ensure_ascii=False)[:4000]}\n" if memory else "")
         + f"\nWidget ที่ต้องการ (ขั้น \"{step.get('label', '')}\"): {step.get('goal', '')}\n"
         + (f"คำสั่งถึงนักเรียน: {step['prompt']}\n" if step.get("prompt") else "")
+        + ("ห้ามใช้โจทย์หรือนิพจน์เหล่านี้ (อยู่ในคลังโจทย์ที่นักเรียนต้องทำเอง) ให้แต่งตัวอย่างใหม่ที่ตัวเลขต่างออกไป:\n"
+           + "\n".join(f"- {m}" for m in avoid[:40]) + "\n" if avoid else "")
         + "\nข้อกำหนด:\n"
         "- HTML ไฟล์เดียว CSS และ JavaScript อยู่ในไฟล์ทั้งหมด ห้ามโหลดอะไรจากภายนอก (ไม่มี CDN fetch รูปจากลิงก์ หรือฟอนต์ภายนอก) "
         "ใช้ SVG หรือ CSS วาดแทนรูป\n"
@@ -645,25 +682,50 @@ def clean_html(html: str) -> str:
     return html[:W.HTML_LIMIT]
 
 
-async def write_widget(gem: dict, step: dict, memory: dict | None = None) -> str:
-    """ให้ AI เขียนหน้าเว็บของ Widget custom ไม่สำเร็จ raise BuildError"""
+def bank_collision(step: dict, items: list[dict]) -> str | None:
+    """Widget ที่มีเฉลยของโจทย์ในคลัง หรือยกโจทย์ในคลังมาทั้งข้อ (แม้ไม่มีคำตอบ ก็พานักเรียนทำข้อนั้นจนเสร็จ)"""
+    from ..engine.gemflow import leaked_item
+
+    text = W.text_of(step["widget"], step["config"])
+    found = leaked_item(text, items)
+    if found:
+        return found
+    flat = plain(text).replace(" ", "")
+    for it in items:
+        math = plain(it.get("math") or "").replace(" ", "")
+        if len(math) >= 5 and math in flat:
+            return it["id"]
+    return None
+
+
+def bank_problems(items: list[dict]) -> list[str]:
+    return [it["math"] for it in items if it.get("math")]
+
+
+async def write_widget(gem: dict, step: dict, memory: dict | None = None, items: list[dict] | None = None) -> str:
+    """ให้ AI เขียนหน้าเว็บของ Widget custom (ห้ามใช้โจทย์ในคลัง ใช้ซ้ำก็ให้เขียนใหม่อีกครั้ง) ไม่สำเร็จ raise BuildError"""
     from . import builder
 
-    raw = await builder.ask_json("widget", widget_prompt(gem, step, memory), 16000)
-    html = clean_html(str((raw or {}).get("html") or "") if isinstance(raw, dict) else "")
-    if "<" not in html or len(html) < 40:
-        raise builder.BuildError(f"AI เขียน Widget \"{step.get('label', '')}\" ไม่สำเร็จ")
+    for _ in range(2):
+        raw = await builder.ask_json("widget", widget_prompt(gem, step, memory, bank_problems(items or [])), 16000)
+        html = clean_html(str((raw or {}).get("html") or "") if isinstance(raw, dict) else "")
+        if "<" not in html or len(html) < 40:
+            raise builder.BuildError(f"AI เขียน Widget \"{step.get('label', '')}\" ไม่สำเร็จ")
+        if not items or not bank_collision({**step, "config": {"html": html}}, items):
+            return html
     return html
 
 
-async def write_widgets(gem: dict, flow_spec: dict, memory: dict | None = None) -> list[str]:
-    """เขียนหน้าเว็บให้ Widget custom ทุกขั้นที่ยังไม่มี คืนคำเตือนของขั้นที่เขียนไม่สำเร็จ (ขั้นนั้นจะถูกข้าม)"""
+async def write_widgets(gem: dict, flow_spec: dict, memory: dict | None = None, items: list[dict] | None = None) -> list[str]:
+    """เขียนหน้าเว็บให้ Widget custom ทุกขั้นที่ยังไม่มี หรือที่ยกโจทย์ในคลังมา (เมื่อรู้คลังแล้ว)
+    คืนคำเตือนของขั้นที่เขียนไม่สำเร็จ (ขั้นนั้นจะถูกข้าม)"""
     import asyncio
 
     from . import builder
 
-    todo = [s for s in flow_spec["steps"] if s["kind"] == "widget" and s["widget"] == "custom" and not s["config"].get("html")]
-    results = await asyncio.gather(*(write_widget(gem, s, memory) for s in todo), return_exceptions=True)
+    todo = [s for s in flow_spec["steps"] if s["kind"] == "widget" and s["widget"] == "custom"
+            and (not s["config"].get("html") or (items and bank_collision(s, items)))]
+    results = await asyncio.gather(*(write_widget(gem, s, memory, items) for s in todo), return_exceptions=True)
     notes = []
     for step, result in zip(todo, results):
         if isinstance(result, builder.BuildError):
@@ -682,16 +744,30 @@ async def design(gem: dict, memory: dict | None = None, bugs: list[dict] | None 
 
     errors, previous = None, None
     bug_ids = [b["id"] for b in bugs] if bugs else None
+    passed = None  # Flow ที่ตรวจผ่านแต่มีเส้นชนกัน ใช้ถ้ารอบที่ให้แก้แย่กว่าเดิม
     for _ in range(3):
         # ออกแบบ Flow ต้องไล่แนวทางของครูทีละข้อ จึงให้โมเดลคิดเต็มที่ (โทเคนที่ใช้คิดนับรวมใน max_tokens)
         raw = await builder.ask_json("flow", design_prompt(gem, errors, previous, memory, bugs), 32000, thinking="high")
         raw = raw if isinstance(raw, dict) else {}
         checked = validate(raw, bug_ids)
         if not checked["errors"]:
+            clashes = [w for w in checked["warnings"] if w.startswith(OVERLAP)]
+            if clashes and passed is None:
+                # แนวทางของครูที่จะหายเพราะเส้นชนกัน: ให้ AI แก้หนึ่งรอบ
+                passed = checked
+                errors = [c.removeprefix(OVERLAP) + " ต้องทำได้ทั้งสองแนวทาง" for c in clashes]
+                previous = raw
+                continue
+            if passed is not None and len(clashes) >= len([w for w in passed["warnings"] if w.startswith(OVERLAP)]):
+                checked = passed
             notes = await write_widgets(gem, checked["spec"], memory)
             warnings = [w for w in checked["warnings"] if not w.startswith("Widget \"")] + notes
             return record(checked["spec"], "ai", warnings, reviewed=False)
         errors, previous = checked["errors"], raw
+    if passed is not None:
+        notes = await write_widgets(gem, passed["spec"], memory)
+        return record(passed["spec"], "ai", [w for w in passed["warnings"] if not w.startswith("Widget \"")] + notes,
+                      reviewed=False)
     # ผังมาตรฐานเป็นแค่แม่แบบอ้างอิง ไม่ใช้แทน Flow ของ Gem: ออกแบบไม่ผ่านก็แจ้งให้ออกแบบใหม่
     raise builder.BuildError("AI ออกแบบ Flow ที่ตรวจผ่านไม่ได้ 3 รอบ (" + "; ".join(errors or [])[:300] + ") "
                              "กดให้ AI ออกแบบใหม่ในแท็บ Flow หรือเขียนคำสั่งให้ชัดขึ้น")

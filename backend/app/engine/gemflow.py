@@ -592,10 +592,11 @@ def lesson_done(state: dict, ctx: C.Ctx) -> C.Fx:
     fx.trace("lesson_done" if state["position"] == F.LESSON else "activity_done", step["id"] if step else None,
              {"label": label(step)}, ctx.now)
     fs(state)["last"] = {}
+    note = "อ่านบทเรียนย่อจบแล้ว" if state["position"] == F.LESSON else "ทำกิจกรรมจบแล้ว"
     if step is None:
-        back_to_item(state, ctx, fx, [], "อ่านบทเรียนย่อจบแล้ว")
+        back_to_item(state, ctx, fx, [], note)
     else:
-        follow(state, ctx, fx, step["id"], [], ["อ่านบทเรียนย่อจบแล้ว"])
+        follow(state, ctx, fx, step["id"], [], [note])
     fx.result = fx.result or {"kind": "ok"}
     return fx
 

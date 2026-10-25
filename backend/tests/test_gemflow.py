@@ -443,3 +443,48 @@ def test_design_writes_html_for_widgets_the_library_lacks(monkeypatch):
     html = flow["spec"]["steps"][0]["config"]["html"]
     assert asked == ["flow", "widget"] and "ยิงลูกโป่ง" in html and "x.example" not in html
     assert not any("ยังไม่มีหน้าเว็บ" in w for w in flow["warnings"])
+
+
+def test_full_flow_test_findings_are_fixed(monkeypatch):
+    """ปัญหาที่เจอตอนทดสอบ Flow ครบทุกฟีเจอร์ด้วย AI จริง (26 ต.ค. 2569)"""
+    import asyncio
+
+    from app.gems import builder
+    from app.tutor.service import _clean
+
+    # 1. เส้นตอบถูกที่เกิดพร้อมกันได้: แนวทาง "ถูกหลังใช้คำใบ้ → ข้อคู่ขนาน" ถูกข้ามเงียบ ๆ
+    flow = {"start": "w",
+            "steps": [{"id": "w", "kind": "item", "pick": "main"}, {"id": "why", "kind": "reflect"},
+                      {"id": "iso", "kind": "item", "pick": "isomorphic"}, {"id": "e", "kind": "end"}],
+            "edges": [{"from": "w", "to": "e", "when": "correct and mains_left == 0"},
+                      {"from": "w", "to": "why", "when": "correct and items_done == 2", "label": "ครบ 2 ข้อ"},
+                      {"from": "w", "to": "iso", "when": "correct and hint_level > 0", "label": "ถูกหลังใช้คำใบ้"},
+                      {"from": "w", "to": "w", "when": ""}, {"from": "why", "to": "w", "when": ""},
+                      {"from": "iso", "to": "w", "when": ""}]}
+    clashes = [w for w in flowspec.validate(flow)["warnings"] if w.startswith(flowspec.OVERLAP)]
+    assert len(clashes) == 1 and "ครบ 2 ข้อ" in clashes[0] and "ถูกหลังใช้คำใบ้" in clashes[0], "จบชุดมาก่อนได้ ไม่นับว่าชน"
+
+    # 2. Widget ที่ AI เขียนเองยกโจทย์ในคลังมาทั้งข้อ: เขียนใหม่โดยบอกโจทย์ที่ห้ามใช้
+    items = [{"id": "G-01", "math": "20 - 12 ÷ 2 × 3 + 2²", "format": "numeric", "answer": {"value": "6"}}]
+    step = {"id": "game", "kind": "widget", "widget": "custom", "label": "เกม", "goal": "เกมลูกโป่ง", "config": {}}
+    pages = ["<p>นิพจน์: 20 - 12 ÷ 2 × 3 + 2²</p><button>เสร็จแล้ว</button>", "<p>นิพจน์: 9 - 8 ÷ 4 × 3 + 1</p><button>เสร็จแล้ว</button>"]
+    prompts = []
+
+    async def fake_ask(kind, user, max_tokens=12000, thinking="minimal"):
+        prompts.append(user)
+        return {"html": pages[len(prompts) - 1]}
+
+    monkeypatch.setattr(builder, "ask_json", fake_ask)
+    assert flowspec.bank_collision({**step, "config": {"html": pages[0]}}, items) == "G-01"
+    html = asyncio.run(flowspec.write_widget({"name": "PEMDAS"}, step, None, items))
+    assert "9 - 8" in html and "20 - 12 ÷ 2 × 3 + 2²" in prompts[0], "บอก AI ตั้งแต่รอบแรกว่าห้ามใช้โจทย์ไหน"
+
+    # 3. LaTeX ที่ AI ใส่ในแชตและคำใบ้ แสดงเป็นเครื่องหมายธรรมดา
+    assert _clean(r"เหลือ 20 - 12 \div 2 \times 3 และ \frac{1}{2}") == "เหลือ 20 - 12 ÷ 2 × 3 และ 1/2"
+
+    # 4. ชื่อขั้นที่ AI ไม่ได้ตั้ง ใช้หัวข้อที่นักเรียนเห็นแทนชื่อชนิดขั้น
+    named = flowspec.validate({"start": "t", "steps": [
+        {"id": "t", "kind": "widget", "widget": "custom", "title": "ต้นไม้นิพจน์", "goal": "กดเปิดทีละชั้น"},
+        {"id": "w", "kind": "item"}, {"id": "e", "kind": "end"}],
+        "edges": [{"from": "t", "to": "w", "when": ""}, {"from": "w", "to": "e", "when": "correct"}, {"from": "w", "to": "w", "when": ""}]})
+    assert named["spec"]["steps"][0]["label"] == "ต้นไม้นิพจน์"

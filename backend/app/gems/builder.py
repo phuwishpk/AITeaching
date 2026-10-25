@@ -568,6 +568,9 @@ def assemble(gem: dict, version: int, plan: dict, main_batches: list[dict], extr
         concept = prereq_ids[index] if index is not None else (
             "C-T" if key in ("target", None, "") or str(key).strip() == plan["target"]["name"] else None)
         steps = [str(s).strip() for s in walk.get("steps") or [] if str(s).strip()]
+        if concept is None and "C-T" not in {w["concept"] for w in walkthroughs}:
+            # ชื่อมโนทัศน์ไม่ตรงกับแผน (เช่นเขียนเป็นภาษาอังกฤษ): ใช้เป็นตัวอย่างของมโนทัศน์เป้าหมาย
+            concept = "C-T"
         if concept and steps and concept not in {w["concept"] for w in walkthroughs}:
             walkthroughs.append({"concept": concept, "title": str(walk.get("title") or "ตัวอย่างทีละขั้น").strip(),
                                  "problem": str(walk.get("problem") or "").strip(), "steps": steps})
@@ -750,6 +753,10 @@ async def build(gem_id: str) -> None:
         except BuildError:
             solved = None
         warnings = apply_checks(subject["items"], solved)
+        if flow and flow.get("mode") == "custom":
+            # Widget ที่ AI เขียนเองออกแบบพร้อมกับคลังโจทย์ ถ้ายกโจทย์ในคลังมาให้เขียนใหม่ด้วยตัวอย่างอื่น
+            flow["warnings"] = (flow.get("warnings") or []) + await flowspec.write_widgets(
+                gem, flow["spec"], reading.get("memory"), subject["items"])
         _progress(gem, "verify", "done")
 
         _progress(gem, "save")

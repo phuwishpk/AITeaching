@@ -119,8 +119,18 @@ def _retrieve(subject: dict, query: str, k: int = RETRIEVE_K) -> tuple[list[str]
     return index.search(query, k)
 
 
+LATEX = {r"\div": "÷", r"\times": "×", r"\cdot": "×", r"\pm": "±", r"\le": "≤", r"\ge": "≥", r"\neq": "≠",
+         r"\left": "", r"\right": ""}
+
+
 def _clean(text: str) -> str:
-    # markdown และเครื่องหมาย $ ของ LaTeX ที่ LLM ชอบใส่ หน้าจอนักเรียนแสดงข้อความธรรมดา
+    # markdown และ LaTeX ที่ LLM ชอบใส่ หน้าจอนักเรียนแสดงข้อความธรรมดา: \div → ÷ \frac{a}{b} → a/b ^{2} → ^2
+    for command, plain in LATEX.items():
+        text = re.sub(re.escape(command) + r"(?![a-zA-Z])", plain, text)
+    text = re.sub(r"\\[dt]?frac\{([^{}]*)\}\{([^{}]*)\}",
+                  lambda m: "/".join(p if re.fullmatch(r"[\w.]+", p) else f"({p})" for p in m.groups()), text)
+    text = re.sub(r"\^\{([^{}]*)\}", r"^\1", text)
+    text = re.sub(r"\\[a-zA-Z]+", "", text)
     text = re.sub(r"[*#`_>$]+", "", text).strip()
     return re.sub(r"\n{2,}", "\n", text)
 
@@ -224,21 +234,28 @@ async def make_activity(subject: dict, step: dict, item: dict | None, concept_na
     built["system"] = f"{built['frames']['role']}\n\n{built['frames']['constraints']}"
     built["user"] = f"{context}\n\n{task}"
     built = _with_memory(built, knowledge_memory(subject))
-    result, errors = await _call(built["system"], built["user"], max_tokens=1500, json_mode=True)
-    if result is None:
-        _log(code, "activity", built["frames"], None, None, "", None, errors)
-        return None
-    match = re.search(r"\{.*\}", result.text, re.S)
-    try:
-        data = json.loads(match.group(0)) if match else {}
-    except json.JSONDecodeError:
-        data = {}
-    text, question = _clean(str(data.get("text") or "")), _clean(str(data.get("question") or ""))
-    checked = guard.check(f"{text}\n{question}", item) if item else guard.GuardResult(False)
-    log_id = _log(code, "activity", built["frames"], None, result, text if not checked.blocked else "", checked.to_dict(), errors)
-    if not text or checked.blocked:
-        return None
-    return {"text": text, "question": question if asks else "", "log_id": log_id}
+    user = built["user"]
+    for attempt in range(2):
+        result, errors = await _call(built["system"], user, max_tokens=1500, json_mode=True)
+        if result is None:
+            _log(code, "activity", built["frames"], None, None, "", None, errors)
+            return None
+        match = re.search(r"\{.*\}", result.text, re.S)
+        try:
+            data = json.loads(match.group(0)) if match else {}
+        except json.JSONDecodeError:
+            data = {}
+        text, question = _clean(str(data.get("text") or "")), _clean(str(data.get("question") or ""))
+        checked = guard.check(f"{text}\n{question}", item) if item else guard.GuardResult(False)
+        log_id = _log(code, "activity", built["frames"], None, result, text if not checked.blocked else "", checked.to_dict(), errors)
+        if text and not checked.blocked:
+            return {"text": text, "question": question if asks else "", "log_id": log_id}
+        if not checked.blocked or attempt:
+            return None
+        # Answer-Leak Guard บล็อก (ตัวอย่างบังเอิญได้ผลเท่ากับคำตอบของข้อนี้): ให้สร้างใหม่หนึ่งครั้งโดยห้ามตัวเลขนั้น
+        user = (f"{built['user']}\nข้อความรอบก่อนใช้ไม่ได้เพราะมีตัวเลข {checked.matched} ซึ่งเป็นคำตอบของข้อที่นักเรียนกำลังทำ "
+                f"สร้างใหม่โดยห้ามมีตัวเลข {checked.matched} ทั้งในตัวอย่างและผลลัพธ์")
+    return None
 
 
 async def judge_reflection(subject: dict, item: dict | None, step: dict, answer: str, code: str | None) -> dict:
