@@ -120,6 +120,22 @@ Item ที่ไม่ผ่าน Answer Key Check ไม่ถูกส่ง
 **Gem Version** (เวอร์ชันของ Gem):
 สำเนาของ Gem ที่เกิดทุกครั้งที่ครูบันทึก Session หนึ่งใช้ Gem Version เดียวตั้งแต่เริ่มจนจบ
 
+**Gem Flow** (Flow การสอนของ Gem):
+ลำดับการสอนที่ LLM ออกแบบจาก Gem Instructions เป็นขั้นและเส้นที่มีเงื่อนไข ครูตรวจและแก้ได้ Gem ที่ไม่มี Gem Flow ใช้ Standard Template
+_Avoid_: ผังของ Gem (ใช้กับภาพที่วาด ไม่ใช่ตัว Flow)
+
+**Flow Step** (ขั้นของ Flow):
+หนึ่งขั้นใน Gem Flow จากคลังขั้นที่ engine รันได้ เช่น ทำโจทย์ คำใบ้ บทเรียนย่อ อธิบายความคิด พัก แจ้งครู หยุดรอครู ด่านตัดสินใจ จบ
+
+**Edge Condition** (เงื่อนไขบนเส้น):
+กฎที่อ่านได้บนเส้นของ Gem Flow เขียนจากตัวแปรของ Student Model engine ใช้เส้นแรกที่เป็นจริง
+
+**Locked Invariant** (สิ่งที่ล็อกไว้ทุก Flow):
+กลไกที่ทำงานทุก Gem Flow และไม่อยู่ในกราฟ ได้แก่ การตรวจด้วยกฎและ Answer-Leak Guard, หยุดเมื่อทำร้ายตนเองและ Manual Override, Data Cleaning และ Rapid Guess, Idle Pause และเพดานจำนวนข้อ
+
+**Standard Template** (ผังมาตรฐาน):
+ผังตรรกะเดิมของระบบ (3 ด่าน บันไดคำใบ้ Isomorphic Test Remedial Loop) ที่ Stress Test สถานการณ์สาธิต และหน้ากฎอธิบาย
+
 ### นักเรียนและร่องรอย (Student Model)
 
 **Student** (นักเรียน):

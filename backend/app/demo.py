@@ -15,7 +15,7 @@ from . import db, services, settings_store
 from .engine import core as engine
 from .engine import flow as F
 from .engine.answers import match_bug
-from .engine.core import Ctx, Fx
+from .engine.core import Content, Ctx, Fx
 from .hub import hub
 from .tutor import distress, guard
 
@@ -29,12 +29,20 @@ def demo_gem() -> dict | None:
     return next((g for g in ready if g["id"] == chosen), None) or min(ready, key=lambda g: g.get("created_at", 0), default=None)
 
 
-def demo_content():
-    """(set_id, Content) ของคลังรุ่นปัจจุบันของ Gem ที่ใช้สาธิต"""
+def demo_content(standard: bool = False):
+    """(set_id, Content) ของคลังรุ่นปัจจุบันของ Gem ที่ใช้สาธิต
+
+    standard = True: ใช้ผังมาตรฐาน แม้ครูจะออกแบบ Flow ของ Gem เอง สถานการณ์สาธิต (หัวข้อ 5)
+    และ Stress Test (หัวข้อ 6) อธิบายกฎของแม่แบบมาตรฐาน จึงต้องรันบนแม่แบบมาตรฐานเสมอ (ADR-0004)
+    """
     gem = demo_gem()
     if gem is None:
         raise services.NotFound("ยังไม่มี Gem ที่พร้อมสาธิต ให้ครูสร้าง Gem ก่อน")
-    return gem["set_id"], services.content_for(gem["subject_id"], gem["set_id"])
+    content = services.content_for(gem["subject_id"], gem["set_id"])
+    if standard and content.spec:
+        subject = {**content.subject, "gem": {**content.subject["gem"], "flow": {"mode": "standard"}}}
+        content = Content(subject, gem["set_id"])
+    return gem["set_id"], content
 
 PERSONAS = {
     "fast": {"label": "Fast Learners", "acc": 0.9, "rt": (6, 16), "session": (22, 32), "hint_prob": 0.03,
@@ -120,7 +128,12 @@ def agent_act(state: dict, content, persona_key: str, rng: random.Random, t: flo
         ctx.now = t
         engine.resolve_timers(state, ctx, fxs[0])
         return fxs, t
-    if position == F.WALK:
+    if position == F.REFLECT:
+        t += rng.uniform(20, 50)
+        ctx.now = t
+        fxs.append(engine.reflect(state, ctx, "ลองอธิบายวิธีคิดทีละขั้น", None))
+        return fxs, t
+    if position in (F.WALK, F.LESSON):
         t += rng.uniform(15, 35)
         ctx.now = t
         fxs.append(engine.walkthrough_done(state, ctx))
@@ -285,7 +298,7 @@ def reset_demo_student(code: str):
 async def run_scenario(name: str, pause: float = 1.4) -> dict:
     scenario = SCENARIOS[name]
     code = scenario["code"]
-    set_id, content = demo_content()
+    set_id, content = demo_content(standard=True)
     subject = content.subject
     total_virtual = sum(step[-1] for step in scenario["steps"] if isinstance(step[-1], (int, float))) + 30
     t = time.time() - total_virtual
@@ -548,7 +561,7 @@ STRESS_TESTS = {
 
 def run_stress(case: str) -> dict:
     try:
-        _, content = demo_content()
+        _, content = demo_content(standard=True)
         return STRESS_TESTS[case](content)
     except Exception as error:  # แสดงข้อผิดพลาดในหน้าทดสอบ แทนการล้มทั้งหน้า
         return _result(case, case, "-", "-", f"เกิดข้อผิดพลาด: {error}", False, [])

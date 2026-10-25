@@ -9,7 +9,8 @@ from pydantic import BaseModel
 
 from .. import db, seed, services
 from ..gems import alerts as gem_alerts
-from ..gems import builder, design, items, manage, versions
+from ..gems import builder, design, flows, flowspec, items, manage, versions
+from ..engine import core as engine
 from ..tutor import rag, service
 from .deps import require
 
@@ -51,6 +52,10 @@ class PreviewChat(BaseModel):
     message: str
 
 
+class FlowBody(BaseModel):
+    spec: dict
+
+
 def _fields(body: GemBody) -> dict:
     return body.model_dump(exclude_none=True)
 
@@ -71,7 +76,7 @@ def list_gems(auth: dict = Depends(viewer)):
 def gem_meta(auth: dict = Depends(viewer)):
     """ตัวเลือกของฟอร์มสร้าง Gem: สถานการณ์แจ้งเตือนพร้อมค่าเริ่มต้น ไอคอน และสี"""
     return {"alert_situations": gem_alerts.catalog(), "alert_defaults": gem_alerts.defaults(),
-            "icons": manage.ICONS, "colors": manage.COLORS}
+            "icons": manage.ICONS, "colors": manage.COLORS, "flow": flowspec.catalog()}
 
 
 @router.get("/{gem_id}")
@@ -194,6 +199,57 @@ def delete_file(gem_id: str, doc_id: int, auth: dict = Depends(teacher)):
     return {"ok": True}
 
 
+# ---------------------------------------------------------------- Flow การสอนที่ AI ออกแบบ (ADR-0004)
+
+def _flow(call):
+    try:
+        return call()
+    except manage.GemError as error:
+        raise HTTPException(400, str(error)) from error
+
+
+@router.get("/{gem_id}/flow")
+def gem_flow(gem_id: str, auth: dict = Depends(viewer)):
+    return flows.detail(_load(gem_id))
+
+
+@router.post("/{gem_id}/flow/check")
+def check_flow(gem_id: str, body: FlowBody, auth: dict = Depends(teacher)):
+    """ตรวจ Flow ที่ครูกำลังแก้โดยยังไม่บันทึก: ข้อผิดพลาด คำเตือน และเงื่อนไขที่แปลเป็นภาษาคน"""
+    return flows.check(_load(gem_id), body.spec)
+
+
+@router.put("/{gem_id}/flow")
+def save_flow(gem_id: str, body: FlowBody, auth: dict = Depends(teacher)):
+    _load(gem_id)
+    return _flow(lambda: flows.save(gem_id, body.spec, auth["role"]))
+
+
+@router.post("/{gem_id}/flow/approve")
+def approve_flow(gem_id: str, auth: dict = Depends(teacher)):
+    _load(gem_id)
+    return _flow(lambda: flows.approve(gem_id, auth["role"]))
+
+
+@router.post("/{gem_id}/flow/standard")
+def standard_flow(gem_id: str, auth: dict = Depends(teacher)):
+    _load(gem_id)
+    return _flow(lambda: flows.use_standard(gem_id, auth["role"]))
+
+
+@router.post("/{gem_id}/flow/design")
+async def redesign_flow(gem_id: str, auth: dict = Depends(teacher)):
+    """ให้ AI ออกแบบ Flow ใหม่จากคำสั่งปัจจุบันของครู (ใช้เวลาราว 20–60 วินาที)"""
+    _load(gem_id)
+    reason = manage.can_build()
+    if reason:
+        raise HTTPException(400, reason)
+    try:
+        return await flows.redesign(gem_id, auth["role"])
+    except builder.BuildError as error:
+        raise HTTPException(502, str(error)) from error
+
+
 @router.post("/{gem_id}/items/{item_id}/flag")
 def resolve_flag(gem_id: str, item_id: str, body: FlagBody, auth: dict = Depends(teacher)):
     """ครูยืนยันเฉลยของ Flagged Item (keep = true) หรือลบข้อนั้นออกจากคลัง (keep = false)"""
@@ -277,6 +333,27 @@ async def preview_hint(gem_id: str, auth: dict = Depends(teacher)):
     gem = _load(gem_id)
     code = _preview_code(gem)
     return _preview(code, await services.hint(code, _preview_set(gem)))
+
+
+@router.post("/{gem_id}/preview/lesson-done")
+async def preview_lesson_done(gem_id: str, auth: dict = Depends(teacher)):
+    gem = _load(gem_id)
+    code = _preview_code(gem)
+    return _preview(code, await services.simple(code, _preview_set(gem), engine.walkthrough_done))
+
+
+@router.post("/{gem_id}/preview/reflect")
+async def preview_reflect(gem_id: str, body: PreviewAnswer, auth: dict = Depends(teacher)):
+    gem = _load(gem_id)
+    code = _preview_code(gem)
+    return _preview(code, await services.reflect(code, _preview_set(gem), body.answer))
+
+
+@router.post("/{gem_id}/preview/resume")
+async def preview_resume(gem_id: str, auth: dict = Depends(teacher)):
+    gem = _load(gem_id)
+    code = _preview_code(gem)
+    return _preview(code, await services.simple(code, _preview_set(gem), engine.resume))
 
 
 @router.post("/{gem_id}/preview/chat")

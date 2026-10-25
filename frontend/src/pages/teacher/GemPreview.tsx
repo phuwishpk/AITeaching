@@ -20,6 +20,9 @@ interface PreviewView {
   hint_button: { visible: boolean; cooldown: number; unlock_in: number };
   timers: { delay: number; lock: number; break: number };
   walkthrough: { title: string; problem: string; steps: string[] } | null;
+  lesson?: { title: string; text: string; walkthrough: { title: string; problem: string; steps: string[] } | null };
+  reflect?: { question: string };
+  break_text?: string | null;
   error_count: number;
   ended: boolean;
   gem: { tools: Record<string, boolean>; starter_prompts: string[] } | null;
@@ -128,6 +131,41 @@ export function PreviewTry({ gem }: { gem: GemDetail }) {
 
       {view.ended ? (
         <p className="small">จบรอบลองเรียนแล้ว กดเริ่มใหม่เพื่อลองอีกครั้ง</p>
+      ) : view.position === "FLOW_LESSON" ? (
+        <div className="gem-item">
+          <span className="small strong">{view.lesson?.title}</span>
+          {view.lesson?.text && <span className="small lesson-text">{view.lesson.text}</span>}
+          {view.lesson?.walkthrough && (
+            <>
+              <span className="gem-item-math">{view.lesson.walkthrough.problem}</span>
+              <ol className="small">
+                {view.lesson.walkthrough.steps.map((s) => (
+                  <li key={s}>{s}</li>
+                ))}
+              </ol>
+            </>
+          )}
+          <Button size="sm" variant="primary" disabled={busy} onClick={() => call("/lesson-done")} style={{ alignSelf: "flex-start" }}>
+            อ่านจบแล้ว ไปต่อ
+          </Button>
+        </div>
+      ) : view.position === "FLOW_REFLECT" ? (
+        <TryReflect question={view.reflect?.question ?? ""} busy={busy} onSend={async (text) => setMessage((await call("/reflect", { answer: text }))?.result?.message ?? null)} />
+      ) : view.position === "IDLE_PAUSE" ? (
+        <div className="gem-item">
+          <span className="small">พักอยู่ (Idle Pause)</span>
+          <Button size="sm" variant="primary" disabled={busy} onClick={() => call("/resume")} style={{ alignSelf: "flex-start" }}>
+            กลับมาทำต่อ
+          </Button>
+        </div>
+      ) : view.position === "STAGNATION_DEADLOCK" || view.position === "SAFETY_STOP" ? (
+        <p className="small callout callout-calm">
+          นักเรียนจริงจะหยุดรอครูตรงนี้ ครูกดปล่อยต่อได้ในหน้าภาพรวมห้อง (Manual Override) ในพรีวิวกดเริ่มใหม่เพื่อลองต่อ
+        </p>
+      ) : view.position === "CIRCUIT_BREAKER" ? (
+        <p className="small callout callout-calm">
+          {view.break_text || "พักสายตา"} · อีก {Math.ceil(view.timers.break)} วินาที
+        </p>
       ) : view.walkthrough ? (
         <div className="gem-item">
           <span className="small strong">{view.walkthrough.title}</span>
@@ -309,6 +347,28 @@ export function Versions({ gem, onRestored }: { gem: GemDetail; onRestored: (g: 
           ชื่อ คำสั่ง เครื่องมือ และคลังโจทย์จะกลับไปเป็นแบบ "{target?.note}" ระบบจะบันทึกการย้อนกลับเป็นเวอร์ชันใหม่ จึงย้อนกลับมาอีกครั้งได้
         </p>
       </Modal>
+    </div>
+  );
+}
+
+function TryReflect({ question, busy, onSend }: { question: string; busy: boolean; onSend: (text: string) => Promise<void> }) {
+  const [text, setText] = useState("");
+  return (
+    <div className="gem-item">
+      <span className="small strong">{question}</span>
+      <textarea className="input reflect-input" rows={3} value={text} onChange={(e) => setText(e.target.value)} placeholder="ลองพิมพ์คำอธิบายแบบนักเรียน" />
+      <Button
+        size="sm"
+        variant="primary"
+        disabled={busy || !text.trim()}
+        onClick={async () => {
+          await onSend(text.trim());
+          setText("");
+        }}
+        style={{ alignSelf: "flex-start" }}
+      >
+        ส่งคำอธิบาย
+      </Button>
     </div>
   );
 }

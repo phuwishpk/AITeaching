@@ -1,0 +1,626 @@
+import { useEffect, useMemo, useState } from "react";
+import { useNavigate, useParams } from "react-router";
+import { ArrowDown, ArrowLeft, ArrowUp, CircleAlert, CircleCheck, Lock, Plus, RotateCcw, Save, Sparkles, Trash2, Wand2 } from "lucide-react";
+import { api } from "../../lib/api";
+import { useLoad } from "../../lib/hooks";
+import SpecFlowMap, { KIND_TEXT } from "../../components/SpecFlowMap";
+import { Badge, Button, Card, CardHead, Field, Modal, Spinner, Tabs, useToast } from "../../components/ui";
+import {
+  FLOW_SOURCE,
+  type FlowCatalog,
+  type FlowCheck,
+  type FlowEdgeSpec,
+  type FlowSpec,
+  type FlowStepSpec,
+  type GemDetail,
+  type GemFlowDetail,
+  type GemMeta,
+} from "./gemTypes";
+
+// แท็บ Flow ของครู (ADR-0004): AI ออกแบบ Flow การสอนจากคำสั่งของครู ครูตรวจ ปรับขั้น เส้น เงื่อนไข และตัวเลข
+// ทุกการแก้ถูกตรวจที่ server ทันที (POST /flow/check) และบันทึกได้เมื่อไม่มีข้อผิดพลาด
+
+type Side = "step" | "params" | "vars" | "locked";
+
+export default function GemFlowPage() {
+  const { gemId } = useParams();
+  const navigate = useNavigate();
+  const toast = useToast();
+  const gem = useLoad(() => api<GemDetail>("teacher", `/api/gems/${gemId}`), [gemId]);
+  const meta = useLoad(() => api<GemMeta>("teacher", "/api/gems/meta"));
+  const flow = useLoad(() => api<GemFlowDetail>("teacher", `/api/gems/${gemId}/flow`), [gemId]);
+  const [draft, setDraft] = useState<FlowSpec | null>(null);
+  const [check, setCheck] = useState<FlowCheck | null>(null);
+  const [selected, setSelected] = useState<string | null>(null);
+  const [side, setSide] = useState<Side>("step");
+  const [busy, setBusy] = useState<"" | "save" | "design" | "standard" | "approve">("");
+  const [confirmStandard, setConfirmStandard] = useState(false);
+
+  // เริ่มแก้จาก Flow ที่บันทึกไว้ทุกครั้งที่โหลดใหม่
+  useEffect(() => {
+    if (flow.data) setDraft(flow.data.spec ? structuredClone(flow.data.spec) : null);
+  }, [flow.data]);
+
+  const dirty = useMemo(() => !!draft && JSON.stringify(stripIds(draft)) !== JSON.stringify(flow.data?.spec ? stripIds(flow.data.spec) : null), [draft, flow.data]);
+
+  // ตรวจ Flow ที่กำลังแก้ที่ server (หน่วงสั้น ๆ ระหว่างพิมพ์)
+  useEffect(() => {
+    if (!draft) {
+      setCheck(null);
+      return;
+    }
+    const id = setTimeout(() => {
+      api<FlowCheck>("teacher", `/api/gems/${gemId}/flow/check`, { body: { spec: draft } })
+        .then(setCheck)
+        .catch(() => {});
+    }, 350);
+    return () => clearTimeout(id);
+  }, [draft, gemId]);
+
+  if (!gem.data || !flow.data || !meta.data) return <Spinner />;
+  const catalog = meta.data.flow;
+  const detail = flow.data;
+  const map = check?.map ?? detail.map;
+  const errors = check?.errors ?? [];
+  const warnings = check?.warnings ?? detail.warnings;
+
+  const run = async (kind: typeof busy, call: () => Promise<GemFlowDetail>, done: string) => {
+    setBusy(kind);
+    try {
+      const result = await call();
+      flow.setData(result);
+      toast(done, "success");
+    } catch (err) {
+      toast(err instanceof Error ? err.message : "ทำรายการไม่สำเร็จ", "warning");
+    } finally {
+      setBusy("");
+    }
+  };
+  const save = () =>
+    run("save", () => api<GemFlowDetail>("teacher", `/api/gems/${gemId}/flow`, { method: "PUT", body: { spec: draft } }), "บันทึก Flow แล้ว นักเรียนที่เริ่มรอบใหม่ใช้ Flow นี้");
+  const design = () =>
+    run("design", () => api<GemFlowDetail>("teacher", `/api/gems/${gemId}/flow/design`, { method: "POST" }), "AI ออกแบบ Flow จากคำสั่งแล้ว ตรวจก่อนกดยืนยันนะ");
+  const approve = () => run("approve", () => api<GemFlowDetail>("teacher", `/api/gems/${gemId}/flow/approve`, { method: "POST" }), "ยืนยันว่าตรวจ Flow แล้ว");
+  const useStandard = () => {
+    setConfirmStandard(false);
+    run("standard", () => api<GemFlowDetail>("teacher", `/api/gems/${gemId}/flow/standard`, { method: "POST" }), "กลับไปใช้ผังมาตรฐานของระบบแล้ว");
+  };
+
+  const update = (change: (spec: FlowSpec) => void) =>
+    setDraft((current) => {
+      if (!current) return current;
+      const next = structuredClone(current);
+      change(next);
+      return next;
+    });
+  const step = draft?.steps.find((s) => s.id === selected) ?? null;
+
+  return (
+    <div className="page page-wide stack stack-lg">
+      <header className="spread fade-in">
+        <div className="row" style={{ alignItems: "flex-start" }}>
+          <Button variant="ghost" size="sm" className="btn-icon" icon={<ArrowLeft size={18} />} onClick={() => navigate(`/teacher/gems/${gemId}`)} aria-label="กลับไปหน้า Gem" />
+          <div className="stack stack-sm">
+            <p className="eyebrow">{gem.data.name}</p>
+            <h1 className="title-xl">Flow การสอน</h1>
+            <p className="lead">
+              AI อ่านคำสั่งของครูแล้วออกแบบว่านักเรียนจะไปขั้นไหนต่อเมื่อตอบถูก ตอบผิด หรือติด เงื่อนไขบนเส้นเป็นกฎที่อ่านได้ ระบบรันตามกฎนี้จริง ครูตรวจและปรับได้ทุกขั้น
+            </p>
+          </div>
+        </div>
+        <div className="row row-sm">
+          {detail.mode === "custom" ? (
+            <>
+              <Badge tone="info">{FLOW_SOURCE[detail.source ?? "ai"]}</Badge>
+              {detail.reviewed ? <Badge tone="success">ครูตรวจแล้ว</Badge> : <Badge tone="warning">ยังไม่ได้ตรวจ</Badge>}
+            </>
+          ) : (
+            <Badge>ผังมาตรฐานของระบบ</Badge>
+          )}
+        </div>
+      </header>
+
+      {(detail.summary || detail.outdated) && (
+        <div className={`callout ${detail.outdated ? "callout-warning" : "callout-info"}`}>
+          <Sparkles size={16} />
+          <span className="small">
+            {detail.summary}
+            {detail.outdated && " · คำสั่งหรือเครื่องมือของ Gem เปลี่ยนหลังออกแบบ Flow นี้ กด \"ให้ AI ออกแบบใหม่\" เพื่อให้ตรงกับคำสั่งล่าสุด"}
+          </span>
+        </div>
+      )}
+
+      <div className="row row-sm" style={{ flexWrap: "wrap" }}>
+        <Button variant={detail.mode === "custom" ? "soft" : "primary"} icon={<Wand2 size={16} />} loading={busy === "design"} disabled={!!busy} onClick={design}>
+          {busy === "design" ? "AI กำลังออกแบบ (ราว 20–60 วินาที)" : "ให้ AI ออกแบบใหม่จากคำสั่ง"}
+        </Button>
+        {!draft && (
+          <Button icon={<Plus size={16} />} disabled={!!busy} onClick={() => setDraft(structuredClone(detail.template))}>
+            แก้เองจากแม่แบบมาตรฐาน
+          </Button>
+        )}
+        {detail.mode === "custom" && (
+          <Button variant="ghost" icon={<RotateCcw size={16} />} disabled={!!busy} onClick={() => setConfirmStandard(true)}>
+            ใช้ผังมาตรฐานของระบบ
+          </Button>
+        )}
+        <span className="grow" />
+        {dirty && (
+          <>
+            <Button variant="ghost" disabled={!!busy} onClick={() => setDraft(detail.spec ? structuredClone(detail.spec) : null)}>
+              ยกเลิกการแก้
+            </Button>
+            <Button variant="primary" icon={<Save size={16} />} loading={busy === "save"} disabled={!!busy || errors.length > 0} onClick={save}>
+              บันทึก Flow
+            </Button>
+          </>
+        )}
+        {!dirty && detail.mode === "custom" && !detail.reviewed && (
+          <Button variant="primary" icon={<CircleCheck size={16} />} loading={busy === "approve"} disabled={!!busy} onClick={approve}>
+            ตรวจแล้ว ใช้ Flow นี้
+          </Button>
+        )}
+      </div>
+
+      {!draft ? (
+        <Card>
+          <CardHead title="Gem นี้ใช้ผังมาตรฐานของระบบ" sub="ผังมาตรฐานของหัวข้อที่ 3 ที่ Stress Test และหน้ากฎ R-01–R-55 อธิบายไว้" />
+          <div className="card-body stack">
+            <p className="small">
+              ตอบผิดได้คำใบ้ทีละระดับหลังหน่วงเวลา ผ่านด้วยคำใบ้ต้องทำข้อคู่ขนานที่ไม่มีคำใบ้ ติดหล่มไปทบทวนพื้นฐาน ซ่อมเสริมครบ 2 รอบแจ้งครู
+              ถ้าอยากให้สอนต่างจากนี้ เขียนลำดับการสอนในคำสั่งของ Gem (เช่น "ผิด 2 ครั้งให้ดูตัวอย่างก่อน" หรือ "ทุกข้อที่ถูกให้อธิบายวิธีคิด") แล้วกดให้ AI ออกแบบ
+            </p>
+            {detail.warnings.map((w) => (
+              <div key={w} className="callout callout-warning">
+                <CircleAlert size={16} />
+                <span className="small">{w}</span>
+              </div>
+            ))}
+          </div>
+        </Card>
+      ) : (
+        <div className="flow-editor">
+          <Card className="flow-editor-map">
+              <div className="card-body">
+                {map ? (
+                  <SpecFlowMap nodes={map.nodes} edges={map.edges} guards={map.guards} selectedNode={selected} onSelectNode={(id) => {
+                    setSelected(id);
+                    setSide(draft.steps.some((s) => s.id === id) ? "step" : "locked");
+                  }} />
+                ) : (
+                  <p className="small muted">แก้ข้อผิดพลาดด้านล่างก่อน ผังจะแสดงเมื่อ Flow ตรวจผ่าน</p>
+                )}
+              </div>
+          </Card>
+          <div className="stack">
+            {(errors.length > 0 || warnings.length > 0) && (
+              <Card>
+                <CardHead title={errors.length ? `ต้องแก้ก่อนบันทึก (${errors.length})` : `ข้อสังเกต (${warnings.length})`} />
+                <ul className="card-body stack stack-sm" style={{ paddingTop: 0, margin: 0, listStyle: "none" }}>
+                  {errors.map((e) => (
+                    <li key={e} className="callout callout-warning">
+                      <CircleAlert size={16} />
+                      <span className="small">{e}</span>
+                    </li>
+                  ))}
+                  {warnings.map((w) => (
+                    <li key={w} className="small muted">
+                      · {w}
+                    </li>
+                  ))}
+                </ul>
+              </Card>
+            )}
+            <Card>
+              <CardHead title={`ขั้นทั้งหมด (${draft.steps.length})`} actions={<AddStep catalog={catalog} onAdd={(s) => {
+                update((spec) => {
+                  spec.steps.push(s);
+                  spec.edges.push({ from: s.id, to: spec.start, when: "", label: "ไปต่อ" });
+                });
+                setSelected(s.id);
+                setSide("step");
+              }} taken={draft.steps.map((s) => s.id)} />} />
+              <ul className="card-body flow-step-list" style={{ paddingTop: 0 }}>
+                {draft.steps.map((s) => (
+                  <li key={s.id}>
+                    <button type="button" className={s.id === selected ? "on" : ""} onClick={() => {
+                      setSelected(s.id);
+                      setSide("step");
+                    }}>
+                      <Badge>{KIND_TEXT[s.kind] ?? s.kind}</Badge>
+                      <span className="small strong grow">{s.label}</span>
+                      {s.id === draft.start && <Badge tone="accent">ขั้นแรก</Badge>}
+                      <span className="xsmall faint">{draft.edges.filter((e) => e.from === s.id).length} เส้นออก</span>
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            </Card>
+          </div>
+
+          <Card className="flow-side">
+            <div className="card-body stack">
+              <Tabs
+                value={side}
+                onChange={setSide}
+                items={[
+                  { id: "step", label: "ขั้นที่เลือก" },
+                  { id: "params", label: "ตัวเลข" },
+                  { id: "vars", label: "ตัวแปร" },
+                  { id: "locked", label: "ล็อกไว้" },
+                ]}
+              />
+              {side === "step" &&
+                (step ? (
+                  <StepEditor
+                    key={step.id}
+                    spec={draft}
+                    step={step}
+                    catalog={catalog}
+                    described={check?.spec?.edges}
+                    update={update}
+                    onRemove={() => {
+                      update((spec) => {
+                        spec.steps = spec.steps.filter((s) => s.id !== step.id);
+                        spec.edges = spec.edges.filter((e) => e.from !== step.id && e.to !== step.id);
+                      });
+                      setSelected(null);
+                    }}
+                  />
+                ) : (
+                  <p className="small muted">กดกล่องในผังหรือในรายการขั้นเพื่อดูและแก้</p>
+                ))}
+              {side === "params" && <Params spec={draft} catalog={catalog} update={update} />}
+              {side === "vars" && <Vars catalog={catalog} />}
+              {side === "locked" && <Locked catalog={catalog} />}
+            </div>
+          </Card>
+        </div>
+      )}
+
+      <Modal
+        open={confirmStandard}
+        onClose={() => setConfirmStandard(false)}
+        title="ใช้ผังมาตรฐานของระบบ"
+        footer={
+          <>
+            <Button onClick={() => setConfirmStandard(false)}>ยกเลิก</Button>
+            <Button variant="primary" onClick={useStandard}>
+              ใช้ผังมาตรฐาน
+            </Button>
+          </>
+        }
+      >
+        <p className="small">Flow ที่ออกแบบไว้ยังอยู่ในประวัติเวอร์ชัน ย้อนกลับได้ นักเรียนที่เริ่มรอบใหม่จะเรียนตาม ผังมาตรฐาน</p>
+      </Modal>
+    </div>
+  );
+}
+
+function stripIds(spec: FlowSpec) {
+  return { ...spec, edges: spec.edges.map((e) => ({ from: e.from, to: e.to, when: e.when, label: e.label })) };
+}
+
+function defaultsFor(kind: string, id: string): FlowStepSpec {
+  const base = { id, kind, label: KIND_TEXT[kind] ?? kind };
+  switch (kind) {
+    case "item":
+      return { ...base, pick: "adaptive", hint_button: true };
+    case "hint":
+      return { ...base, level: "auto", delay: 0 };
+    case "lesson":
+      return { ...base, title: "", text: "", walkthrough: false };
+    case "reflect":
+      return { ...base, question: "อธิบายว่าเราคิดข้อนี้อย่างไร", judge: false, rubric: "" };
+    case "break":
+      return { ...base, seconds: 60, text: "" };
+    case "notify":
+      return { ...base, level: "normal", text: "" };
+    case "teacher":
+      return { ...base, text: "" };
+    case "end":
+      return { ...base, result: "completed", text: "" };
+    default:
+      return base;
+  }
+}
+
+function AddStep({ catalog, taken, onAdd }: { catalog: FlowCatalog; taken: string[]; onAdd: (s: FlowStepSpec) => void }) {
+  const [kind, setKind] = useState("lesson");
+  const add = () => {
+    let n = 1;
+    while (taken.includes(`${kind}_${n}`)) n++;
+    onAdd(defaultsFor(kind, `${kind}_${n}`));
+  };
+  return (
+    <span className="row row-sm">
+      <select className="input input-sm" value={kind} onChange={(e) => setKind(e.target.value)} aria-label="ชนิดขั้นที่จะเพิ่ม">
+        {catalog.kinds.map((k) => (
+          <option key={k.key} value={k.key}>
+            {k.label}
+          </option>
+        ))}
+      </select>
+      <Button size="sm" icon={<Plus size={14} />} onClick={add}>
+        เพิ่มขั้น
+      </Button>
+    </span>
+  );
+}
+
+function StepEditor({
+  spec,
+  step,
+  catalog,
+  described,
+  update,
+  onRemove,
+}: {
+  spec: FlowSpec;
+  step: FlowStepSpec;
+  catalog: FlowCatalog;
+  described?: FlowEdgeSpec[];
+  update: (change: (spec: FlowSpec) => void) => void;
+  onRemove: () => void;
+}) {
+  const kind = catalog.kinds.find((k) => k.key === step.kind);
+  const set = (patch: Partial<FlowStepSpec>) =>
+    update((s) => {
+      const target = s.steps.find((x) => x.id === step.id);
+      if (target) Object.assign(target, patch);
+    });
+  const outgoing = spec.edges.map((e, i) => ({ e, i })).filter(({ e }) => e.from === step.id);
+  const incoming = spec.edges.filter((e) => e.to === step.id && e.from !== step.id);
+  const name = (id: string) => spec.steps.find((s) => s.id === id)?.label ?? id;
+  const moveEdge = (index: number, direction: -1 | 1) =>
+    update((s) => {
+      const same = s.edges.map((e, i) => ({ e, i })).filter(({ e }) => e.from === step.id).map(({ i }) => i);
+      const at = same.indexOf(index);
+      const other = same[at + direction];
+      if (other === undefined) return;
+      [s.edges[index], s.edges[other]] = [s.edges[other], s.edges[index]];
+    });
+  const setEdge = (index: number, patch: Partial<FlowEdgeSpec>) => update((s) => Object.assign(s.edges[index], patch));
+  const numbers = catalog.step_numbers;
+
+  return (
+    <div className="stack">
+      <div className="spread">
+        <span className="row row-sm">
+          <Badge tone="info">{kind?.label ?? step.kind}</Badge>
+          <span className="mono xsmall faint">{step.id}</span>
+        </span>
+        {step.id !== spec.start && (
+          <Button size="sm" variant="ghost" icon={<Trash2 size={14} />} onClick={onRemove}>
+            ลบขั้น
+          </Button>
+        )}
+      </div>
+      <p className="xsmall muted">{kind?.about}</p>
+      <Field label="ชื่อขั้น (สั้น ๆ)">
+        <input className="input" value={step.label} maxLength={40} onChange={(e) => set({ label: e.target.value })} />
+      </Field>
+
+      {step.kind === "item" && (
+        <>
+          <Field label="เลือกโจทย์แบบไหน">
+            <select className="input" value={step.pick} onChange={(e) => set({ pick: e.target.value })}>
+              {catalog.picks.map((p) => (
+                <option key={p.key} value={p.key}>
+                  {p.label}
+                </option>
+              ))}
+            </select>
+          </Field>
+          <label className="row row-sm small">
+            <input type="checkbox" checked={!!step.hint_button} onChange={(e) => set({ hint_button: e.target.checked })} />
+            นักเรียนกดขอคำใบ้เองได้
+          </label>
+          {step.id !== spec.start && (
+            <Button size="sm" variant="ghost" onClick={() => update((s) => void (s.start = step.id))} style={{ alignSelf: "flex-start" }}>
+              ตั้งเป็นขั้นแรก
+            </Button>
+          )}
+        </>
+      )}
+      {step.kind === "hint" && (
+        <div className="grid grid-2">
+          <Field label="ระดับคำใบ้">
+            <select className="input" value={String(step.level)} onChange={(e) => set({ level: e.target.value === "auto" ? "auto" : Number(e.target.value) })}>
+              <option value="auto">อัตโนมัติ (ตามครั้งที่ผิดและ Bug Library)</option>
+              <option value="1">1 สะกิดความคิด</option>
+              <option value="2">2 อธิบายกฎ</option>
+              <option value="3">3 ชี้ขั้นแรก</option>
+            </select>
+          </Field>
+          <Field label="หน่วงก่อนแสดง (วินาที)" hint={`${numbers.delay.min}–${numbers.delay.max}`}>
+            <input className="input" type="number" min={numbers.delay.min} max={numbers.delay.max} value={step.delay ?? 0} onChange={(e) => set({ delay: Number(e.target.value) })} />
+          </Field>
+        </div>
+      )}
+      {step.kind === "lesson" && (
+        <>
+          <Field label="หัวข้อ">
+            <input className="input" value={step.title ?? ""} maxLength={60} onChange={(e) => set({ title: e.target.value })} />
+          </Field>
+          <Field label="เนื้อหาสั้น ๆ" hint="ห้ามใส่คำตอบของโจทย์">
+            <textarea className="input" rows={4} value={step.text ?? ""} maxLength={1200} onChange={(e) => set({ text: e.target.value })} />
+          </Field>
+          <label className="row row-sm small">
+            <input type="checkbox" checked={!!step.walkthrough} onChange={(e) => set({ walkthrough: e.target.checked })} />
+            แสดงตัวอย่างทีละขั้นของมโนทัศน์ที่กำลังทำ
+          </label>
+        </>
+      )}
+      {step.kind === "reflect" && (
+        <>
+          <Field label="คำถามให้นักเรียนอธิบาย">
+            <input className="input" value={step.question ?? ""} maxLength={300} onChange={(e) => set({ question: e.target.value })} />
+          </Field>
+          <label className="row row-sm small">
+            <input type="checkbox" checked={!!step.judge} onChange={(e) => set({ judge: e.target.checked })} />
+            ให้ AI ประเมินคำอธิบายตามเกณฑ์ (บันทึกทุกครั้ง ครูตรวจย้อนหลังได้)
+          </label>
+          {step.judge && (
+            <Field label="เกณฑ์ของครู">
+              <textarea className="input" rows={3} value={step.rubric ?? ""} maxLength={600} onChange={(e) => set({ rubric: e.target.value })} />
+            </Field>
+          )}
+        </>
+      )}
+      {step.kind === "break" && (
+        <>
+          <Field label="พักกี่วินาที" hint={`${numbers.seconds.min}–${numbers.seconds.max}`}>
+            <input className="input" type="number" min={numbers.seconds.min} max={numbers.seconds.max} value={step.seconds ?? 60} onChange={(e) => set({ seconds: Number(e.target.value) })} />
+          </Field>
+          <Field label="ข้อความระหว่างพัก">
+            <input className="input" value={step.text ?? ""} maxLength={200} onChange={(e) => set({ text: e.target.value })} />
+          </Field>
+        </>
+      )}
+      {(step.kind === "notify" || step.kind === "teacher") && (
+        <>
+          {step.kind === "notify" && (
+            <Field label="ระดับการแจ้ง">
+              <select className="input" value={String(step.level)} onChange={(e) => set({ level: e.target.value })}>
+                <option value="urgent">ด่วน</option>
+                <option value="normal">ปกติ</option>
+                <option value="silent">เงียบ</option>
+              </select>
+            </Field>
+          )}
+          <Field label="ข้อความถึงครู">
+            <input className="input" value={step.text ?? ""} maxLength={200} onChange={(e) => set({ text: e.target.value })} />
+          </Field>
+        </>
+      )}
+      {step.kind === "end" && (
+        <>
+          <Field label="ผลของการจบ">
+            <select className="input" value={step.result} onChange={(e) => set({ result: e.target.value })}>
+              <option value="completed">จบชุด (สำเร็จ)</option>
+              <option value="stopped">หยุดไว้ก่อน บันทึกความคืบหน้า</option>
+            </select>
+          </Field>
+          <Field label="ข้อความถึงนักเรียน">
+            <input className="input" value={step.text ?? ""} maxLength={200} onChange={(e) => set({ text: e.target.value })} />
+          </Field>
+        </>
+      )}
+
+      {step.kind !== "end" && (
+        <div className="stack stack-sm">
+          <span className="small strong">เส้นออก (เส้นแรกที่เงื่อนไขเป็นจริงชนะ)</span>
+          {outgoing.map(({ e, i }, order) => (
+            <div key={i} className="flow-edge-row">
+              <div className="stack stack-sm">
+                <span className="row row-sm row-nowrap">
+                  <span className="xsmall faint num">{order + 1}.</span>
+                  <input className="input input-sm" value={e.label} maxLength={40} placeholder="ป้ายบนเส้น" onChange={(ev) => setEdge(i, { label: ev.target.value })} />
+                </span>
+                <input className="input input-sm mono" value={e.when} placeholder="เว้นว่าง = ทุกกรณีที่เหลือ" onChange={(ev) => setEdge(i, { when: ev.target.value })} aria-label="เงื่อนไข" />
+                <span className="xsmall muted">ถ้า: {described?.[i]?.text ?? "…"}</span>
+                <span className="row row-sm row-nowrap xsmall">
+                  ไปที่
+                  <select className="input input-sm" value={e.to} onChange={(ev) => setEdge(i, { to: ev.target.value })}>
+                    {spec.steps.map((s) => (
+                      <option key={s.id} value={s.id}>
+                        {s.label}
+                        {s.id === step.id ? " (ขั้นเดิม)" : ""}
+                      </option>
+                    ))}
+                  </select>
+                </span>
+              </div>
+              <div className="flow-edge-tools">
+                <Button size="sm" variant="ghost" className="btn-icon" icon={<ArrowUp size={14} />} aria-label="เลื่อนขึ้น" disabled={order === 0} onClick={() => moveEdge(i, -1)} />
+                <Button size="sm" variant="ghost" className="btn-icon" icon={<ArrowDown size={14} />} aria-label="เลื่อนลง" disabled={order === outgoing.length - 1} onClick={() => moveEdge(i, 1)} />
+                <Button size="sm" variant="ghost" className="btn-icon" icon={<Trash2 size={14} />} aria-label="ลบเส้น" onClick={() => update((s) => void s.edges.splice(i, 1))} />
+              </div>
+            </div>
+          ))}
+          <Button size="sm" icon={<Plus size={14} />} style={{ alignSelf: "flex-start" }} onClick={() => update((s) => void s.edges.push({ from: step.id, to: step.id, when: "", label: "" }))}>
+            เพิ่มเส้น
+          </Button>
+        </div>
+      )}
+      {incoming.length > 0 && (
+        <p className="xsmall muted">มาจาก: {[...new Set(incoming.map((e) => name(e.from)))].join(", ")}</p>
+      )}
+    </div>
+  );
+}
+
+function Params({ spec, catalog, update }: { spec: FlowSpec; catalog: FlowCatalog; update: (change: (spec: FlowSpec) => void) => void }) {
+  return (
+    <div className="stack">
+      <p className="xsmall muted">ตัวเลขของทั้ง Flow ที่มาจากคำสั่งของครู ช่องว่างใช้ค่าที่ Admin ตั้งไว้ ระบบตัดค่าให้อยู่ในช่วงที่ปลอดภัยเสมอ</p>
+      {catalog.params.map((p) => (
+        <Field key={p.key} label={p.label} hint={`ช่วง ${p.min}–${p.max} · ค่าของ Admin ${p.default}`}>
+          <input
+            className="input"
+            type="number"
+            min={p.min}
+            max={p.max}
+            value={spec.params[p.key] ?? ""}
+            placeholder={String(p.default)}
+            onChange={(e) =>
+              update((s) => {
+                if (e.target.value === "") delete s.params[p.key];
+                else s.params[p.key] = Number(e.target.value);
+              })
+            }
+          />
+        </Field>
+      ))}
+    </div>
+  );
+}
+
+function Vars({ catalog }: { catalog: FlowCatalog }) {
+  return (
+    <div className="stack">
+      <p className="xsmall muted">
+        เงื่อนไขเขียนแบบ <span className="mono">wrong and error_count &gt;= 2</span> ใช้ได้แค่ and, or, not, ==, !=, &lt;, &lt;=, &gt;, &gt;= ตัวเลข และตัวแปรเหล่านี้
+      </p>
+      <dl className="flow-var-list">
+        {catalog.vars.map((v) => (
+          <div key={v.key} style={{ display: "contents" }}>
+            <dt>{v.key}</dt>
+            <dd>{v.label}</dd>
+          </div>
+        ))}
+      </dl>
+    </div>
+  );
+}
+
+function Locked({ catalog }: { catalog: FlowCatalog }) {
+  return (
+    <div className="stack">
+      <p className="xsmall muted">ระบบบังคับใช้กับทุก Flow ครูและ AI แก้ไม่ได้ จึงไม่อยู่ในกราฟ</p>
+      <ul className="flow-locked">
+        {catalog.locked.map((l) => (
+          <li key={l.title}>
+            <Lock size={14} />
+            <span className="stack" style={{ gap: 2 }}>
+              <span className="small strong">{l.title}</span>
+              <span className="xsmall muted">{l.text}</span>
+            </span>
+          </li>
+        ))}
+      </ul>
+      <span className="small strong">กล่องในแถบล่างของผัง</span>
+      <ul className="flow-locked">
+        {catalog.guards.map((g) => (
+          <li key={g.id}>
+            <span className="xsmall strong" style={{ minWidth: 110 }}>
+              {g.label}
+            </span>
+            <span className="xsmall muted">{g.text}</span>
+          </li>
+        ))}
+      </ul>
+    </div>
+  );
+}

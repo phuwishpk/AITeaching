@@ -34,6 +34,11 @@ SITUATIONS = [
      "default": {"enabled": True, "level": "silent", "mode": "notify"}},
     {"key": "cap", "label": "ครบเพดานข้อแล้วยังไม่ผ่านเกณฑ์", "kinds": ["cap"],
      "default": {"enabled": True, "level": "silent", "mode": "notify"}},
+    # ขั้นใน Flow ที่ AI ออกแบบจากคำสั่งของครู (ADR-0004) ระดับของขั้นแจ้งครูมาจาก Flow เอง
+    {"key": "flow_notify", "label": "ขั้น \"แจ้งครู\" ใน Flow ของ Gem", "kinds": ["flow_notify"],
+     "default": {"enabled": True, "level": "normal", "mode": "notify"}},
+    {"key": "flow_teacher", "label": "ขั้น \"หยุดรอครู\" ใน Flow ของ Gem", "kinds": ["flow_teacher"],
+     "default": {"enabled": True, "level": "normal", "mode": "pause"}},
 ]
 
 _BY_KIND = {kind: s for s in SITUATIONS for kind in s["kinds"]}

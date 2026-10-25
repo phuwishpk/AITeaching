@@ -19,6 +19,7 @@ import TagReview from "./TagReview";
 import AiReview from "./AiReview";
 import Inbox from "./Inbox";
 import GemList from "./GemList";
+import GemFlowPage from "./GemFlow";
 import GemEditor from "./GemEditor";
 import StudentDrawer, { type DrawerTab } from "./StudentDrawer";
 import RulesPage from "../shared/RulesPage";
@@ -241,6 +242,7 @@ function TeacherShell({ onLogout, onExpired }: { onLogout: () => void; onExpired
               <Route path="gems" element={<GemList />} />
               <Route path="gems/new" element={<GemEditor />} />
               <Route path="gems/:gemId" element={<GemEditor />} />
+              <Route path="gems/:gemId/flow" element={<GemFlowPage />} />
               <Route path="alerts" element={<AlertsPage />} />
               <Route path="inbox" element={<Inbox />} />
               <Route path="content" element={<ContentStudio />} />

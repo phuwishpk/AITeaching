@@ -8,11 +8,11 @@ import time
 
 from .. import db
 
-FIELDS = ("name", "description", "instructions", "icon", "color", "tools", "starter_prompts", "alert_rules")
+FIELDS = ("name", "description", "instructions", "icon", "color", "tools", "starter_prompts", "alert_rules", "flow")
 BANK = ("bank_version", "subject_id", "set_id")
 LABELS = {
     "name": "ชื่อ", "description": "คำอธิบาย", "instructions": "คำสั่ง", "icon": "ไอคอน", "color": "สี",
-    "tools": "เครื่องมือเริ่มต้น", "starter_prompts": "คำถามเริ่มต้น", "alert_rules": "การแจ้งเตือน",
+    "tools": "เครื่องมือเริ่มต้น", "starter_prompts": "คำถามเริ่มต้น", "alert_rules": "การแจ้งเตือน", "flow": "Flow การสอน",
 }
 
 

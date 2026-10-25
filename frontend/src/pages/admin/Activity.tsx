@@ -4,13 +4,12 @@ import { ArrowRight, Bell, Bot, Check, ChevronRight, Flag, Hand, Hourglass, Mous
 import { api } from "../../lib/api";
 import { useLoad, useNow } from "../../lib/hooks";
 import { ago, clock, mmss, num } from "../../lib/format";
-import FlowMap from "../../components/FlowMap";
 import { Badge, Card, CardHead, Empty, Spinner } from "../../components/ui";
 import { useAdmin } from "./AdminApp";
 import { useStudentPicker } from "./Topic2";
 import { CodePicker } from "./shared";
 import NodeInspector from "./NodeInspector";
-import type { GemFlow } from "./gemFlow";
+import { GemFlowMap, SpecStepDrawer, type GemFlow } from "./gemFlow";
 import { answerText, ItemView, type ItemBrief } from "../../components/AnswerSheet";
 
 interface ActivityInput {
@@ -41,6 +40,9 @@ interface ActivityEvent {
   steps: string[];
   rules: { id: string; title: string }[];
   position: string | null;
+  // Flow ที่ครูออกแบบใน Gem: ขั้นของ Flow ที่นักเรียนไปอยู่ต่อ
+  step?: string | null;
+  step_label?: string | null;
   // เฉพาะเส้นทางตั้งแต่ต้นจนจบ: ลำดับขั้น และจุดเริ่มหรือจุดจบ
   n?: number;
   milestone?: "start" | "completed" | "ended" | null;
@@ -330,20 +332,24 @@ export default function Activity() {
               sub="เส้นสีเข้มคือเส้นทางที่การกระทำที่เลือกเดินผ่าน กล่องที่เน้นคือที่ที่นักเรียนไปอยู่ต่อ กดกล่องเพื่อดูรายละเอียดและปรับแต่ง"
             />
             {gemFlow.data && <p className="xsmall muted flow-of">ผังของ Gem: {gemFlow.data.name}</p>}
-            <FlowMap
-              nodes={gemFlow.data?.nodes ?? flow.nodes}
-              edges={gemFlow.data?.edges ?? flow.edges}
-              marks={gemFlow.data?.alerts}
+            <GemFlowMap
+              flow={gemFlow.data ?? { nodes: flow.nodes, edges: flow.edges, disabled: {}, alerts: {} }}
+              allNodes={flow.nodes}
+              note={false}
               positions={event ? flow.positions.filter((p) => p.code === event.code) : []}
               selectedStudent={event?.code}
-              selectedNode={event?.position}
+              selectedNode={gemFlow.data?.custom ? event?.step : event?.position}
               highlightEdges={event?.edges ?? []}
               onSelectNode={setInspect}
             />
           </Card>
         </div>
       </div>
-      <NodeInspector nodeId={inspect} onClose={() => setInspect(null)} onNavigate={setInspect} />
+      {gemFlow.data?.custom ? (
+        <SpecStepDrawer flow={gemFlow.data} nodeId={inspect} onClose={() => setInspect(null)} />
+      ) : (
+        <NodeInspector nodeId={inspect} onClose={() => setInspect(null)} onNavigate={setInspect} />
+      )}
     </div>
   );
 }

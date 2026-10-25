@@ -11,6 +11,7 @@ export interface AlertRule {
 export interface GemMeta {
   alert_situations: { key: string; label: string; locked: boolean }[];
   alert_defaults: Record<string, AlertRule>;
+  flow: FlowCatalog;
 }
 
 export interface GemTools {
@@ -137,4 +138,83 @@ export const STATUS_TEXT: Record<GemBuild["status"], { label: string; tone: "neu
   building: { label: "กำลังสร้างคลังโจทย์", tone: "info" },
   ready: { label: "พร้อมใช้", tone: "success" },
   error: { label: "สร้างไม่สำเร็จ", tone: "warning" },
+};
+
+// ---------------------------------------------------------------- Flow ที่ AI ออกแบบจากคำสั่ง (backend/app/gems/flowspec.py)
+
+export interface FlowStepSpec {
+  id: string;
+  kind: string;
+  label: string;
+  pick?: string;
+  hint_button?: boolean;
+  level?: number | "auto" | string;
+  delay?: number;
+  title?: string;
+  text?: string;
+  walkthrough?: boolean;
+  question?: string;
+  judge?: boolean;
+  rubric?: string;
+  seconds?: number;
+  result?: string;
+}
+
+export interface FlowEdgeSpec {
+  id?: string;
+  from: string;
+  to: string;
+  when: string;
+  label: string;
+  text?: string;
+}
+
+export interface FlowSpec {
+  summary: string;
+  start: string;
+  params: Record<string, number>;
+  steps: FlowStepSpec[];
+  edges: FlowEdgeSpec[];
+}
+
+export interface FlowMapData {
+  nodes: { id: string; label: string; kind: string; lane: string; about: string; start: boolean }[];
+  edges: { id: string; source: string; target: string; label: string; when: string; text: string }[];
+  guards: { id: string; label: string; text: string }[];
+}
+
+export interface GemFlowDetail {
+  mode: "custom" | "standard";
+  source: "ai" | "teacher" | "template" | null;
+  reviewed: boolean;
+  updated_at: number | null;
+  warnings: string[];
+  summary: string;
+  spec: FlowSpec | null;
+  map: FlowMapData | null;
+  template: FlowSpec;
+  outdated: boolean;
+}
+
+export interface FlowCheck {
+  spec: FlowSpec | null;
+  errors: string[];
+  warnings: string[];
+  map: FlowMapData | null;
+}
+
+export interface FlowCatalog {
+  kinds: { key: string; label: string; lane: string; wait: boolean; about: string }[];
+  picks: { key: string; label: string }[];
+  vars: { key: string; label: string; type: string }[];
+  params: { key: string; label: string; min: number; max: number; default: number }[];
+  step_numbers: Record<string, { min: number; max: number }>;
+  locked: { title: string; text: string }[];
+  guards: { id: string; label: string; text: string }[];
+}
+
+export const FLOW_SOURCE: Record<string, string> = {
+  ai: "AI ออกแบบจากคำสั่ง",
+  teacher: "ครูแก้เอง",
+  template: "แม่แบบมาตรฐาน",
 };

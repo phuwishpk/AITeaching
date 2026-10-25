@@ -52,6 +52,10 @@ interface View {
   undo_window: number;
   idle_timeout: number;
   walkthrough: { title: string; problem: string; steps: string[] } | null;
+  // Flow ที่ครูออกแบบใน Gem: หน้าบทเรียนย่อ หน้าอธิบายความคิด และข้อความของขั้นพัก
+  lesson?: { title: string; text: string; walkthrough: { title: string; problem: string; steps: string[] } | null };
+  reflect?: { question: string };
+  break_text?: string | null;
   remedial: { concept_name: string; round: number } | null;
   ended: boolean;
   end_reason: string | null;
@@ -295,7 +299,8 @@ function Room({ code, onLogout }: { code: string; onLogout: () => void }) {
             )}
           </div>
           <aside className="stack">
-            <HintPanel
+            {/* หน้าบทเรียนย่อและอธิบายความคิดของ Flow ใน Gem: ซ่อนคำใบ้ของข้อเดิม ลดสิ่งรบกวน (Extraneous Load) */}
+            {!["FLOW_LESSON", "FLOW_REFLECT"].includes(view.position) && <HintPanel
               view={view}
               socratic={socratic}
               onHint={async () => {
@@ -307,12 +312,12 @@ function Room({ code, onLogout }: { code: string; onLogout: () => void }) {
                   setFeedback({ ...result, itemNumber: response.view.item_number });
               }}
               onTimer={refresh}
-            />
+            />}
             {view.gem?.tools.chat !== false && (
               <TutorChat
                 messages={chat}
                 starters={view.gem?.starter_prompts ?? []}
-                toTeacher={!answering}
+                toTeacher={!answering && !["FLOW_LESSON", "FLOW_REFLECT"].includes(view.position)}
                 teacherIn={teacherIn}
                 onSend={async (message) => {
                   setChat((list) => [...list, { from: "me", text: message }]);
@@ -562,7 +567,10 @@ function StateScreen({
           </div>
           <h2 className="title-lg">พักสายตาสักครู่นะ</h2>
           <p className="muted prose">
-            หายใจเข้าลึก ๆ แล้วหายใจออกช้า ๆ ตามวงกลม ไม่ต้องรีบเลย เดี๋ยวเราจะเริ่มใหม่ด้วยตัวอย่างทีละขั้นด้วยกัน
+            {view.break_text ||
+              (view.gem
+                ? "หายใจเข้าลึก ๆ แล้วหายใจออกช้า ๆ ตามวงกลม ไม่ต้องรีบเลย พักครบแล้วค่อยไปต่อด้วยกัน"
+                : "หายใจเข้าลึก ๆ แล้วหายใจออกช้า ๆ ตามวงกลม ไม่ต้องรีบเลย เดี๋ยวเราจะเริ่มใหม่ด้วยตัวอย่างทีละขั้นด้วยกัน")}
           </p>
           <p className="faint small num">อีก {mmss(breakLeft)} วินาที</p>
         </article>
@@ -587,6 +595,29 @@ function StateScreen({
           </Button>
         </article>
       );
+    case "FLOW_LESSON":
+      return (
+        <article className="card state-card state-left fade-in">
+          <p className="eyebrow">บทเรียนย่อ</p>
+          <h2 className="title-lg">{view.lesson?.title ?? "อ่านก่อนไปต่อ"}</h2>
+          {view.lesson?.text && <p className="prose lesson-text">{view.lesson.text}</p>}
+          {view.lesson?.walkthrough && (
+            <>
+              <p className="problem-math small-math">{view.lesson.walkthrough.problem}</p>
+              <ol className="steps">
+                {view.lesson.walkthrough.steps.map((step, index) => (
+                  <li key={index}>{step}</li>
+                ))}
+              </ol>
+            </>
+          )}
+          <Button variant="primary" size="lg" onClick={() => act("walkthrough-done")}>
+            อ่านจบแล้ว ไปต่อ
+          </Button>
+        </article>
+      );
+    case "FLOW_REFLECT":
+      return <ReflectCard question={view.reflect?.question ?? "อธิบายว่าเราคิดอย่างไร"} onSend={(text) => act("reflect", { message: text })} />;
     case "IDLE_PAUSE":
       return (
         <article className="card state-card fade-in">
@@ -886,5 +917,40 @@ function NotesModal({ open, onClose, setId }: { open: boolean; onClose: () => vo
         </div>
       )}
     </Modal>
+  );
+}
+
+// ขั้น "อธิบายความคิด" ของ Flow ที่ครูออกแบบ: ไม่มีคะแนนให้เห็น (Anti-Labeling) ครูอ่านคำอธิบายได้ในหน้าครู
+export function ReflectCard({ question, onSend }: { question: string; onSend: (text: string) => Promise<unknown> }) {
+  const [text, setText] = useState("");
+  const [sending, setSending] = useState(false);
+  const send = async () => {
+    if (!text.trim() || sending) return;
+    setSending(true);
+    try {
+      await onSend(text.trim());
+      setText("");
+    } finally {
+      setSending(false);
+    }
+  };
+  return (
+    <article className="card state-card state-left fade-in">
+      <p className="eyebrow">อธิบายความคิดของเรา</p>
+      <h2 className="title-lg">{question}</h2>
+      <p className="small muted">เขียนสั้น ๆ ด้วยคำของเราเอง ไม่มีถูกหรือผิด ครูอยากรู้ว่าเราคิดอย่างไร</p>
+      <textarea
+        className="input reflect-input"
+        rows={4}
+        value={text}
+        maxLength={1000}
+        onChange={(e) => setText(e.target.value)}
+        aria-label={question}
+        placeholder="เช่น ตอนแรกเราย้าย... แล้วจึง..."
+      />
+      <Button variant="primary" size="lg" disabled={!text.trim()} loading={sending} onClick={send}>
+        ส่งคำอธิบาย
+      </Button>
+    </article>
   );
 }

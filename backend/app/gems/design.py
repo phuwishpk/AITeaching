@@ -9,7 +9,7 @@ from ..engine import flow as F
 
 from .. import db
 from ..tutor import prompt
-from . import alerts, builder, manage, versions
+from . import alerts, builder, flowspec, manage, versions
 
 # เครื่องมือที่ปิด → กล่องที่ไม่ถูกใช้ (engine › Content.tool)
 TOOL_NODES = {
@@ -81,7 +81,25 @@ def flow_view(gem: dict) -> dict:
     return {"nodes": [n for n in F.NODES if n["id"] not in hidden], "edges": edges, "hidden": hidden}
 
 
+def custom_flow(gem: dict) -> dict | None:
+    """Flow ที่ AI ออกแบบจากคำสั่งของครู (ADR-0004): ขั้น เส้น ตัวเลข และกลไกที่ล็อกไว้ ไม่ใช่ผังตายตัว"""
+    flow = gem.get("flow") or {}
+    if flow.get("mode") != "custom" or not flow.get("spec"):
+        return None
+    spec = flow["spec"]
+    return {
+        "custom": True, **flowspec.map_view(spec),
+        "summary": spec.get("summary", ""), "source": flow.get("source"), "reviewed": bool(flow.get("reviewed")),
+        "warnings": flow.get("warnings") or [], "locked": flowspec.LOCKED,
+        "params": [{"key": k, "label": flowspec.PARAM_LABELS[k], "value": v} for k, v in (spec.get("params") or {}).items()],
+        "disabled": {}, "alerts": {},
+    }
+
+
 def flow_marks(gem: dict) -> dict:
+    custom = custom_flow(gem)
+    if custom:
+        return custom
     view = flow_view(gem)
     disabled = view["hidden"]
     labels = {s["key"]: s["label"] for s in alerts.SITUATIONS}

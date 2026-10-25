@@ -15,16 +15,18 @@ import {
   Trash2,
   Undo2,
   WandSparkles,
+  Workflow,
   X,
 } from "lucide-react";
 import { api } from "../../lib/api";
-import { useNow } from "../../lib/hooks";
+import { useLoad, useNow } from "../../lib/hooks";
 import { mmss } from "../../lib/format";
 import GemIcon, { GEM_COLORS, GEM_ICONS } from "../../components/GemIcon";
+import SpecFlowMap from "../../components/SpecFlowMap";
 import { Badge, Button, Modal, Spinner, Tabs, useToast } from "../../components/ui";
 import { PreviewTry, Versions } from "./GemPreview";
 import GemItems from "./GemItems";
-import { STATUS_TEXT, TOOL_LABELS, type AlertLevel, type AlertRule, type GemDetail, type GemMeta, type GemTools } from "./gemTypes";
+import { FLOW_SOURCE, STATUS_TEXT, TOOL_LABELS, type AlertLevel, type AlertRule, type GemDetail, type GemFlowDetail, type GemMeta, type GemTools } from "./gemTypes";
 
 // หน้าสร้างและแก้ Gem แบบ Gemini: ฟอร์มด้านซ้าย พรีวิวด้านขวา กดบันทึกแล้ว AI สร้างคลังโจทย์ให้
 
@@ -558,7 +560,7 @@ function Preview({
   onChange: (gem: GemDetail) => void;
 }) {
   const now = useNow(1000);
-  const [tab, setTab] = useState<"bank" | "try" | "versions">("bank");
+  const [tab, setTab] = useState<"bank" | "flow" | "try" | "versions">("bank");
   if (!form.name.trim()) {
     return (
       <div className="gem-preview-empty">
@@ -623,11 +625,13 @@ function Preview({
             onChange={setTab}
             items={[
               { id: "bank", label: "คลังโจทย์" },
+              { id: "flow", label: "Flow" },
               { id: "try", label: "ลองเรียน" },
               { id: "versions", label: `เวอร์ชัน (${gem.versions.length})` },
             ]}
           />
           {tab === "bank" && <Bank gem={gem} onRebuild={onRetry} onReload={onReload} />}
+          {tab === "flow" && <FlowTab gem={gem} />}
           {tab === "try" && <PreviewTry gem={gem} />}
           {tab === "versions" && <Versions gem={gem} onRestored={onChange} />}
         </>
@@ -746,3 +750,35 @@ function Stat({ value, label }: { value: number; label: string }) {
 // Slip ทั่วไปที่ทุก Gem มีเหมือนกัน (backend/app/gems/builder.py GENERIC_SLIPS) ไม่นับเป็นข้อผิดพลาดที่ AI หาเจอ
 const GENERIC_SLIPS = new Set(["S-ARITH", "S-SIGNFLIP"]);
 
+// แท็บ Flow ในพรีวิว: สรุป Flow ที่ AI ออกแบบจากคำสั่ง ผังย่อ และปุ่มไปหน้าตรวจและปรับ (ADR-0004)
+function FlowTab({ gem }: { gem: GemDetail }) {
+  const navigate = useNavigate();
+  const flow = useLoad(() => api<GemFlowDetail>("teacher", `/api/gems/${gem.id}/flow`), [gem.id, gem.versions.length]);
+  if (!flow.data) return <Spinner />;
+  const f = flow.data;
+  return (
+    <div className="stack">
+      <span className="row row-sm">
+        {f.mode === "custom" ? (
+          <>
+            <Badge tone="info">{FLOW_SOURCE[f.source ?? "ai"]}</Badge>
+            {f.reviewed ? <Badge tone="success">ครูตรวจแล้ว</Badge> : <Badge tone="warning">ยังไม่ได้ตรวจ</Badge>}
+          </>
+        ) : (
+          <Badge>ผังมาตรฐานของระบบ</Badge>
+        )}
+      </span>
+      <p className="small">
+        {f.summary ||
+          (f.mode === "standard"
+            ? "คำสั่งของ Gem ไม่ได้กำหนดลำดับการสอนพิเศษ จึงใช้ผังมาตรฐาน: คำใบ้ทีละระดับ ข้อคู่ขนาน ทบทวนพื้นฐาน และส่งต่อครู"
+            : "")}
+      </p>
+      {f.outdated && <p className="small callout callout-warning">คำสั่งเปลี่ยนหลังออกแบบ Flow นี้ ให้ AI ออกแบบใหม่ได้ในหน้า Flow</p>}
+      {f.map && <SpecFlowMap nodes={f.map.nodes} edges={f.map.edges} compact />}
+      <Button variant="primary" icon={<Workflow size={16} />} onClick={() => navigate(`/teacher/gems/${gem.id}/flow`)} style={{ alignSelf: "flex-start" }}>
+        ตรวจและปรับ Flow
+      </Button>
+    </div>
+  );
+}

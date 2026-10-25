@@ -22,7 +22,7 @@ from .. import db, settings_store
 from ..content.readiness import check_set
 from ..engine.answers import parse_number
 from ..tutor import providers, service
-from . import verify, versions
+from . import flowspec, verify, versions
 
 log = logging.getLogger(__name__)
 
@@ -30,6 +30,7 @@ STEPS = [
     ("plan", "วางแผนผังความรู้และ Bug Library"),
     ("items", "สร้างโจทย์หลักและข้อคู่ขนาน"),
     ("extras", "สร้างโจทย์ทบทวนพื้นฐานและโจทย์ท้าทาย"),
+    ("flow", "ออกแบบ Flow การสอนจากคำสั่ง"),
     ("verify", "ตรวจเฉลย (sympy และให้ AI แก้ซ้ำ)"),
     ("save", "บันทึกและตรวจความพร้อม"),
 ]
@@ -448,6 +449,8 @@ def gem_meta(gem: dict, version: int) -> dict:
         "color": gem.get("color"), "instructions": gem.get("instructions", ""),
         "tools": gem.get("tools", {}), "starter_prompts": gem.get("starter_prompts", []),
         "alert_rules": gem.get("alert_rules", {}), "live_cap": bank_sizes()["live_cap"],
+        # Flow ที่ AI ออกแบบจากคำสั่งของครู (ADR-0004) ไม่มีก็ใช้ผังมาตรฐาน
+        "flow": gem.get("flow") or flowspec.STANDARD,
     }
 
 
@@ -535,16 +538,43 @@ async def build(gem_id: str) -> None:
 
         _progress(gem, "items")
         _progress(gem, "extras")
+        redesign = flow_needs_design(gem)
+        if redesign:
+            _progress(gem, "flow")
         half = max(1, sizes["main"] // 2)
+
+        async def design_flow():
+            # ออกแบบ Flow ไม่สำเร็จไม่ทำให้การสร้างคลังล้ม ใช้ผังมาตรฐาน และไม่เก็บผลที่ล้มไว้ในร่าง
+            if "flow" in parts:
+                return parts["flow"]
+            try:
+                parts["flow"] = await flowspec.design(gem)
+            except BuildError as error:
+                _progress(gem, "flow", "done")
+                return flowspec.standard_record("", [f"AI ออกแบบ Flow ไม่สำเร็จ ({error}) จึงใช้ผังมาตรฐานของระบบ"])
+            _progress(gem, "flow", "done")
+            return parts["flow"]
+
+        # รอทุกขั้นที่ทำพร้อมกันให้จบก่อนรายงานข้อผิดพลาด ขั้นที่สำเร็จจึงถูกเก็บในร่าง กดสร้างใหม่ทำต่อเฉพาะขั้นที่ล้ม
         results = await asyncio.gather(
             part("items_1", lambda: ask_json(
                 "items", items_prompt(gem, knowledge, plan, half, "0.2–0.5 (ง่ายถึงปานกลาง)", 1))),
             part("items_2", lambda: ask_json(
                 "items", items_prompt(gem, knowledge, plan, sizes["main"] - half, "0.5–0.85 (ปานกลางถึงยาก)", 2))),
             part("extras", lambda: ask_json("extras", extras_prompt(gem, knowledge, plan, sizes))),
+            design_flow() if redesign else asyncio.sleep(0),
+            return_exceptions=True,
         )
+        failed = next((r for r in results if isinstance(r, BaseException)), None)
+        if failed:
+            raise failed
         _progress(gem, "items", "done")
         _progress(gem, "extras", "done")
+        flow = None
+        if redesign:
+            flow = {**results[3], "instructions_key": instructions_key(gem)}
+            gem["flow"] = flow
+        _progress(gem, "flow", "done")
         subject = assemble(gem, version, plan, list(results[:2]), results[2])
         if not subject["question_sets"][0]["main_items"]:
             raise BuildError("AI สร้างโจทย์หลักที่ตรวจด้วยกฎได้ไม่ได้เลย ลองปรับคำสั่งให้ชัดขึ้น")
@@ -563,6 +593,8 @@ async def build(gem_id: str) -> None:
         db.save_subject(subject)
         readiness = check_set(usable(subject), subject["question_sets"][0]["id"])
         gem = db.get_gem(gem_id) or gem
+        if flow:
+            gem["flow"] = flow
         gem.pop("draft", None)
         gem.update(bank_version=version, subject_id=subject["id"], set_id=subject["question_sets"][0]["id"])
         _retire_old_banks(gem_id, keep=subject["id"])
@@ -575,6 +607,10 @@ async def build(gem_id: str) -> None:
         )
         if flagged:
             gem["build"]["warnings"].insert(0, f"ติดธง {len(flagged)} ข้อ ซ่อนจากนักเรียนจนกว่าครูยืนยัน")
+        if flow and flow.get("mode") == "custom":
+            gem["build"]["warnings"].append("AI ออกแบบ Flow การสอนจากคำสั่งแล้ว ตรวจและปรับได้ในแท็บ Flow")
+        elif (gem.get("flow") or {}).get("source") == "teacher":
+            gem["build"]["warnings"].append("ใช้ Flow ที่ครูแก้ไว้ต่อ กดออกแบบใหม่จากคำสั่งในแท็บ Flow ได้")
         _progress(gem, "save", "done")
         versions.record(gem, "AI", f"สร้างคลังโจทย์รุ่นที่ {version}")
     except Exception as error:  # noqa: BLE001 งานเบื้องหลังต้องจบด้วยสถานะเสมอ ไม่ค้างที่ "กำลังสร้าง"
@@ -658,6 +694,19 @@ async def generate_items(subject_id: str, request: dict, review: str) -> list[st
     subject["question_sets"][0]["main_items"] += [m["id"] for m in mains]
     db.save_subject(subject)
     return [m["id"] for m in mains if not m.get("flag")]
+
+
+def instructions_key(gem: dict) -> str:
+    raw = json.dumps([gem.get("instructions"), gem.get("tools")], ensure_ascii=False, sort_keys=True)
+    return hashlib.sha256(raw.encode()).hexdigest()[:16]
+
+
+def flow_needs_design(gem: dict) -> bool:
+    """ออกแบบ Flow ใหม่เมื่อคำสั่งหรือเครื่องมือเปลี่ยน แต่ไม่ทับ Flow ที่ครูแก้หรือเลือกเอง"""
+    flow = gem.get("flow") or {}
+    if flow.get("source") == "teacher":
+        return False
+    return flow.get("instructions_key") != instructions_key(gem)
 
 
 def _draft_key(gem: dict, sizes: dict) -> str:

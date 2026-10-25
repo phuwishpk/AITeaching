@@ -106,8 +106,13 @@ def _assemble(traces: list[dict], decisions: list[dict]) -> list[dict]:
         event["rules"] = _related_rules(edges, rule_ids)
         event["source"] = "student" if event["inputs"] or "e_start" in edges else ("teacher" if any(
             "e_override" in d["edges"] or "e_teacher_release" in d["edges"] or "e_teacher_safety" in d["edges"]
+            or "g_teacher" in d["edges"]
             or d["rule"].startswith("ครู") for d in event["decisions"]) else "system")
         event["position"] = event["decisions"][-1]["to"] if event["decisions"] else None
+        # Flow ที่ครูออกแบบใน Gem: ขั้นของ Flow ที่นักเรียนไปอยู่ต่อ (ผังของ Gem วาดตามขั้น ไม่ใช่ตำแหน่งมาตรฐาน)
+        last_detail = event["decisions"][-1]["detail"] if event["decisions"] else {}
+        event["step"] = last_detail.get("step")
+        event["step_label"] = last_detail.get("step_label")
         out.append(event)
     return out
 

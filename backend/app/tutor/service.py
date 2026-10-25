@@ -5,6 +5,7 @@
 ทุกครั้งบันทึกลง ai_logs ให้ครูและ Admin เปิดดูย้อนหลังได้ (กฎครูข้อ 1)
 """
 
+import json
 import re
 import time
 
@@ -140,6 +141,39 @@ async def suggest_tag(subject: dict, item: dict, answer: str, code: str | None) 
     if tag_id not in valid:
         return None
     return {"tag": tag_id, "reason": match_reason.group(1).strip() if match_reason else ""}
+
+
+async def judge_reflection(subject: dict, item: dict | None, step: dict, answer: str, code: str | None) -> dict:
+    """LLM ประเมินคำอธิบายของนักเรียนตามเกณฑ์ของครู (เฉพาะขั้นที่ครูสั่งให้ประเมิน) ผลไม่แสดงให้นักเรียนเห็น
+    ใช้แค่เลือกเส้นทางต่อและบันทึกให้ครูตรวจ ถูกผิดของโจทย์ยังตัดสินด้วยกฎเหมือนเดิม"""
+    system = (
+        "คุณเป็นผู้ช่วยครูที่ประเมินคำอธิบายวิธีคิดของนักเรียนตามเกณฑ์ของครู ประเมินความเข้าใจ ไม่ใช่ความสวยของภาษา "
+        "ตอบเป็น JSON เท่านั้น: {\"pass\": true หรือ false, \"score\": 0-100, \"reason\": \"เหตุผลสั้น ๆ ให้ครูอ่าน\"}"
+    )
+    user = (
+        f"วิชา: {subject.get('name', '')}\n"
+        + (f"โจทย์ล่าสุด: {item.get('prompt', '')} {item.get('math') or ''}\n" if item else "")
+        + f"คำถามที่ให้นักเรียนอธิบาย: {step.get('question', '')}\n"
+        f"เกณฑ์ของครู: {step.get('rubric') or 'อธิบายขั้นตอนที่ใช้และเหตุผลได้ถูกต้อง'}\n"
+        f"คำอธิบายของนักเรียน: \"\"\"{answer}\"\"\""
+    )
+    result, errors = await _call(system, user, max_tokens=400, json_mode=True, timeout=40.0)
+    frames = {"role": system, "task": user}
+    if result is None:
+        _log(code, "judge_reflect", frames, None, None, "", None, errors)
+        return {"pass": None, "score": None, "reason": "", "error": "; ".join(errors) or "เรียก AI ไม่สำเร็จ"}
+    match = re.search(r"\{.*\}", result.text, re.S)
+    try:
+        data = json.loads(match.group(0)) if match else {}
+    except json.JSONDecodeError:
+        data = {}
+    verdict = {
+        "pass": data.get("pass") if isinstance(data.get("pass"), bool) else None,
+        "score": max(0, min(100, int(data["score"]))) if isinstance(data.get("score"), (int, float)) else None,
+        "reason": str(data.get("reason", ""))[:300],
+    }
+    verdict["log_id"] = _log(code, "judge_reflect", frames, None, result, json.dumps(verdict, ensure_ascii=False), None, errors)
+    return verdict
 
 
 async def preview(subject: dict, item: dict, concept_name: str, level: int, tag: dict | None) -> dict:

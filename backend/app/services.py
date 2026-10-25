@@ -13,6 +13,7 @@ from .gems import alerts as gem_alerts
 from .gems import builder as gem_builder
 from .engine import core as engine
 from .engine import flow as F
+from .engine import gemflow
 from .engine.answers import answer_display
 from .engine.core import Content, Ctx, Fx
 from .hub import hub
@@ -125,6 +126,14 @@ async def raise_alert(code: str, set_id: str, kind: str, message: str, level: st
         pass
 
 
+def _map_node(state: dict) -> str | None:
+    try:
+        content = content_for(state["subject_id"], state["set_id"])
+    except (NotFound, StopIteration):
+        return None
+    return gemflow.map_node(state, make_ctx(content)) if content.spec else None
+
+
 def _gem_of(state: dict) -> dict | None:
     try:
         return content_for(state["subject_id"], state["set_id"]).subject.get("gem")
@@ -154,7 +163,8 @@ def persist(state: dict, fx: Fx, now: float | None = None) -> list[dict]:
         rule = gem_alerts.resolve(gem, a["kind"])
         if rule is None:
             continue
-        a = {**a, "level": rule["level"], "pause": rule["mode"] == "pause"}
+        level = a["level"] if a.pop("own_level", False) else rule["level"]
+        a = {**a, "level": level, "pause": rule["mode"] == "pause"}
         cursor = db.execute(
             "INSERT INTO alerts (ts, code, level, kind, message) VALUES (?,?,?,?,?)",
             (now, code, a["level"], a["kind"], a["message"]),
@@ -365,7 +375,7 @@ async def chat(code: str, set_id: str, message: str) -> dict:
                 "view": engine.student_view(state, ctx)}
 
     paused = db.load_state(code, set_id)
-    if paused and paused["position"] not in F.CAN_ANSWER:
+    if paused and paused["position"] not in F.CAN_ANSWER | {F.LESSON, F.REFLECT}:
         # ระบบหยุดรอครูหรือนักเรียนกำลังพัก: ข้อความส่งถึงครูโดยตรง AI ไม่ตอบ
         content = content_for(paused["subject_id"], set_id)
         return {"reply": None, "to_teacher": True, "view": engine.student_view(paused, make_ctx(content))}
@@ -422,6 +432,30 @@ async def chat(code: str, set_id: str, message: str) -> dict:
     await post_message(code, set_id, "tutor", reply["text"])
     await hub.to_staff({"type": "chat", "code": code, "log_id": reply.get("log_id")})
     return {"reply": reply["text"], "source": reply["source"], "view": engine.student_view(state, ctx)}
+
+
+async def reflect(code: str, set_id: str, text: str) -> dict:
+    """ขั้น "อธิบายความคิด" ของ Flow ใน Gem: ถ้าครูสั่งให้ประเมิน AI ตัดสินตามเกณฑ์ของครู แล้วบันทึกให้ครูตรวจ"""
+    text = (text or "").strip()[:1000]
+    if distress.detect(text)["level"]:
+        return await chat(code, set_id, text)
+    scrubbed, _ = pii.scrub(text, roster_names())
+    state = db.load_state(code, set_id)
+    if not state:
+        raise NotFound("ยังไม่ได้เริ่มชุดคำถามนี้")
+    content = content_for(state["subject_id"], set_id)
+    step = gemflow.flow_step(state, make_ctx(content)) if content.spec else None
+    verdict = None
+    if step and step.get("judge") and state["position"] == F.REFLECT:
+        it = content.item(state["item"]["id"]) if state.get("item") else None
+        if ai_enabled_for(code):
+            verdict = await tutor.judge_reflection(content.subject, it, step, scrubbed, code)
+        else:
+            verdict = {"pass": None, "score": None, "reason": "AI ปิดอยู่ ครูตรวจคำอธิบายเอง"}
+        if verdict.get("error"):
+            await raise_alert(code, set_id, "ai_outage", f"AI ขัดข้องตอนประเมินคำอธิบาย: {verdict['error']}")
+    state, content, ctx, fx = await run_event(code, set_id, engine.reflect, scrubbed, verdict)
+    return {"result": fx.result, "view": engine.student_view(state, ctx)}
 
 
 def _distress_with_trace(state: dict, ctx: Ctx, detected: dict, scrubbed: str, found: list) -> Fx:
@@ -483,6 +517,8 @@ def all_positions() -> list[dict]:
             "hint_level": state["item"]["hint_level"] if state.get("item") else 0,
             "remedial_round": state["remedial"]["round"] if state.get("remedial") else None,
             "last_edges": (state.get("last_decision") or {}).get("edges", []),
+            # Flow ของ Gem: กล่องในผังของ Gem ที่นักเรียนอยู่ (ขั้นของ Flow หรือกลไกที่ล็อกไว้)
+            "step": _map_node(state),
             "last_rule": (state.get("last_decision") or {}).get("rule"),
             "since": state["position_since"],
         })

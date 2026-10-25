@@ -51,7 +51,9 @@ def fake_llm(monkeypatch, resolve_wrong: set[int] = frozenset()):
 
     async def fake_call(system, user, **options):
         calls.append(options)
-        if "ออกแบบโครงของบทเรียน" in user:
+        if "ออกแบบ Flow การสอน" in user:  # ครูไม่ได้กำหนดลำดับการสอน: ใช้ผังมาตรฐาน
+            payload = {"use_standard": True, "summary": "ใช้ผังมาตรฐาน"}
+        elif "ออกแบบโครงของบทเรียน" in user:
             payload = PLAN
         elif "ชุดที่ 1" in user:
             payload = ITEMS_A
@@ -206,7 +208,7 @@ def test_rebuild_resumes_from_finished_steps(monkeypatch):
     failing = {"extras": True}
 
     async def flaky(system, user, **options):
-        if "โจทย์ทบทวนพื้นฐาน" in user and failing["extras"]:
+        if "โจทย์ทบทวนพื้นฐาน" in user and "ออกแบบ Flow" not in user and failing["extras"]:
             return None, ["gemini: Gemini มีผู้ใช้มากชั่วคราว"]
         return await real(system, user, **options)
 
@@ -514,3 +516,106 @@ def test_each_gem_draws_only_its_own_flow():
     assert next(e for e in no_iso["edges"] if e["id"] == "e_g1_wrong")["target"] == "G2"
     no_chat = {n["id"] for n in design.flow_view({"tools": {"chat": False}})["nodes"]}
     assert not {"TEACHER_REVIEW", "SAFETY_STOP", "CHOOSING_PATH"} & no_chat
+
+
+# ---------------------------------------------------------------- Flow ที่ AI ออกแบบจากคำสั่งของครู (ADR-0004)
+
+REFLECT_FLOW = {
+    "summary": "ทุกข้อที่ถูกให้อธิบายวิธีคิด ครูให้ประเมินคำอธิบาย ผิดสองครั้งแจ้งครู",
+    "start": "work", "params": {"max_items": 99},
+    "steps": [
+        {"id": "work", "kind": "item", "label": "ทำโจทย์", "pick": "main"},
+        {"id": "why", "kind": "reflect", "label": "อธิบายวิธีคิด", "question": "ทำไมจึงได้คำตอบนี้",
+         "judge": True, "rubric": "บอกว่าย้ายข้างอย่างไร"},
+        {"id": "tell", "kind": "notify", "label": "แจ้งครู", "text": "ผิดสองครั้งแล้ว"},
+        {"id": "end", "kind": "end", "label": "จบ"},
+    ],
+    "edges": [
+        {"from": "work", "to": "why", "when": "correct"},
+        {"from": "work", "to": "tell", "when": "wrong and error_count == 2"},
+        {"from": "work", "to": "work", "when": ""},
+        {"from": "tell", "to": "work", "when": ""},
+        {"from": "why", "to": "end", "when": "judge_pass and items_done >= 2"},
+        {"from": "why", "to": "work", "when": ""},
+    ],
+}
+
+
+def _flow_gem(monkeypatch, flow=REFLECT_FLOW, judge=None):
+    calls = fake_llm(monkeypatch)
+    real = service._call
+
+    async def with_flow(system, user, **options):
+        if "ออกแบบ Flow การสอน" in user:
+            calls.append(options)
+            return providers.LLMResult(json.dumps(flow, ensure_ascii=False), "gemini", "fake", 1, 1, 1), []
+        if "ประเมินคำอธิบาย" in system:
+            return providers.LLMResult(json.dumps(judge or {"pass": True, "score": 90, "reason": "ดี"}), "gemini", "fake", 1, 1, 1), []
+        return await real(system, user, **options)
+
+    monkeypatch.setattr(service, "_call", with_flow)
+    gem = manage.create({"name": "อธิบายเหตุผล", "instructions": "ทุกข้อที่ถูกให้นักเรียนอธิบายวิธีคิด"}, "teacher")
+    asyncio.run(builder.build(gem["id"]))
+    return manage.get(gem["id"])
+
+
+def test_build_designs_the_flow_from_the_teacher_prompt(monkeypatch):
+    gem = _flow_gem(monkeypatch)
+    assert gem["flow"]["mode"] == "custom" and gem["flow"]["source"] == "ai" and not gem["flow"]["reviewed"]
+    assert [s["kind"] for s in gem["flow"]["spec"]["steps"]] == ["item", "reflect", "notify", "end"]
+    assert gem["flow"]["spec"]["params"]["max_items"] == 40, "ตัวเลขจาก prompt ถูกตัดให้อยู่ในช่วงที่ปลอดภัย"
+    client = TestClient(app)
+    admin = {"Authorization": f"Bearer {issue_token('admin')}"}
+    design = client.get(f"/api/gems/{gem['id']}/design", headers=admin).json()
+    assert design["flow"]["custom"] and {n["id"] for n in design["flow"]["nodes"]} == {"work", "why", "tell", "end"}
+    assert len(design["flow"]["locked"]) == 4 and design["flow"]["guards"]
+    # คำสั่งเดิมสร้างคลังใหม่ ไม่ออกแบบ Flow ซ้ำ
+    assert not builder.flow_needs_design(gem)
+
+
+def test_student_runs_the_designed_flow_with_ai_judge(monkeypatch):
+    gem = _flow_gem(monkeypatch)
+    db.execute("INSERT INTO students (code, kind, persona, created_at) VALUES ('S-40', 'real', NULL, 0)")
+    client = TestClient(app)
+    headers = {"Authorization": f"Bearer {issue_token('student', 'S-40')}"}
+    set_id = gem["set_id"]
+    view = client.post(f"/api/student/sets/{set_id}/start", headers=headers, json={}).json()
+    from app import demo
+    state = db.load_state("S-40", set_id)
+    state["item"]["ready_at"] -= 30
+    db.save_state(state)
+    item = services.content_for(gem["subject_id"], set_id).item(view["item"]["id"])
+    view = client.post(f"/api/student/sets/{set_id}/answer", headers=headers, json={"answer": demo.correct_raw(item)}).json()["view"]
+    assert view["position"] == "FLOW_REFLECT" and view["reflect"]["question"] == "ทำไมจึงได้คำตอบนี้"
+    reply = client.post(f"/api/student/sets/{set_id}/reflect", headers=headers, json={"message": "ย้าย 3 ไปลบ"}).json()
+    assert reply["view"]["position"] == "ANSWERING"
+    trace = db.query_one("SELECT data FROM traces WHERE code = 'S-40' AND action = 'reflect'")
+    assert db.loads(trace["data"])["judge"]["pass"] is True
+    staff = services.all_positions()
+    assert next(p for p in staff if p["code"] == "S-40")["step"] == "work"
+
+
+def test_teacher_reviews_and_edits_the_flow(monkeypatch):
+    gem = _flow_gem(monkeypatch)
+    client = TestClient(app)
+    teacher = {"Authorization": f"Bearer {issue_token('teacher')}"}
+    flow = client.get(f"/api/gems/{gem['id']}/flow", headers=teacher).json()
+    assert flow["mode"] == "custom" and not flow["reviewed"] and flow["map"]["nodes"]
+    broken = {**flow["spec"], "edges": flow["spec"]["edges"][:-1] + [{"from": "why", "to": "nowhere", "when": "x > 1"}]}
+    checked = client.post(f"/api/gems/{gem['id']}/flow/check", headers=teacher, json={"spec": broken}).json()
+    assert checked["errors"]
+    assert client.put(f"/api/gems/{gem['id']}/flow", headers=teacher, json={"spec": broken}).status_code == 400
+    edited = {**flow["spec"], "params": {"rapid_guess_lock": 30}}
+    saved = client.put(f"/api/gems/{gem['id']}/flow", headers=teacher, json={"spec": edited}).json()
+    assert saved["source"] == "teacher" and saved["reviewed"] and saved["spec"]["params"] == {"rapid_guess_lock": 30}
+    from app.gems import versions
+    assert versions.history(gem["id"])[0]["note"] == "ครูแก้ Flow การสอน"
+    # Flow ที่ครูแก้เองไม่ถูกออกแบบทับตอนสร้างคลังใหม่
+    assert not builder.flow_needs_design(manage.get(gem["id"]))
+    standard = client.post(f"/api/gems/{gem['id']}/flow/standard", headers=teacher).json()
+    assert standard["mode"] == "standard"
+    subject = db.get_subject(manage.get(gem["id"])["subject_id"])
+    assert subject["gem"]["flow"]["mode"] == "standard"
+    # Admin ดูได้ แก้ไม่ได้
+    admin = {"Authorization": f"Bearer {issue_token('admin')}"}
+    assert client.put(f"/api/gems/{gem['id']}/flow", headers=admin, json={"spec": edited}).status_code == 403

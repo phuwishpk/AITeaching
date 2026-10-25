@@ -26,6 +26,9 @@ ENDED = "SESSION_ENDED"
 LIVE = "LIVE_GEN"
 OUTAGE = "AI_OUTAGE"
 REVIEW = "TEACHER_REVIEW"
+# Flow ที่ AI ออกแบบใน Gem (ADR-0004): หน้าบทเรียนย่อ และหน้าให้นักเรียนอธิบายความคิด
+LESSON = "FLOW_LESSON"
+REFLECT = "FLOW_REFLECT"
 
 HINT_POSITIONS = {1: HINT_L1, 2: HINT_L2, 3: HINT_L3}
 ANSWER_POSITIONS = {ANSWERING, HINT_L1, HINT_L2, HINT_L3, ISO, REMEDIAL}
@@ -52,6 +55,8 @@ POSITION_LABELS = {
     ENDED: "จบ Session",
     LIVE: "สร้างโจทย์สด",
     OUTAGE: "AI ขัดข้อง",
+    LESSON: "บทเรียนย่อ",
+    REFLECT: "อธิบายความคิด",
 }
 
 # สถานะเป็นภาษาคนสำหรับหน้าครู (ไม่มีศัพท์เทคนิค)
@@ -75,6 +80,8 @@ TEACHER_TEXT = {
     ENDED: "จบการเรียนรอบนี้",
     LIVE: "รอ AI สร้างโจทย์ใหม่",
     OUTAGE: "AI ขัดข้อง หยุดชั่วคราว",
+    LESSON: "กำลังอ่านบทเรียนย่อ",
+    REFLECT: "กำลังเขียนอธิบายความคิด",
 }
 
 # kind: position = ที่นักเรียนอยู่ได้, gate = ด่านตัดสินใจ, step = ขั้นประมวลผล, event = เหตุการณ์

@@ -4,13 +4,12 @@ import { Check, FileText, Minus } from "lucide-react";
 import { api } from "../../lib/api";
 import { useLoad, useNow } from "../../lib/hooks";
 import { ago } from "../../lib/format";
-import FlowMap from "../../components/FlowMap";
 import GemIcon from "../../components/GemIcon";
 import { FRAME_LABEL } from "../../components/AiLog";
 import { Badge, Button, Card, CardHead, Empty, Spinner, useToast } from "../../components/ui";
 import { STATUS_TEXT, TOOL_LABELS, type GemDetail, type GemSummary, type GemTools } from "../teacher/gemTypes";
 import { useAdmin } from "./AdminApp";
-import { HiddenNote, type GemFlow } from "./gemFlow";
+import { GemFlowMap, SpecStepDrawer, type GemFlow } from "./gemFlow";
 import NodeInspector from "./NodeInspector";
 
 // Flow ที่ครูออกแบบใน Gem (Q24): ผังตรรกะจริงที่ปรับตามเครื่องมือและ Alert Rule ของ Gem ที่เลือก
@@ -67,7 +66,8 @@ export default function AdminGems() {
         <p className="eyebrow">สิ่งที่ครูออกแบบ</p>
         <h1 className="title-xl">Flow ที่ครูออกแบบใน Gem</h1>
         <p className="lead">
-          ผังไม่ตายตัว: แต่ละ Gem มีเฉพาะขั้นที่ครูเปิดใช้ ขั้นของเครื่องมือที่ครูปิดไม่อยู่ในผัง และเส้นทางต่อไปขั้นที่ระบบใช้จริง ป้าย 🔔 คือแจ้งครู ✋ คือหยุดรอครูอนุมัติ Admin ดูได้อย่างเดียว ครูแก้ได้ที่หน้าสร้าง Gem
+          ผังไม่ตายตัว: ถ้าคำสั่งของครูกำหนดลำดับการสอน AI จะออกแบบ Flow ของ Gem นั้นเอง (ขั้น เส้น เงื่อนไข และตัวเลข) ไม่อย่างนั้นใช้ผังมาตรฐาน
+          ที่ตัดขั้นของเครื่องมือที่ครูปิดออก Admin ดูได้อย่างเดียว ครูตรวจและแก้ได้ที่แท็บ Flow ของ Gem
         </p>
       </header>
 
@@ -111,21 +111,21 @@ export default function AdminGems() {
                 )}
               </span>
               <ul className="flow-legend xsmall muted">
-                <li>🔔 แจ้งครู</li>
-                <li>✋ หยุดรอครูอนุมัติ</li>
+                {d.flow.custom ? <li>↻ วนที่ขั้นเดิม · เส้นประด้านล่างคือกลไกที่ล็อกไว้</li> : (
+                  <>
+                    <li>🔔 แจ้งครู</li>
+                    <li>✋ หยุดรอครูอนุมัติ</li>
+                  </>
+                )}
                 <li className="strong">กดกล่องเพื่อดูรายละเอียด</li>
               </ul>
             </div>
-            <FlowMap
-              nodes={d.flow.nodes}
-              edges={d.flow.edges}
+            <GemFlowMap
+              flow={d.flow}
+              allNodes={flow.nodes}
               positions={flow.positions.filter((p) => d.students.includes(p.code))}
-              marks={d.flow.alerts}
               onSelectNode={setInspect}
             />
-            <div className="flow-foot">
-              <HiddenNote disabled={d.flow.disabled} allNodes={flow.nodes} />
-            </div>
           </Card>
 
           <div className="grid grid-2 admin-gem-grid">
@@ -266,7 +266,11 @@ export default function AdminGems() {
           </div>
         </>
       )}
-      <NodeInspector nodeId={inspect} onClose={() => setInspect(null)} onNavigate={setInspect} />
+      {d?.flow.custom ? (
+        <SpecStepDrawer flow={d.flow} nodeId={inspect} onClose={() => setInspect(null)} />
+      ) : (
+        <NodeInspector nodeId={inspect} onClose={() => setInspect(null)} onNavigate={setInspect} />
+      )}
     </div>
   );
 }

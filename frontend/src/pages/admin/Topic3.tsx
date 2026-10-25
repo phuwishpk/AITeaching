@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useSearchParams } from "react-router";
 import { ArrowRight, MousePointerClick, SlidersHorizontal } from "lucide-react";
 import { api } from "../../lib/api";
@@ -12,7 +12,7 @@ import { TopicHeader, useAdmin } from "./AdminApp";
 import { useStudentPicker } from "./Topic2";
 import { CodePicker, Section, TopicLink } from "./shared";
 import NodeInspector from "./NodeInspector";
-import { HiddenNote, type GemFlow } from "./gemFlow";
+import { GemFlowMap, HiddenNote, SpecStepDetail, type GemFlow } from "./gemFlow";
 import LaneInspector from "./LaneInspector";
 import AnswerSheet from "../../components/AnswerSheet";
 import { Button } from "../../components/ui";
@@ -47,13 +47,15 @@ export default function Topic3() {
   const { students, code, setCode, detail } = useStudentPicker();
   const bugs = useLoad(() => api<BugRow[]>("admin", "/api/admin/bug-library"), [Math.floor(liveVersion / 20)]);
   const now = useNow(5000);
+  const customRef = useRef(false);
   const node = params.get("node") ?? "G3";
   const [inspect, setInspect] = useState<string | null>(null);
   const [lane, setLane] = useState<string | null>(null);
   // เปิดได้ทีละแผง: กดกล่องในแผงกลุ่มจะสลับไปแผงของกล่อง และกลับกัน
   const openNode = (id: string) => {
     setLane(null);
-    setInspect(id);
+    // Flow ที่ AI ออกแบบ: รายละเอียดของขั้นอยู่ในการ์ด "ขั้นที่เลือก" ด้านล่าง ไม่ใช่แผงของผังมาตรฐาน
+    if (!customRef.current) setInspect(id);
     setParams(
       (prev) => {
         const next = new URLSearchParams(prev);
@@ -84,14 +86,18 @@ export default function Topic3() {
         : Promise.resolve(null),
     [gemId, liveVersion > 0 ? Math.floor(liveVersion / 50) : 0],
   );
-  const shownNodes: FlowNode[] = gemFlow.data?.nodes ?? flow?.nodes ?? [];
-  const shownEdges: FlowEdge[] = gemFlow.data?.edges ?? flow?.edges ?? [];
+  // Flow ที่ AI ออกแบบจากคำสั่งของครู (ADR-0004) วาดด้วยผังจัดตำแหน่งอัตโนมัติ ไม่มีกลุ่มของผังมาตรฐาน
+  const custom = gemFlow.data?.custom ? gemFlow.data : null;
+  customRef.current = !!custom;
+  const standard = gemFlow.data && !gemFlow.data.custom ? gemFlow.data : null;
+  const shownNodes: FlowNode[] = standard?.nodes ?? flow?.nodes ?? [];
+  const shownEdges: FlowEdge[] = standard?.edges ?? flow?.edges ?? [];
   const positions = useMemo(
     () => (flow?.positions ?? []).filter((p) => kinds.includes(p.kind) && (!gemFlow.data || gemFlow.data.students.includes(p.code))),
     [flow?.positions, kinds, gemFlow.data],
   );
   const selected = flow?.positions.find((p) => p.code === code);
-  const atNode = positions.filter((p) => p.position === node);
+  const atNode = positions.filter((p) => (custom ? p.step === node : p.position === node));
   const card = flow?.cards[node];
   const nodeInfo = flow?.nodes.find((n) => n.id === node);
 
@@ -162,7 +168,7 @@ export default function Topic3() {
             </li>
             <li className="strong">กดกล่องเพื่อดูว่าทำอะไรและปรับแต่ง</li>
           </ul>
-          <div className="lane-bar" role="group" aria-label="กลุ่มในผัง">
+          {!custom && <div className="lane-bar" role="group" aria-label="กลุ่มในผัง">
             <span className="xsmall strong muted">กลุ่มในผัง กดเพื่อดูคำอธิบาย</span>
             {flow.lanes.map((l) => (
               <button
@@ -177,23 +183,37 @@ export default function Topic3() {
                 <span className="xsmall faint">{shownNodes.filter((n) => n.lane === l.id).length}</span>
               </button>
             ))}
-          </div>
+          </div>}
         </div>
-        <FlowMap
-          nodes={shownNodes}
-          edges={shownEdges}
-          marks={gemFlow.data?.alerts}
-          positions={positions}
-          selectedNode={node}
-          selectedStudent={code}
-          focusLane={lane}
-          onSelectNode={openNode}
-          onSelectStudent={setCode}
-        />
-        {gemFlow.data && (
-          <div className="flow-foot">
-            <HiddenNote disabled={gemFlow.data.disabled} allNodes={flow.nodes} />
-          </div>
+        {custom ? (
+          <GemFlowMap
+            flow={custom}
+            allNodes={flow.nodes}
+            positions={positions}
+            selectedNode={node}
+            selectedStudent={code}
+            onSelectNode={openNode}
+            onSelectStudent={setCode}
+          />
+        ) : (
+          <>
+            <FlowMap
+              nodes={shownNodes}
+              edges={shownEdges}
+              marks={standard?.alerts}
+              positions={positions}
+              selectedNode={node}
+              selectedStudent={code}
+              focusLane={lane}
+              onSelectNode={openNode}
+              onSelectStudent={setCode}
+            />
+            {standard && (
+              <div className="flow-foot">
+                <HiddenNote disabled={standard.disabled} allNodes={flow.nodes} />
+              </div>
+            )}
+          </>
         )}
       </Card>
 
@@ -206,10 +226,16 @@ export default function Topic3() {
               กดกล่องในผังเพื่อเปลี่ยน
             </span>
           </div>
-          {card ? <PrincipleCard card={card} /> : <p className="small muted">{nodeInfo?.label}</p>}
-          <Button variant="soft" icon={<SlidersHorizontal size={16} />} onClick={() => setInspect(node)} style={{ alignSelf: "flex-start" }}>
+          {custom ? (
+            <SpecStepDetail flow={custom} nodeId={node} />
+          ) : card ? (
+            <PrincipleCard card={card} />
+          ) : (
+            <p className="small muted">{nodeInfo?.label}</p>
+          )}
+          {!custom && <Button variant="soft" icon={<SlidersHorizontal size={16} />} onClick={() => setInspect(node)} style={{ alignSelf: "flex-start" }}>
             ดูข้อมูลที่ใช้และปรับแต่งขั้นนี้
-          </Button>
+          </Button>}
           <div className="stack stack-sm">
             <span className="small strong">นักเรียนที่อยู่ตรงนี้ ({atNode.length})</span>
             <div className="pill-list">

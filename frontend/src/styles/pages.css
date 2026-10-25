@@ -436,6 +436,19 @@
   align-self: flex-end;
 }
 
+/* Flow ที่ครูออกแบบ: บทเรียนย่อ และช่องอธิบายความคิด */
+.lesson-text {
+  white-space: pre-line;
+  line-height: 1.8;
+}
+
+.reflect-input {
+  width: 100%;
+  min-height: 112px;
+  resize: vertical;
+  line-height: 1.7;
+}
+
 .breath {
   width: 150px;
   height: 150px;

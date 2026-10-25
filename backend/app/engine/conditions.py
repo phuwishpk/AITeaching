@@ -1,0 +1,142 @@
+"""เงื่อนไขบนเส้นของ Flow ที่ AI ออกแบบใน Gem (ADR-0004)
+
+เงื่อนไขเขียนเป็นนิพจน์สั้น ๆ แบบ Python เช่น "wrong and error_count >= 2" อ่านออกได้ทั้งครูและ AI
+ตัวแปรมาจาก Student Model เท่านั้น (VARS) ไม่มีการเรียกฟังก์ชันหรือ eval
+ตรวจด้วย ast ว่าใช้แค่ and / or / not / การเปรียบเทียบ / ตัวเลข / ตัวแปรที่รู้จัก
+"""
+
+import ast
+
+# ตัวแปรที่เงื่อนไขใช้ได้: (คำอธิบายภาษาคน, ชนิด) ชนิด bool ใช้ตรง ๆ ได้ เช่น "correct and first_try"
+VARS: dict[str, tuple[str, str]] = {
+    "correct": ("ตอบถูก", "bool"),
+    "wrong": ("ตอบผิด", "bool"),
+    "error_count": ("จำนวนครั้งที่ผิดในข้อนี้", "int"),
+    "hint_level": ("ระดับคำใบ้สูงสุดที่เห็นในข้อนี้ (0–3)", "int"),
+    "misconception": ("คำตอบผิดตรงกับความเข้าใจผิด (Misconception) ใน Bug Library", "bool"),
+    "slip": ("คำตอบผิดแบบสะเพร่า (Slip)", "bool"),
+    "first_try": ("ถูกตั้งแต่ครั้งแรกโดยไม่ใช้คำใบ้", "bool"),
+    "rt": ("เวลาคิดของคำตอบล่าสุด (วินาที หลังตัดค่าเกิน)", "num"),
+    "rt_ratio": ("เวลาคิดเทียบกับเวลาที่คาดไว้ของข้อ (1 = พอดี)", "num"),
+    "slow": ("คิดนานกว่าเวลาที่คาดไว้ของข้อ", "bool"),
+    "impasse": ("คะแนน Fuzzy ว่าติดหล่ม จากเวลาคิดที่ยาวขึ้นต่อเนื่อง (0–100)", "num"),
+    "mastery": ("Mastery ของมโนทัศน์เป้าหมาย (0–1)", "num"),
+    "concept_mastery": ("Mastery ของมโนทัศน์ของข้อนี้ (0–1)", "num"),
+    "items_done": ("จำนวนข้อที่ทำถูกแล้วใน Session นี้", "int"),
+    "items_count": ("จำนวนข้อที่ได้รับแล้วใน Session นี้", "int"),
+    "streak": ("ถูกตั้งแต่ครั้งแรกติดกันกี่ข้อ", "int"),
+    "solved_here": ("ทำถูกกี่ข้อแล้วในขั้นนี้ (นับใหม่ทุกครั้งที่เข้าขั้นนี้จากขั้นอื่น)", "int"),
+    "rounds": ("ส่งไปทบทวนพื้นฐานจากข้อนี้มาแล้วกี่รอบ", "int"),
+    "mains_left": ("โจทย์หลักที่ยังไม่ผ่าน", "int"),
+    "challenge_done": ("ทำโจทย์ท้าทายถูกแล้ว", "bool"),
+    "visits": ("เข้าขั้นนี้มาแล้วกี่ครั้งใน Session นี้", "int"),
+    "judge_pass": ("AI ประเมินว่าคำอธิบายผ่านเกณฑ์ของครู", "bool"),
+    "judge_score": ("คะแนนคำอธิบายที่ AI ประเมิน (0–100)", "num"),
+}
+
+OPS = {ast.Eq: "==", ast.NotEq: "!=", ast.Lt: "<", ast.LtE: "<=", ast.Gt: ">", ast.GtE: ">="}
+OP_TEXT = {"==": "เท่ากับ", "!=": "ไม่เท่ากับ", "<": "น้อยกว่า", "<=": "ไม่เกิน", ">": "มากกว่า", ">=": "อย่างน้อย"}
+ALWAYS = {"", "always", "else", "otherwise", "true", "True"}
+
+
+class ConditionError(ValueError):
+    pass
+
+
+def parse(text: str | None) -> ast.AST | None:
+    """คืน None ถ้าเป็นเส้นที่ผ่านเสมอ ไม่อย่างนั้นคืน ast ที่ตรวจแล้ว"""
+    text = (text or "").strip()
+    if text in ALWAYS:
+        return None
+    try:
+        tree = ast.parse(text, mode="eval").body
+    except SyntaxError as error:
+        raise ConditionError(f"อ่านเงื่อนไข \"{text}\" ไม่ได้") from error
+    _check(tree, text)
+    return tree
+
+
+def _check(node: ast.AST, text: str):
+    if isinstance(node, ast.BoolOp):
+        for value in node.values:
+            _check(value, text)
+    elif isinstance(node, ast.UnaryOp) and isinstance(node.op, ast.Not):
+        _check(node.operand, text)
+    elif isinstance(node, ast.Compare):
+        if not all(type(op) in OPS for op in node.ops):
+            raise ConditionError(f"เงื่อนไข \"{text}\" ใช้ตัวเปรียบเทียบที่ไม่รองรับ")
+        for part in [node.left, *node.comparators]:
+            _check(part, text)
+    elif isinstance(node, ast.Name):
+        if node.id not in VARS and node.id not in ("True", "False"):
+            raise ConditionError(f"ไม่รู้จักตัวแปร \"{node.id}\" ในเงื่อนไข \"{text}\"")
+    elif isinstance(node, ast.Constant):
+        if not isinstance(node.value, (int, float, bool)):
+            raise ConditionError(f"เงื่อนไข \"{text}\" ใช้ได้แค่ตัวเลขและ true/false")
+    elif isinstance(node, ast.UnaryOp) and isinstance(node.op, ast.USub) and isinstance(node.operand, ast.Constant):
+        pass
+    else:
+        raise ConditionError(f"เงื่อนไข \"{text}\" ใช้ได้แค่ and, or, not และการเปรียบเทียบ")
+
+
+def evaluate(text: str | None, values: dict) -> bool:
+    tree = parse(text)
+    return True if tree is None else bool(_value(tree, values))
+
+
+def _value(node: ast.AST, values: dict):
+    if isinstance(node, ast.BoolOp):
+        results = (_value(v, values) for v in node.values)
+        return all(results) if isinstance(node.op, ast.And) else any(results)
+    if isinstance(node, ast.UnaryOp) and isinstance(node.op, ast.Not):
+        return not _value(node.operand, values)
+    if isinstance(node, ast.UnaryOp):
+        return -_value(node.operand, values)
+    if isinstance(node, ast.Compare):
+        left = _value(node.left, values)
+        for op, right_node in zip(node.ops, node.comparators):
+            right = _value(right_node, values)
+            # ตัวแปรที่ยังไม่มีค่า (เช่น judge_score ก่อนประเมิน) ทำให้การเปรียบเทียบเป็นเท็จ
+            if left is None or right is None or not _compare(OPS[type(op)], left, right):
+                return False
+            left = right
+        return True
+    if isinstance(node, ast.Name):
+        if node.id in ("True", "False"):
+            return node.id == "True"
+        return values.get(node.id)
+    return node.value
+
+
+def _compare(op: str, left, right) -> bool:
+    return {"==": left == right, "!=": left != right, "<": left < right, "<=": left <= right,
+            ">": left > right, ">=": left >= right}[op]
+
+
+def names(text: str | None) -> set[str]:
+    tree = parse(text)
+    return {n.id for n in ast.walk(tree) if isinstance(n, ast.Name)} - {"True", "False"} if tree is not None else set()
+
+
+def describe(text: str | None) -> str:
+    """แปลเงื่อนไขเป็นภาษาคนสำหรับหน้าครูและผังของ Admin"""
+    tree = parse(text)
+    return "ทุกกรณีที่เหลือ" if tree is None else _say(tree)
+
+
+def _say(node: ast.AST) -> str:
+    if isinstance(node, ast.BoolOp):
+        joiner = " และ " if isinstance(node.op, ast.And) else " หรือ "
+        return joiner.join(_say(v) for v in node.values)
+    if isinstance(node, ast.UnaryOp) and isinstance(node.op, ast.Not):
+        return f"ไม่ใช่ ({_say(node.operand)})" if not isinstance(node.operand, ast.Name) else f"ไม่{VARS[node.operand.id][0]}"
+    if isinstance(node, ast.Compare):
+        parts = [_say(node.left)]
+        for op, right in zip(node.ops, node.comparators):
+            parts += [OP_TEXT[OPS[type(op)]], _say(right)]
+        return " ".join(parts)
+    if isinstance(node, ast.Name):
+        return VARS[node.id][0] if node.id in VARS else node.id
+    if isinstance(node, ast.UnaryOp):
+        return f"-{_say(node.operand)}"
+    return "จริง" if node.value is True else "เท็จ" if node.value is False else f"{node.value:g}"

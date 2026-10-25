@@ -110,6 +110,12 @@ async def walkthrough_done(set_id: str, auth: dict = Depends(student)):
     return await services.simple(auth["code"], set_id, engine.walkthrough_done)
 
 
+@router.post("/sets/{set_id}/reflect")
+async def reflect(set_id: str, body: Chat, auth: dict = Depends(student)):
+    """ขั้น "อธิบายความคิด" ของ Flow ที่ครูออกแบบใน Gem"""
+    return await services.reflect(auth["code"], set_id, body.message)
+
+
 @router.post("/sets/{set_id}/choose")
 async def choose(set_id: str, body: Choice, auth: dict = Depends(student)):
     return await services.simple(auth["code"], set_id, engine.choose, body.option)

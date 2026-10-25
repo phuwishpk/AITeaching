@@ -35,9 +35,13 @@ STUDENT_LABELS = {
     F.ENDED: "จบรอบนี้แล้ว",
     F.LIVE: "กำลังเตรียมโจทย์ใหม่ให้",
     F.OUTAGE: "AI ขัดข้องชั่วคราว",
+    F.LESSON: "บทเรียนย่อ",
+    F.REFLECT: "อธิบายความคิดของเรา",
 }
 
 BLOCK_MESSAGES = {
+    F.LESSON: "อ่านบทเรียนย่อให้จบก่อนนะ",
+    F.REFLECT: "เขียนอธิบายความคิดก่อนนะ",
     F.LIVE: "กำลังเตรียมโจทย์ใหม่ให้ รอสักครู่นะ",
     F.OUTAGE: "AI ขัดข้องชั่วคราว ระบบกำลังลองใหม่",
     F.LOCK: "ระบบพักปุ่มตอบไว้สักครู่ ลองอ่านโจทย์อีกครั้งนะ",
@@ -62,6 +66,11 @@ class Content:
         self.concepts = {c["id"]: c for c in subject["concepts"]}
         self.tags = {t["id"]: t for t in subject.get("bug_tags", [])}
         self.walks = {w["concept"]: w for w in subject.get("walkthroughs", [])}
+        # Flow ที่ AI ออกแบบจากคำสั่งของครู (ADR-0004) ไม่มีก็ใช้ผังมาตรฐานของ engine นี้
+        flow = (subject.get("gem") or {}).get("flow") or {}
+        self.spec: dict | None = flow.get("spec") if flow.get("mode") == "custom" else None
+        self.steps = {s["id"]: s for s in self.spec["steps"]} if self.spec else {}
+        self.flow_params: dict = dict(self.spec.get("params") or {}) if self.spec else {}
 
     @property
     def target(self) -> str:
@@ -116,6 +125,9 @@ class Ctx:
     now: float = 0.0
 
     def p(self, key: str) -> float:
+        # ตัวเลขจากคำสั่งของครูใน Flow ของ Gem (ตรวจช่วงที่ปลอดภัยแล้ว) ทับค่าของ Admin
+        if key in self.content.flow_params:
+            return self.content.flow_params[key]
         return self.params.get(key, DEFAULT_PARAMS[key])
 
     def dur(self, key: str) -> float:
@@ -451,6 +463,9 @@ def next_socratic(state: dict, ctx: Ctx) -> str:
 
 def resolve_timers(state: dict, ctx: Ctx, fx: Fx):
     """เปลี่ยนตำแหน่งที่ขึ้นกับเวลา: ครบ Deliberate Delay, ครบเวลาล็อก, ครบเวลาพัก"""
+    if ctx.content.spec:
+        gemflow.resolve_timers(state, ctx, fx)
+        return
     for _ in range(3):
         timers = state["timers"]
         position = state["position"]
@@ -513,6 +528,8 @@ def end_session(state: dict, ctx: Ctx, fx: Fx, position: str, edges: list[str], 
 # ---------------------------------------------------------------- เริ่มชุดคำถาม
 
 def begin(state: dict, ctx: Ctx) -> Fx:
+    if ctx.content.spec:
+        return gemflow.begin(state, ctx)
     fx = Fx()
     first, mode = select_next(state, ctx, state.get("path", "STANDARD"), 30)
     if first is None:
@@ -529,7 +546,7 @@ def begin(state: dict, ctx: Ctx) -> Fx:
 
 def submit(state: dict, ctx: Ctx, raw) -> Fx:
     """รับคำตอบหนึ่งครั้งแล้วไล่ด่าน 1 → 2 → 3 ด้วยเงื่อนไขซ้อนกัน (สไลด์หัวข้อ 3.1)"""
-    fx = _submit(state, ctx, raw)
+    fx = gemflow.submit(state, ctx, raw) if ctx.content.spec else _submit(state, ctx, raw)
     check_burnout_risk(state, ctx, fx)
     return fx
 
@@ -543,8 +560,9 @@ def check_burnout_risk(state: dict, ctx: Ctx, fx: Fx):
         alert(fx, state, "silent", "burnout_risk", f"Risk Score {score:.0f} ถึงเกณฑ์ Burnout Signal")
 
 
-def _submit(state: dict, ctx: Ctx, raw) -> Fx:
-    fx = Fx()
+def intake(state: dict, ctx: Ctx, fx: Fx, raw) -> dict | None:
+    """ก่อนเข้าด่าน (ใช้ทั้งผังมาตรฐานและ Flow ของ Gem): ตอบได้ตอนนี้ไหม กรองการส่งซ้ำจากเว็บกระตุก
+    คำตอบผิดรูปแบบ ตัดเวลาคิดส่วนเกิน (Data Cleaning) แล้วตรวจถูกผิดด้วยกฎจากเฉลย คืน None ถ้าไม่ต้องตัดสินต่อ"""
     now = ctx.now
     resolve_timers(state, ctx, fx)
     state["last_activity"] = now
@@ -552,31 +570,41 @@ def _submit(state: dict, ctx: Ctx, raw) -> Fx:
     item = state["item"]
     if position not in F.CAN_ANSWER or item is None:
         fx.result = {"kind": "blocked", "message": BLOCK_MESSAGES.get(position, "ตอนนี้ยังตอบไม่ได้")}
-        return fx
+        return None
     it = ctx.content.item(item["id"])
     raw_text = "" if raw is None else str(raw).strip()
-
-    # ก่อนเข้าด่าน: กรองการส่งซ้ำจากเว็บกระตุก และคำตอบผิดรูปแบบ
     last = item["last_submit"]
     if last and last["raw"] == raw_text and now - last["ts"] < ctx.p("duplicate_window"):
         fx.trace("duplicate_ignored", item["id"], {"raw": raw_text}, now)
         fx.result = {"kind": "duplicate", "message": "ระบบรับคำตอบนี้ไปแล้ว"}
-        return fx
+        return None
     check = check_answer(it, raw_text)
     if not check.valid:
         fx.trace("invalid_answer", item["id"], {"raw": raw_text}, now)
         fx.result = {"kind": "invalid", "message": check.message}
-        return fx
-
+        return None
     snapshot = _snapshot(state)  # สภาพก่อนรับคำตอบนี้ ใช้กับปุ่มยกเลิกคำตอบล่าสุด
     item["last_submit"] = {"raw": raw_text, "ts": now}
     rt_raw = max(0.0, now - item["ready_at"])
     rt = min(rt_raw, ctx.p("rt_cap"))  # Data Cleaning: ตัดเวลาส่วนที่เกิน 5 นาทีทิ้ง
-    first_attempt = not any(a["kind"] in ("correct", "wrong") for a in item["attempts"])
-    attempt = {"ts": now, "raw": raw_text, "rt": round(rt, 2), "rt_raw": round(rt_raw, 2), "hint_level": item["hint_level"]}
     state["attempts_total"] += 1
-    edges = [submit_edge(position), "e_clean_ok", "e_g1_pass"]
-    base = {"item": it["id"], "rt": round(rt, 2), "rt_raw": round(rt_raw, 2), "error_count": item["error_count"]}
+    return {
+        "item": item, "it": it, "check": check, "raw": raw_text, "snapshot": snapshot, "rt": rt, "position": position,
+        "first_attempt": not any(a["kind"] in ("correct", "wrong") for a in item["attempts"]),
+        "attempt": {"ts": now, "raw": raw_text, "rt": round(rt, 2), "rt_raw": round(rt_raw, 2), "hint_level": item["hint_level"]},
+        "base": {"item": it["id"], "rt": round(rt, 2), "rt_raw": round(rt_raw, 2), "error_count": item["error_count"]},
+    }
+
+
+def _submit(state: dict, ctx: Ctx, raw) -> Fx:
+    fx = Fx()
+    now = ctx.now
+    data = intake(state, ctx, fx, raw)
+    if data is None:
+        return fx
+    item, it, check, raw_text, snapshot = data["item"], data["it"], data["check"], data["raw"], data["snapshot"]
+    rt, first_attempt, attempt, base = data["rt"], data["first_attempt"], data["attempt"], data["base"]
+    edges = [submit_edge(data["position"]), "e_clean_ok", "e_g1_pass"]
 
     # ---------- ด่าน 1: ตอบถูกไหม ----------
     if check.correct:
@@ -946,6 +974,8 @@ def skip_walk_if_off(state: dict, ctx: Ctx, fx: Fx):
 
 
 def walkthrough_done(state: dict, ctx: Ctx) -> Fx:
+    if ctx.content.spec:
+        return gemflow.lesson_done(state, ctx)
     fx = Fx()
     resolve_timers(state, ctx, fx)
     if state["position"] != F.WALK:
@@ -1001,7 +1031,10 @@ def _request_hint(state: dict, ctx: Ctx) -> Fx:
     if item is None or position not in F.CAN_ANSWER:
         fx.result = {"kind": "blocked", "message": BLOCK_MESSAGES.get(position, "")}
         return fx
-    if item["mode"] == "isomorphic":
+    if ctx.content.spec and not gemflow.hint_allowed(state, ctx):
+        fx.result = {"kind": "hidden", "message": "ขั้นนี้ให้ลองทำด้วยตัวเองก่อนนะ ถามครูผู้ช่วยในแชตได้"}
+        return fx
+    if item["mode"] == "isomorphic" and not ctx.content.spec:
         fx.result = {"kind": "hidden", "message": "ข้อนี้เป็นข้อทดสอบความเข้าใจ ลองทำด้วยตัวเองนะ"}
         return fx
     if not ctx.content.tool("hints"):
@@ -1045,6 +1078,17 @@ def _request_hint(state: dict, ctx: Ctx) -> Fx:
         move(state, ctx, fx, answer_position(state), ["e_hint_button"],
              f"คิดมาแล้ว {thinking:.0f} วินาที ปลดคำใบ้ระดับ 1 ก่อนลองตอบ")
         fx.result = {"kind": "hint", "level": 1}
+        return fx
+    if ctx.content.spec and item["hint_level"] < 3 and item["error_count"] > item["hint_level"]:
+        # Flow ของ Gem: ขั้นที่ให้กดคำใบ้เองได้ ปลดได้ทีละระดับหลังลองตอบอีกครั้ง (กันการปั๊มคำใบ้ด้วยกฎ Hint Abuse เดิม)
+        level = item["hint_level"] + 1
+        reveal(state, level)
+        item["ready_at"] = now
+        need_hints(state, fx, level)
+        move(state, ctx, fx, answer_position(state), ["g_hint_button"],
+             f"กดขอคำใบ้หลังลองตอบแล้ว {item['error_count']} ครั้ง ปลดคำใบ้ระดับ {level}",
+             {"step": (state.get("flow") or {}).get("step")})
+        fx.result = {"kind": "hint", "level": level}
         return fx
     fx.result = {"kind": "socratic", "level": item["hint_level"], "socratic": next_socratic(state, ctx),
                  "message": "คำใบ้ระดับถัดไปจะปลดเมื่อลองตอบใหม่ ระหว่างนี้ลองคิดตามคำถามนี้"}
@@ -1153,6 +1197,8 @@ def on_distress(state: dict, ctx: Ctx, level: str, source: str = "keyword") -> F
         state["resume_position"] = answer_position(state)
         move(state, ctx, fx, F.CHOOSE, ["e_quit"], "นักเรียนบอกว่าไม่อยากเรียนต่อ ให้เลือกทางต่อเอง", {"source": source})
         alert(fx, state, "normal", "quit", "นักเรียนบอกว่าไม่อยากเรียนต่อ")
+    elif level == "stress" and ctx.content.spec:
+        return gemflow.stress(state, ctx, source)
     elif level == "stress":
         if state["position"] in (F.SAFETY, F.DEADLOCK, F.DONE, F.ENDED, F.CB):
             return fx
@@ -1175,6 +1221,8 @@ def choose(state: dict, ctx: Ctx, option: str) -> Fx:
     if option == "rest":
         state["idle_since"] = ctx.now
         move(state, ctx, fx, F.IDLE, ["e_idle"], "นักเรียนเลือกพักก่อน")
+    elif option == "easier" and ctx.content.spec:
+        gemflow.choose_easier(state, ctx, fx)
     elif option == "easier":
         state["path"] = "SUPPORTED"
         nxt, mode = select_next(state, ctx, "SUPPORTED", 20)
@@ -1192,6 +1240,8 @@ def choose(state: dict, ctx: Ctx, option: str) -> Fx:
 # ---------------------------------------------------------------- Manual Override ของครู
 
 def override(state: dict, ctx: Ctx, action: str, params: dict) -> Fx:
+    if ctx.content.spec and action in ("release", "reset_item", "resume", "set_item"):
+        return gemflow.override(state, ctx, action, params)
     fx = Fx()
     timers = state["timers"]
     for key in timers:
@@ -1276,7 +1326,7 @@ def student_view(state: dict, ctx: Ctx) -> dict:
         item and item.get("undo") and not item["undo_used"] and now - item["undo"]["ts"] <= ctx.p("undo_window")
     )
     thinking = now - item["started_at"] if item else 0
-    return {
+    view = {
         "position": state["position"],
         "label": STUDENT_LABELS.get(state["position"], ""),
         "set": {"id": content.qs["id"], "name": content.qs["name"], "subject": content.subject["name"]},
@@ -1319,6 +1369,12 @@ def student_view(state: dict, ctx: Ctx) -> dict:
         "outage": {"error": state.get("outage_error"), "retry_in": remaining(state["timers"].get("retry_at"), now)}
         if state["position"] == F.OUTAGE else None,
     }
+    if content.spec:
+        # Flow ของ Gem: ปุ่มคำใบ้ตามขั้นที่ AI ออกแบบ และเนื้อหาของหน้าบทเรียนย่อ / อธิบายความคิด
+        extras = gemflow.student_extras(state, ctx)
+        view["hint_button"]["visible"] = extras.pop("hint_visible")
+        view.update(extras)
+    return view
 
 
 # ---------------------------------------------------------------- สร้างโจทย์สด (Gem)
@@ -1328,6 +1384,8 @@ OUTAGE_RETRY = 30.0
 
 def after_live(state: dict, ctx: Ctx, new_ids: list[str], error: str | None) -> Fx:
     """ผลของการสร้างโจทย์สด: ได้โจทย์ใหม่ก็ไปทำต่อ ไม่สำเร็จก็หยุดชั่วคราวและแจ้งครู (Q22)"""
+    if ctx.content.spec:
+        return gemflow.after_live(state, ctx, new_ids, error)
     fx = Fx()
     if state["position"] != F.LIVE:
         return fx
@@ -1371,7 +1429,7 @@ def staff_view(state: dict, ctx: Ctx) -> dict:
     item = state.get("item")
     content = ctx.content
     accuracy = state["correct_total"] / state["attempts_total"] if state["attempts_total"] else None
-    return {
+    view = {
         "code": state["code"],
         "set_id": state["set_id"],
         "position": state["position"],
@@ -1409,6 +1467,20 @@ def staff_view(state: dict, ctx: Ctx) -> dict:
         "last_decision": state.get("last_decision"),
         "last_activity": state["last_activity"],
     }
+    if content.spec:
+        view.update(gemflow.staff_extras(state, ctx))
+        if view["flow_step"] and view["position"] not in gemflow.GUARD_POSITIONS:
+            view["position_label"] = view["flow_step"]["label"]
+    return view
+
+
+def reflect(state: dict, ctx: Ctx, text: str, verdict: dict | None = None) -> Fx:
+    """นักเรียนส่งคำอธิบายในขั้น "อธิบายความคิด" ของ Flow ที่ออกแบบใน Gem"""
+    if not ctx.content.spec:
+        fx = Fx()
+        fx.result = {"kind": "blocked", "message": "ชุดคำถามนี้ไม่มีขั้นอธิบายความคิด"}
+        return fx
+    return gemflow.reflect(state, ctx, text, verdict)
 
 
 def risk_inputs(state: dict) -> dict:
@@ -1424,3 +1496,7 @@ def risk_inputs(state: dict) -> dict:
 def risk_score(state: dict) -> dict:
     values = risk_inputs(state)
     return fuzzy.risk(values["error_rate"], values["disengagement"], values["slowness"])
+
+
+# Flow ที่ AI ออกแบบใน Gem ใช้ตัวช่วยของไฟล์นี้ จึง import ไว้ท้ายไฟล์ (gemflow import core กลับมา)
+from . import gemflow  # noqa: E402
