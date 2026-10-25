@@ -562,3 +562,24 @@ def test_second_round_findings_are_fixed(monkeypatch):
                       '<script>for (let i = 0; i < 6; i++) {}; const msg = "ถูกต้อง!";</script>')
     text = widgets.visible_text(html)
     assert "6" not in text and "ถูกต้อง!" in text and "25 - 8" in text
+
+
+def test_once_after_n_items_uses_target_visits(subject):
+    """"หลังครบ 2 ข้อ" แบบครั้งเดียว: items_done >= 2 and target_visits == 0 แสดงครั้งเดียว และเตือนเมื่อใช้ == N"""
+    flow = {"start": "w",
+            "steps": [{"id": "w", "kind": "item", "pick": "main"}, {"id": "rest", "kind": "lesson", "text": "สรุป"},
+                      {"id": "e", "kind": "end"}],
+            "edges": [{"from": "w", "to": "e", "when": "correct and items_done >= 5"},
+                      {"from": "w", "to": "rest", "when": "correct and items_done >= 2 and target_visits == 0"},
+                      {"from": "w", "to": "w", "when": ""}, {"from": "rest", "to": "w", "when": ""}]}
+    content = gem_content(subject, flow)
+    state, ctx = start(content)
+    seen = []
+    for n in range(4):
+        engine.submit(state, at(ctx, 1030 + 60 * n), demo.correct_raw(it_of(content, state)))
+        seen.append(state["position"])
+        if state["position"] == F.LESSON:
+            engine.walkthrough_done(state, at(ctx, 1040 + 60 * n))
+    assert seen.count(F.LESSON) == 1 and seen[1] == F.LESSON
+    flow["edges"][1]["when"] = "correct and items_done == 2"
+    assert any("อาจไม่เกิดเลย" in w for w in flowspec.validate(flow)["warnings"])

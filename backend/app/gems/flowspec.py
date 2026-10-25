@@ -315,6 +315,10 @@ def validate(raw: dict, bugs: list[str] | None = None) -> dict:
         if answer_vars and kind not in ("item", "hint", "check", "notify"):
             warnings.append(f"เส้นจาก \"{steps[edge['from']]['label']}\" ใช้ผลการตอบ ({', '.join(sorted(answer_vars))}) "
                             "แต่ขั้นนี้ไม่ได้รับคำตอบ ค่าจะเป็นของคำตอบล่าสุด")
+        counted = re.search(r"\b(items_done|items_count|solved_here)\s*==\s*\d+", edge["when"])
+        if counted:
+            warnings.append(f"เส้น \"{edge['label'] or edge['when']}\" ใช้ {counted.group(0)} ซึ่งอาจไม่เกิดเลย เพราะจำนวนข้อเพิ่มที่ขั้นอื่นด้วย "
+                            f"(ข้อทบทวนหรือข้อคู่ขนาน) ใช้ {counted.group(1)} >= และ target_visits == 0 ถ้าต้องการให้ทำครั้งเดียว")
         if used & {"widget_pass", "widget_tries"} and kind != "widget":
             warnings.append(f"เส้นจาก \"{steps[edge['from']]['label']}\" ใช้ผลของ Widget แต่ขั้นนี้ไม่ใช่ Widget")
         if used & {"judge_pass", "judge_score"} and kind not in ("reflect", "activity"):
@@ -602,7 +606,9 @@ def design_prompt(gem: dict, errors: list[str] | None = None, previous: dict | N
         "เส้นออกจากขั้นเดียวกันเรียงตามลำดับ เส้นแรกที่เป็นจริงชนะ ให้เส้นสุดท้ายเป็น \"\" (ทุกกรณีที่เหลือ) เสมอ\n"
         "เส้นตอบถูกหลายเส้นจากขั้น item ที่เป็นจริงพร้อมกัน (เช่น ถูกหลังใช้คำใบ้ → ข้อคู่ขนาน และ ครบ 2 ข้อ → อธิบายความคิด) "
         "ระบบทำเส้นแรกก่อน แล้วพาไปทำเส้นอื่นที่เป็นจริงต่อเมื่อกลับมาที่ขั้น item นั้น จึงเรียงเส้นตามลำดับที่อยากให้ทำ "
-        "ไม่ต้องเขียนเงื่อนไขกันกันเอง\n\n"
+        "ไม่ต้องเขียนเงื่อนไขกันกันเอง\n"
+        "items_done นับทุกข้อที่ทำถูก (รวมข้อทบทวนและข้อคู่ขนาน) จึงอาจข้ามเลขที่ต้องการตอนอยู่ขั้นอื่น แนวทางที่ทำครั้งเดียว "
+        "\"หลังครบ N ข้อ\" ให้ใช้ items_done >= N and target_visits == 0 ไม่ใช้ items_done == N\n\n"
         f"ตัวเลขของทั้ง Flow (params) ใส่เฉพาะที่คำสั่งของครูพูดถึงตรง ๆ ต้องอยู่ในช่วง "
         f"(hint_unlock_wait คือเวลาที่ต้องคิดก่อนกดขอคำใบ้เองได้ ก่อนลองตอบครั้งแรก):\n{params}\n"
         "ตัวเลขในขั้นและในเงื่อนไขให้เอามาจากคำสั่งของครู ถ้าครูไม่ได้บอกให้ใช้ค่าของแม่แบบ\n\n"

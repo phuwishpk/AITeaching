@@ -129,10 +129,16 @@ def values(state: dict, ctx: C.Ctx, step_id: str) -> dict:
     }
 
 
+def edge_values(state: dict, current: dict, edge: dict) -> dict:
+    """ตัวแปรของเส้นนี้: target_visits = เคยเข้าขั้นปลายทางกี่ครั้ง (แนวทางที่ทำครั้งเดียว เช่น หลังครบ 3 ข้อ)"""
+    target = fs(state).get("item_step") if edge["to"] == "back" else edge["to"]
+    return {**current, "target_visits": fs(state)["visits"].get(target, 0)}
+
+
 def choose_edge(state: dict, ctx: C.Ctx, step_id: str) -> dict | None:
     current = values(state, ctx, step_id)
     for edge in edges_from(ctx, step_id):
-        if evaluate(edge.get("when"), current):
+        if evaluate(edge.get("when"), edge_values(state, current, edge)):
             return edge
     return None
 
@@ -197,7 +203,7 @@ def follow_ups(state: dict, ctx: C.Ctx, step_id: str, chosen: dict) -> list[dict
         goal = step_of(ctx, edge["to"])
         if (after and "correct" in used and "wrong" not in used and other and goal and goal["kind"] != "end"
                 and edge["to"] not in (step_id, chosen["to"]) and not other <= picked and not picked <= other
-                and evaluate(edge["when"], current)):
+                and evaluate(edge["when"], edge_values(state, current, edge))):
             out.append(edge)
     return out
 
