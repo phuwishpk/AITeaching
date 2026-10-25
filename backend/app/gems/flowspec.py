@@ -273,6 +273,9 @@ def normalize(raw: dict) -> tuple[dict, list[str]]:
     chat = normalize_chat(raw.get("chat"), renamed)
     if chat:
         spec["chat"] = chat
+    # ขั้นที่ไปหลังพักเพราะเครียดหรือท้อ (Circuit Breaker) ไม่ใส่ = กลับขั้นเดิม
+    if raw.get("after_stress"):
+        spec["after_stress"] = renamed.get(str(raw["after_stress"]), _slug(raw["after_stress"], ""))
     return spec, notes
 
 
@@ -379,11 +382,17 @@ def validate(raw: dict, bugs: list[str] | None = None) -> dict:
     for intent in (spec.get("chat") or {}).get("intents", []):
         if intent["goto"]:
             reachable |= _reachable(intent["goto"], out)
+    if spec.get("after_stress") in steps:
+        reachable |= _reachable(spec["after_stress"], out)
     for sid, step in steps.items():
         if sid not in reachable:
             warnings.append(f"ขั้น \"{step['label']}\" ไปไม่ถึงจากขั้นแรกหรือจากแชต")
     if not any(steps[s]["kind"] == "end" for s in reachable):
         errors.append("Flow ต้องไปถึงขั้นจบได้ (เพดานจำนวนข้อยังจบ Session ให้อยู่แล้ว แต่ควรมีเกณฑ์จบของครู)")
+    if spec.get("after_stress"):
+        target = steps.get(spec["after_stress"])
+        if target is None or target["kind"] not in ("lesson", "activity", "widget", "hint", "reflect"):
+            errors.append("หลังพักเพราะเครียด (after_stress) ไปได้เฉพาะขั้น lesson activity widget hint หรือ reflect ที่มีใน Flow")
     for intent in (spec.get("chat") or {}).get("intents", []):
         target = steps.get(intent["goto"]) if intent["goto"] else None
         if intent["goto"] and (target is None or target["kind"] not in CHAT_GOTO_KINDS):
@@ -565,7 +574,9 @@ def catalog() -> dict:
 def map_view(spec: dict) -> dict:
     """กล่องและเส้นสำหรับวาดผังของ Gem (หน้าเว็บจัดตำแหน่งเองด้วย dagre)"""
     nodes = [{"id": s["id"], "label": s["label"], "kind": s["kind"], "lane": KINDS[s["kind"]]["lane"],
-              "about": describe_step(s), "start": s["id"] == spec["start"]} for s in spec["steps"]]
+              "about": describe_step(s) + (" · มาที่ขั้นนี้หลังพักเพราะเครียด (Circuit Breaker)"
+                                           if s["id"] == spec.get("after_stress") else ""),
+              "start": s["id"] == spec["start"]} for s in spec["steps"]]
     # เส้น "back" วาดเป็นสัญลักษณ์วนกลับที่กล่องต้นทาง (กลับขั้นทำโจทย์ที่นักเรียนมา)
     edges = [{"id": e["id"], "source": e["from"], "target": e["from"] if e["to"] == BACK else e["to"],
               "label": e.get("label") or ("กลับขั้นทำโจทย์เดิม" if e["to"] == BACK else ""),
@@ -723,6 +734,8 @@ def design_prompt(gem: dict, errors: list[str] | None = None, previous: dict | N
         f"ตัวเลขของทั้ง Flow (params) ใส่เฉพาะที่คำสั่งของครูพูดถึงตรง ๆ ต้องอยู่ในช่วง "
         f"(hint_unlock_wait คือเวลาที่ต้องคิดก่อนกดขอคำใบ้เองได้ ก่อนลองตอบครั้งแรก):\n{params}\n"
         "ตัวเลขในขั้นและในเงื่อนไขให้เอามาจากคำสั่งของครู ถ้าครูไม่ได้บอกให้ใช้ค่าของแม่แบบ\n\n"
+        "after_stress (ไม่บังคับ): id ของขั้นที่ให้ไปหลังนักเรียนพักเพราะเครียดหรือท้อ (Circuit Breaker) เช่น lesson ที่ walkthrough true "
+        "ใส่เฉพาะเมื่อครูสั่ง ไม่ใส่ = กลับไปทำขั้นเดิม\n"
         "การตอบแชตของ AI (chat ไม่บังคับ): ใส่เฉพาะเมื่อคำสั่งของครูพูดถึงวิธีที่ AI ตอบแชต บุคลิก วิธีอธิบาย ความยาว "
         "การกันนักเรียนหลอกล่อขอคำตอบ หรือสิ่งที่ให้ทำเมื่อนักเรียนพิมพ์บางอย่าง ถ้าคำสั่งไม่พูดถึงเลยห้ามใส่ (ระบบใช้แบบอัตโนมัติ) "
         "รูปแบบ: {\"style\": \"บุคลิกและวิธีอธิบายตามครู\", \"sentences\": 2–5, \"examples\": true ถ้าครูให้ยกตัวอย่างใหม่, "

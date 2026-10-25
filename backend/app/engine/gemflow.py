@@ -119,6 +119,7 @@ def values(state: dict, ctx: C.Ctx, step_id: str) -> dict:
         "streak": flow.get("streak", 0),
         "solved_here": flow.get("solved_here", 0),
         "rounds": state["remedial_rounds"].get(source, 0) if source else 0,
+        "has_prerequisite": bool(it) and any(ctx.content.remedial_items(c) for c in ctx.content.prerequisites(it["concept"])),
         "mains_left": len([m for m in mains if m["id"] not in state["main_done"]]),
         "challenge_done": bool(state["challenge_correct"]),
         "visits": flow["visits"].get(step_id, 0),
@@ -608,6 +609,10 @@ def resolve_timers(state: dict, ctx: C.Ctx, fx: C.Fx):
             if pending.get("kind") == "break":
                 flow["last"] = {}
                 follow(state, ctx, fx, pending["step"], [], ["พักครบแล้ว"])
+            elif step_of(ctx, spec(ctx).get("after_stress")):
+                # ครูให้ไปขั้นที่กำหนดหลังพักเพราะเครียด (เช่น ดูตัวอย่างทีละขั้นก่อนทำต่อ เหมือนผังมาตรฐาน)
+                flow["last"] = {}
+                enter(state, ctx, fx, spec(ctx)["after_stress"], ["g_stress_back"], ["พักครบแล้ว ไปขั้นที่ครูกำหนดหลังพัก"])
             else:
                 back_to_item(state, ctx, fx, ["g_stress_back"], "พักครบแล้ว กลับมาทำต่อ")
             continue

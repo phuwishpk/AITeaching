@@ -701,3 +701,33 @@ def test_play_requests_must_be_interactive_and_chat_targets_are_reachable(monkey
     monkeypatch.setattr(builder, "ask_json", fake_ask)
     result = asyncio.run(flowspec.design({"name": "เศษส่วน", "instructions": "ถ้าเด็กบอกว่าเบื่อ ให้มีมินิเกมคั่น"}))
     assert asked.count("flow") == 2 and next(s for s in result["spec"]["steps"] if s["id"] == "minigame")["kind"] == "widget"
+
+
+def test_after_stress_and_missing_prerequisite_match_the_standard_map(subject):
+    """สองกล่องของผังมาตรฐานที่ prompt สั่งได้แล้ว: เครียด → พัก → ตัวอย่างทีละขั้น และไม่มีพื้นฐานให้ทบทวน → ตัวอย่างทีละขั้น"""
+    flow = {"start": "w", "after_stress": "walk",
+            "steps": [{"id": "w", "kind": "item", "pick": "main"}, {"id": "walk", "kind": "lesson", "walkthrough": True},
+                      {"id": "rem", "kind": "item", "pick": "prerequisite"}, {"id": "e", "kind": "end"}],
+            "edges": [{"from": "w", "to": "e", "when": "correct and mains_left == 0"},
+                      {"from": "w", "to": "rem", "when": "error_count >= 4 and has_prerequisite"},
+                      {"from": "w", "to": "walk", "when": "error_count >= 4"}, {"from": "w", "to": "w", "when": ""},
+                      {"from": "walk", "to": "back", "when": ""}, {"from": "rem", "to": "w", "when": "correct"},
+                      {"from": "rem", "to": "rem", "when": ""}]}
+    checked = flowspec.validate(flow)
+    assert not checked["errors"] and not any("ไปไม่ถึง" in w for w in checked["warnings"])
+    content = gem_content(subject, flow)
+    state, ctx = start(content)
+    has = any(content.remedial_items(c) for c in content.prerequisites(it_of(content, state)["concept"]))
+    assert gemflow_values(state, ctx)["has_prerequisite"] is has
+    engine.on_distress(state, at(ctx, 1010), "stress", "keyword")
+    assert state["position"] == F.CB
+    engine.resolve_timers(state, at(ctx, 1200), engine.Fx())
+    assert state["position"] == F.LESSON and step(state) == "walk", "พักครบแล้วไปดูตัวอย่างทีละขั้นตามที่ครูสั่ง"
+    flow["after_stress"] = "e"
+    assert any("after_stress" in e for e in flowspec.validate(flow)["errors"])
+
+
+def gemflow_values(state, ctx):
+    from app.engine import gemflow
+
+    return gemflow.values(state, ctx, state["flow"]["step"])

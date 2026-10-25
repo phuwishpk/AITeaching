@@ -270,6 +270,8 @@ export interface ChatSpec {
 export interface FlowSpec {
   summary: string;
   chat?: ChatSpec;
+  // ขั้นที่ไปหลังพักเพราะเครียด (Circuit Breaker) ไม่มี = กลับขั้นเดิม
+  after_stress?: string;
   // แนวทางของครูแต่ละข้อ และขั้นที่ทำแนวทางนั้น (AI เขียนก่อนออกแบบ)
   guidelines?: { text: string; steps: string[] }[];
   start: string;

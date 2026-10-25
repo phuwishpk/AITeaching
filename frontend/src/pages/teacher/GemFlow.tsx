@@ -732,6 +732,22 @@ function Params({ spec, catalog, update }: { spec: FlowSpec; catalog: FlowCatalo
   return (
     <div className="stack">
       <p className="xsmall muted">ตัวเลขของทั้ง Flow ที่มาจากคำสั่งของครู ช่องว่างใช้ค่าที่ Admin ตั้งไว้ ระบบตัดค่าให้อยู่ในช่วงที่ปลอดภัยเสมอ</p>
+      <Field label="หลังพักเพราะเครียดหรือท้อ" hint="Circuit Breaker พักครบแล้วไปขั้นไหน">
+        <select
+          className="input"
+          value={spec.after_stress ?? ""}
+          onChange={(e) => update((s) => void (e.target.value ? (s.after_stress = e.target.value) : delete s.after_stress))}
+        >
+          <option value="">กลับไปทำขั้นเดิม</option>
+          {spec.steps
+            .filter((s) => ["lesson", "activity", "widget", "hint", "reflect"].includes(s.kind))
+            .map((s) => (
+              <option key={s.id} value={s.id}>
+                {s.label}
+              </option>
+            ))}
+        </select>
+      </Field>
       {catalog.params.map((p) => (
         <Field key={p.key} label={p.label} hint={`ช่วง ${p.min}–${p.max} · ค่าของ Admin ${p.default}`}>
           <input
