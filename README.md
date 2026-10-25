@@ -98,7 +98,10 @@ CONTEXT.md     อภิธานศัพท์ของโปรเจกต�
 git clone https://github.com/phuwishpk/AITeaching.git ai-tutor && cd ai-tutor
 # รหัสผ่านครูและ Admin (ไม่ตั้ง = เข้าได้ทันที ห้ามทำแบบนั้นบนเครื่องที่เปิดสู่อินเทอร์เน็ต)
 printf 'TUTOR_TEACHER_PASSWORD=...\nTUTOR_ADMIN_PASSWORD=...\n' > .env && chmod 600 .env
-./deploy/tunnel.sh tutor.example.com   # สร้าง tunnel และ DNS แล้วเปิดทั้งแอปและ tunnel
+# ลิงก์ชั่วคราว ไม่ต้องมีโดเมน (ได้ https://<คำสุ่ม>.trycloudflare.com เปลี่ยนเมื่อ tunnel เริ่มใหม่)
+docker compose -f deploy/docker-compose.yml --profile quick up -d --build && sleep 10 && ./deploy/link.sh
+# หรือลิงก์ถาวรบนโดเมนของเราที่อยู่ใน Cloudflare
+./deploy/tunnel.sh tutor.example.com
 ```
 
 ข้อมูลทั้งหมด (ฐานข้อมูล API key ไฟล์อัปโหลด) อยู่ในโฟลเดอร์ `runtime/` บนเซิร์ฟเวอร์ คอนเทนเนอร์เปิดใหม่เองเมื่อเครื่องรีบูต

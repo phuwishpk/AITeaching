@@ -26,5 +26,6 @@ ingress:
   - service: http_status:404
 CONFIG
 
-docker compose -f deploy/docker-compose.yml up -d
+docker compose -f deploy/docker-compose.yml --profile quick stop quick 2>/dev/null || true
+docker compose -f deploy/docker-compose.yml --profile named up -d
 echo "เปิดใช้ที่ https://$HOST"
