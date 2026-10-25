@@ -303,3 +303,17 @@ def test_back_returns_to_the_item_step_the_student_came_from(subject):
     second = state["item"]["id"]
     engine.submit(state, at(ctx, 1050), demo.other_wrong(it_of(content, state)))
     assert step(state) == "b" and state["item"]["id"] == second and state["item"]["hint_level"] >= 1
+
+
+def test_flow_may_open_with_a_lesson_before_the_first_item(subject):
+    flow = {"start": "intro",
+            "steps": [{"id": "intro", "kind": "lesson", "title": "ทบทวนกฎ", "text": "ทำในวงเล็บก่อน"},
+                      {"id": "w", "kind": "item", "pick": "main"}, {"id": "e", "kind": "end"}],
+            "edges": [{"from": "intro", "to": "w", "when": ""}, {"from": "w", "to": "e", "when": "correct"},
+                      {"from": "w", "to": "w", "when": ""}]}
+    content = gem_content(subject, flow)
+    state, ctx = start(content)
+    assert state["position"] == F.LESSON and state["item"] is None
+    assert engine.student_view(state, ctx)["lesson"]["text"] == "ทำในวงเล็บก่อน"
+    engine.walkthrough_done(state, at(ctx, 1010))
+    assert state["position"] == F.ANSWERING and step(state) == "w"

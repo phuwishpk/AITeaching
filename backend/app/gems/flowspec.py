@@ -77,6 +77,7 @@ TOOL_KINDS = {"hints": "บันไดคำใบ้", "isomorphic": "Isomorph
 
 
 BACK = "back"
+START_KINDS = ("item", "lesson", "activity", "reflect")
 
 
 class FlowError(Exception):
@@ -233,7 +234,7 @@ def normalize(raw: dict) -> tuple[dict, list[str]]:
         params[key] = int(number) if key in ("max_items", "mastery_window") else number
     start = renamed.get(str(raw.get("start")), _slug(raw.get("start"), ""))
     if start not in seen:
-        start = next((s["id"] for s in steps if s["kind"] == "item"), "")
+        start = next((s["id"] for s in steps if s["kind"] in START_KINDS), "")
     spec = {"summary": _text(raw.get("summary"), 400), "start": start, "params": params, "steps": steps, "edges": edges}
     # แนวทางของครูแต่ละข้อ และขั้นที่ทำแนวทางนั้น (AI เขียนก่อนออกแบบ ครูใช้ตรวจว่าครบ)
     guidelines = []
@@ -268,8 +269,11 @@ def validate(raw: dict, tools: dict | None = None, bugs: list[str] | None = None
     steps = {s["id"]: s for s in spec["steps"]}
     if not steps:
         return {"spec": spec, "errors": ["Flow ต้องมีอย่างน้อยหนึ่งขั้น"], "warnings": warnings}
-    if not spec["start"] or steps[spec["start"]]["kind"] != "item":
-        errors.append("ขั้นแรกของ Flow ต้องเป็นขั้นทำโจทย์")
+    # เริ่มได้ด้วยขั้นที่นักเรียนทำเองได้ เช่น ทำโจทย์ อ่านบทเรียนย่อก่อน หรือกิจกรรม (ไม่ใช่ขั้นจบ พัก หรือรอครู)
+    if not spec["start"] or steps[spec["start"]]["kind"] not in START_KINDS:
+        errors.append("ขั้นแรกของ Flow ต้องเป็นขั้นทำโจทย์ บทเรียนย่อ อธิบายความคิด หรือกิจกรรม")
+    elif not any(s["kind"] == "item" for s in steps.values()):
+        errors.append("Flow ต้องมีขั้นทำโจทย์อย่างน้อยหนึ่งขั้น")
     out: dict[str, list[dict]] = {sid: [] for sid in steps}
     for edge in spec["edges"]:
         if edge["from"] not in steps or (edge["to"] not in steps and edge["to"] != BACK):
@@ -517,7 +521,8 @@ def design_prompt(gem: dict, errors: list[str] | None = None, previous: dict | N
         f"ขั้น item มี pick (วิธีเลือกโจทย์):\n{picks}\n"
         "เส้นที่ to เป็น \"back\" = กลับไปขั้นทำโจทย์ที่นักเรียนเพิ่งมาจาก (ทำข้อเดิมต่อ) ใช้กับขั้นคำใบ้ บทเรียน หรือกิจกรรม "
         "ที่หลายขั้นโจทย์ใช้ร่วมกัน ไม่ต้องเดาด้วยเงื่อนไข\n"
-        "ขั้น item มี hint_button (true/false), hint มี level (1, 2, 3 หรือ \"auto\") และ delay (วินาที 0–60), "
+        "ขั้น item มี hint_button (true/false), hint มี level (1, 2, 3 หรือ \"auto\") และ delay "
+        "(หน่วงเวลาหลังตอบผิดก่อนแสดงคำใบ้ วินาที 0–60 เช่น \"ผิดแล้วให้คิดเองก่อน 20 วินาที\" = delay 20 ไม่ใช่ params), "
         "lesson มี title, text (เนื้อหาสั้น ๆ ไม่เกิน 5 บรรทัด ห้ามมีคำตอบของโจทย์) และ walkthrough (true = แสดงตัวอย่างทีละขั้นของมโนทัศน์), "
         "reflect มี question, judge (true เฉพาะเมื่อครูสั่งให้ประเมินคำอธิบาย) และ rubric (เกณฑ์ของครู), "
         "break มี seconds (15–300) และ text, notify มี level (urgent/normal/silent) และ text, teacher มี text, "
@@ -531,7 +536,8 @@ def design_prompt(gem: dict, errors: list[str] | None = None, previous: dict | N
         "และตัวแปรเหล่านี้ (แยกทางตามข้อผิดพลาดได้ เช่น wrong and bug == \"BUG-M01\" หรือ bug_type == \"slip\"):\n"
         f"{variables}\n"
         "เส้นออกจากขั้นเดียวกันเรียงตามลำดับ เส้นแรกที่เป็นจริงชนะ ให้เส้นสุดท้ายเป็น \"\" (ทุกกรณีที่เหลือ) เสมอ\n\n"
-        f"ตัวเลขของทั้ง Flow (params) ใส่เฉพาะที่คำสั่งของครูพูดถึง ต้องอยู่ในช่วง:\n{params}\n"
+        f"ตัวเลขของทั้ง Flow (params) ใส่เฉพาะที่คำสั่งของครูพูดถึงตรง ๆ ต้องอยู่ในช่วง "
+        f"(hint_unlock_wait คือเวลาที่ต้องคิดก่อนกดขอคำใบ้เองได้ ก่อนลองตอบครั้งแรก):\n{params}\n"
         "ตัวเลขในขั้นและในเงื่อนไขให้เอามาจากคำสั่งของครู ถ้าครูไม่ได้บอกให้ใช้ค่าของแม่แบบ\n\n"
         "สิ่งที่ระบบล็อกไว้ ไม่ต้องใส่ใน Flow: " + " · ".join(l["title"] for l in LOCKED) + "\n\n"
         "ออกแบบ Flow เฉพาะของบทเรียนนี้เสมอ ไม่ลอกแม่แบบ: อ่านคำสั่งและสิ่งที่จดจากเอกสาร แล้วแปลงทุกแนวทางเป็นขั้นและเส้น "
