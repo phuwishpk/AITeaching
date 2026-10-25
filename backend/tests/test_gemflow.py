@@ -488,3 +488,19 @@ def test_full_flow_test_findings_are_fixed(monkeypatch):
         {"id": "w", "kind": "item"}, {"id": "e", "kind": "end"}],
         "edges": [{"from": "t", "to": "w", "when": ""}, {"from": "w", "to": "e", "when": "correct"}, {"from": "w", "to": "w", "when": ""}]})
     assert named["spec"]["steps"][0]["label"] == "ต้นไม้นิพจน์"
+
+
+def test_conditions_allow_every_n_items():
+    """แนวทาง "ทุก 2 ข้อ" เขียนเป็นเศษจากการหารได้ (AI เขียนแบบนี้เองเมื่อแก้เส้นชนกัน)"""
+    from app.engine import conditions
+
+    rule = "correct and items_done % 2 == 0"
+    assert conditions.evaluate(rule, {"correct": True, "items_done": 4})
+    assert not conditions.evaluate(rule, {"correct": True, "items_done": 3})
+    assert "ครบทุก 2" in conditions.describe(rule)
+    for bad in ("bug % 2 == 0", "items_done % 0 == 0", "items_done * 2 == 4", "items_done % rt == 0"):
+        try:
+            conditions.parse(bad)
+        except conditions.ConditionError:
+            continue
+        raise AssertionError(f"{bad} ต้องไม่ผ่าน")

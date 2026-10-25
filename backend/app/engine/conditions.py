@@ -3,6 +3,7 @@
 เงื่อนไขเขียนเป็นนิพจน์สั้น ๆ แบบ Python เช่น "wrong and error_count >= 2" อ่านออกได้ทั้งครูและ AI
 ตัวแปรมาจาก Student Model เท่านั้น (VARS) ไม่มีการเรียกฟังก์ชันหรือ eval
 ตรวจด้วย ast ว่าใช้แค่ and / or / not / การเปรียบเทียบ / ตัวเลข / ตัวแปรที่รู้จัก
+และเศษจากการหาร (ตัวแปร % ตัวเลข) สำหรับแนวทางแบบ "ทุก 2 ข้อ" เช่น items_done % 2 == 0
 """
 
 import ast
@@ -79,6 +80,11 @@ def _check(node: ast.AST, text: str):
             raise ConditionError(f"เงื่อนไข \"{text}\" ใช้ได้แค่ตัวเลข true/false และข้อความสั้น ๆ ในเครื่องหมายคำพูด")
     elif isinstance(node, ast.UnaryOp) and isinstance(node.op, ast.USub) and isinstance(node.operand, ast.Constant):
         pass
+    elif (isinstance(node, ast.BinOp) and isinstance(node.op, ast.Mod) and isinstance(node.left, ast.Name)
+          and isinstance(node.right, ast.Constant) and type(node.right.value) is int and 1 < node.right.value <= 100):
+        _check(node.left, text)
+        if VARS.get(node.left.id, ("", ""))[1] not in ("int", "num"):
+            raise ConditionError(f"เงื่อนไข \"{text}\" หาเศษได้เฉพาะตัวแปรที่เป็นตัวเลข")
     else:
         raise ConditionError(f"เงื่อนไข \"{text}\" ใช้ได้แค่ and, or, not และการเปรียบเทียบ")
 
@@ -96,6 +102,9 @@ def _value(node: ast.AST, values: dict):
         return not _value(node.operand, values)
     if isinstance(node, ast.UnaryOp):
         return -_value(node.operand, values)
+    if isinstance(node, ast.BinOp):
+        left = _value(node.left, values)
+        return None if left is None else left % node.right.value
     if isinstance(node, ast.Compare):
         left = _value(node.left, values)
         for op, right_node in zip(node.ops, node.comparators):
@@ -139,6 +148,11 @@ def _say(node: ast.AST) -> str:
         return joiner.join(_say(v) for v in node.values)
     if isinstance(node, ast.UnaryOp) and isinstance(node.op, ast.Not):
         return f"ไม่ใช่ ({_say(node.operand)})" if not isinstance(node.operand, ast.Name) else f"ไม่{VARS[node.operand.id][0]}"
+    if (isinstance(node, ast.Compare) and isinstance(node.left, ast.BinOp) and len(node.ops) == 1
+            and isinstance(node.ops[0], ast.Eq) and isinstance(node.comparators[0], ast.Constant) and node.comparators[0].value == 0):
+        return f"{_say(node.left.left)} ครบทุก {node.left.right.value}"
+    if isinstance(node, ast.BinOp):
+        return f"เศษของ {_say(node.left)} หารด้วย {node.right.value}"
     if isinstance(node, ast.Compare):
         parts = [_say(node.left)]
         for op, right in zip(node.ops, node.comparators):

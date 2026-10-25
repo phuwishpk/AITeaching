@@ -586,6 +586,7 @@ def design_prompt(gem: dict, errors: list[str] | None = None, previous: dict | N
         "ถ้าข้อถูกแล้วหรือมาจากขั้น item อื่น = ได้ข้อใหม่ตาม pick "
         "หลังทบทวนพื้นฐาน (pick prerequisite) ขั้น item ถัดไปจะให้ข้อที่พักไว้ก่อนเสมอ\n\n"
         "เงื่อนไขบนเส้น (when) เขียนแบบ Python ใช้ได้แค่ and, or, not, ==, !=, <, <=, >, >=, ตัวเลข ข้อความในเครื่องหมายคำพูด "
+        "เศษจากการหารตัวแปรด้วยตัวเลข (เช่น items_done % 2 == 0 = ครบทุก 2 ข้อ) "
         "และตัวแปรเหล่านี้ (แยกทางตามข้อผิดพลาดได้ เช่น wrong and bug == \"BUG-M01\" หรือ bug_type == \"slip\"):\n"
         f"{variables}\n"
         "เส้นออกจากขั้นเดียวกันเรียงตามลำดับ เส้นแรกที่เป็นจริงชนะ ให้เส้นสุดท้ายเป็น \"\" (ทุกกรณีที่เหลือ) เสมอ\n"
@@ -737,7 +738,8 @@ async def write_widgets(gem: dict, flow_spec: dict, memory: dict | None = None, 
     return notes
 
 
-async def design(gem: dict, memory: dict | None = None, bugs: list[dict] | None = None) -> dict:
+async def design(gem: dict, memory: dict | None = None, bugs: list[dict] | None = None,
+                 items: list[dict] | None = None) -> dict:
     """ให้ AI ออกแบบ Flow เฉพาะของ Gem จากคำสั่งของครูและสิ่งที่จดจากเอกสาร ตรวจผ่านแล้วคืน gem["flow"]
     แก้สองรอบแล้วยังตรวจไม่ผ่าน ใช้ผังมาตรฐานของระบบ (บอกครูในคำเตือน)"""
     from . import builder  # builder import ไฟล์นี้ตอนสร้างคลังโจทย์
@@ -760,12 +762,12 @@ async def design(gem: dict, memory: dict | None = None, bugs: list[dict] | None 
                 continue
             if passed is not None and len(clashes) >= len([w for w in passed["warnings"] if w.startswith(OVERLAP)]):
                 checked = passed
-            notes = await write_widgets(gem, checked["spec"], memory)
+            notes = await write_widgets(gem, checked["spec"], memory, items)
             warnings = [w for w in checked["warnings"] if not w.startswith("Widget \"")] + notes
             return record(checked["spec"], "ai", warnings, reviewed=False)
         errors, previous = checked["errors"], raw
     if passed is not None:
-        notes = await write_widgets(gem, passed["spec"], memory)
+        notes = await write_widgets(gem, passed["spec"], memory, items)
         return record(passed["spec"], "ai", [w for w in passed["warnings"] if not w.startswith("Widget \"")] + notes,
                       reviewed=False)
     # ผังมาตรฐานเป็นแค่แม่แบบอ้างอิง ไม่ใช้แทน Flow ของ Gem: ออกแบบไม่ผ่านก็แจ้งให้ออกแบบใหม่

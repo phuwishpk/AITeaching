@@ -74,7 +74,7 @@ def approve(gem_id: str, actor: str) -> dict:
 
 async def redesign(gem_id: str, actor: str) -> dict:
     gem = manage.get(gem_id)
-    flow = await flowspec.design(gem, (gem.get("knowledge") or {}).get("memory"), _bugs(gem))
+    flow = await flowspec.design(gem, (gem.get("knowledge") or {}).get("memory"), _bugs(gem), _items(gem))
     flow["instructions_key"] = builder.instructions_key(gem)
     gem = manage.get(gem_id)
     gem["flow"] = flow
