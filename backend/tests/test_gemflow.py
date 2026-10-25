@@ -530,3 +530,35 @@ def test_simultaneous_success_guidelines_both_run(subject):
     assert step(state) == "iso" and state["position"] == F.ISO, "แล้วจึงทำข้อคู่ขนานที่ค้างไว้"
     engine.submit(state, at(ctx, 1150), demo.correct_raw(it_of(content, state)))
     assert step(state) == "w" and state["position"] == F.ANSWERING and not state["flow"]["queue"]
+
+
+def test_second_round_findings_are_fixed(monkeypatch):
+    """รอบสองของการทดสอบ Flow ครบทุกฟีเจอร์: รหัสตัดวงจรหลุดถึงนักเรียน และ Guard บล็อก Widget ผิดเพราะตัวเลขใน CSS"""
+    import asyncio
+
+    from app.engine import widgets
+    from app.gems.flowspec import clean_html
+    from app.tutor import guard, providers, service
+
+    # รหัสตัดวงจรที่ขีดล่างถูกตัดไปแล้วยังตรวจเจอ
+    assert guard.has_trigger("[TRIGGERCIRCUITBREAKER]") and guard.has_trigger("[TRIGGER_CIRCUIT_BREAKER]")
+    item = {"id": "G-01", "math": "20 - 12 ÷ 2 × 3 + 2²", "format": "numeric", "answer": {"value": "6"}, "prompt": "หาค่า"}
+    assert guard.check("[TRIGGERCIRCUITBREAKER]", item).trigger
+
+    # คำถามธรรมดาที่ LLM ส่งรหัสตัดวงจรมา: ถามซ้ำหนึ่งครั้ง ไม่ส่งรหัสถึงนักเรียน
+    replies = ["[TRIGGER_CIRCUIT_BREAKER]", "เพราะเราตกลงลำดับกันไว้ ลองดูว่ามีเลขยกกำลังตรงไหน"]
+
+    async def fake_call(system, user, **options):
+        return providers.LLMResult(text=replies.pop(0), provider="gemini", model="test", tokens_in=1, tokens_out=1,
+                                   latency_ms=1), []
+
+    monkeypatch.setattr(service, "_call", fake_call)
+    reply = asyncio.run(service.chat_reply({"id": "math-m2", "name": "PEMDAS", "grade": "ม.1"}, item, "PEMDAS", {}, "ทำไมต้องทำเลขยกกำลังก่อน",
+                                           None, [], "ลองคิดดูนะ", None))
+    assert not reply.get("trigger") and "เลขยกกำลัง" in reply["text"] and not replies
+
+    # Guard ของ Widget ที่ AI เขียน ตรวจข้อความที่นักเรียนเห็น ไม่ใช่ตัวเลขใน CSS หรือโค้ด
+    html = clean_html('<style>.b{padding:6px}</style><p>โจทย์ใหม่: 25 - 8 ÷ 2 × 4 + 3²</p>'
+                      '<script>for (let i = 0; i < 6; i++) {}; const msg = "ถูกต้อง!";</script>')
+    text = widgets.visible_text(html)
+    assert "6" not in text and "ถูกต้อง!" in text and "25 - 8" in text

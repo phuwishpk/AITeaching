@@ -10,7 +10,7 @@ import re
 import time
 
 from .. import db, settings_store
-from . import guard, prompt, providers, rag
+from . import distress, guard, prompt, providers, rag
 
 LEVEL_FALLBACK = {
     1: "ลองดูโจทย์อีกครั้ง มีจุดไหนที่ควรตรวจทานไหม",
@@ -176,12 +176,19 @@ async def chat_reply(subject: dict, item: dict | None, concept_name: str, studen
                          memory)
     result, errors = await _call(built["system"], built["user"])
     retrieved = {"query_terms": terms[:30], "documents": docs, "tag": tag["id"] if tag else None}
+    if result is not None and guard.has_trigger(result.text) and not distress.detect(message)["level"]:
+        # LLM ส่งรหัสตัดวงจรกับข้อความที่รายการคำไม่พบความเครียด (เคยเกิดกับคำถามธรรมดา): ถามซ้ำหนึ่งครั้งเพื่อยืนยัน
+        _log(code, "chat", built["frames"], retrieved, result, "", {"blocked": True, "reason": "รหัสตัดวงจรที่ต้องยืนยัน",
+                                                                     "matched": guard.TRIGGER, "trigger": True}, errors)
+        result, errors = await _call(built["system"], built["user"] + "\n(ตรวจอีกครั้ง: ส่งรหัสตัดวงจรเฉพาะเมื่อข้อความนี้"
+                                     "แสดงความเครียดหรือท้อแท้จริง ถ้าเป็นคำถามเรื่องบทเรียนให้ตอบตามปกติ)")
     if result is None:
         log_id = _log(code, "chat", built["frames"], retrieved, None, fallback, None, errors)
         return {"text": fallback, "source": "authored", "log_id": log_id, "errors": errors}
     off_topic = prompt.OFF_TOPIC in result.text
     text = _clean(result.text.replace(prompt.OFF_TOPIC, ""))
-    checked = guard.check(text, item) if item else guard.GuardResult(guard.TRIGGER in text, trigger=guard.TRIGGER in text)
+    trigger = guard.has_trigger(result.text)
+    checked = guard.check(text, item) if item and not trigger else guard.GuardResult(trigger, trigger=trigger)
     if checked.trigger:
         log_id = _log(code, "chat", built["frames"], retrieved, result, "", checked.to_dict(), errors)
         return {"text": "", "source": result.provider, "trigger": True, "log_id": log_id, "guard": checked.to_dict()}

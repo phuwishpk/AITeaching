@@ -239,6 +239,15 @@ def solution(kind: str, config: dict) -> dict:
     return {"done": True}
 
 
+def visible_text(html: str) -> str:
+    """ข้อความที่นักเรียนอาจเห็นในหน้าเว็บของ Widget: ข้อความนอกแท็ก และข้อความในเครื่องหมายคำพูดของสคริปต์
+    ไม่รวม CSS และตัวเลขในโค้ด (เช่น 6px หรือ i < 6) ที่ทำให้ Guard บล็อกผิดเพราะบังเอิญเท่ากับคำตอบ"""
+    scripts = " ".join(re.findall(r"<script[^>]*>(.*?)</script>", html, flags=re.S | re.I))
+    quoted = " ".join(m[1] for m in re.findall(r"([\"'`])((?:\\.|(?!\1).)*)\1", scripts, flags=re.S))
+    body = re.sub(r"<(script|style)[^>]*>.*?</\1>", " ", html, flags=re.S | re.I)
+    return re.sub(r"\s+", " ", re.sub(r"<[^>]+>", " ", body) + " " + quoted).strip()
+
+
 def text_of(kind: str, config: dict) -> str:
     """ข้อความทั้งหมดของ Widget รวมเฉลย ใช้ตรวจ Answer-Leak Guard กับโจทย์ในคลัง"""
     if kind == "order":
@@ -254,6 +263,5 @@ def text_of(kind: str, config: dict) -> str:
             text = text.replace("___", group[0], 1)
         return text
     if kind == "custom":
-        # รวมข้อความในสคริปต์ด้วย คำตอบอาจซ่อนอยู่ในโค้ด
-        return re.sub(r"<[^>]+>", " ", config.get("html", ""))
+        return visible_text(config.get("html", ""))
     return " ".join(str(v) for v in config.values())

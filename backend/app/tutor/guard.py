@@ -12,6 +12,11 @@ from fractions import Fraction
 from ..engine.answers import NUMBER_RE, normalize, normalize_short, parse_number, same_number
 
 TRIGGER = "TRIGGER_CIRCUIT_BREAKER"
+
+
+def has_trigger(text: str) -> bool:
+    """รหัสตัดวงจรจาก LLM แม้ขีดล่างถูกตัดหรือเว้นวรรค (ข้อความผ่าน _clean ที่ลบ markdown มาก่อน)"""
+    return "TRIGGERCIRCUITBREAKER" in re.sub(r"[^A-Za-z]", "", text or "").upper()
 THAI_LETTERS = {"a": "ก", "b": "ข", "c": "ค", "d": "ง"}
 
 
@@ -38,7 +43,7 @@ def _numbers(text: str) -> list[tuple[str, Fraction]]:
 def check(text: str, item: dict) -> GuardResult:
     if not text:
         return GuardResult(False)
-    if TRIGGER in text:
+    if has_trigger(text):
         return GuardResult(True, "LLM ส่งรหัสตัดวงจร", TRIGGER, trigger=True)
     norm = normalize(text)
     answer_format = item.get("format", "numeric")
