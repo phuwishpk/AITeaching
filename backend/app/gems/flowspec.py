@@ -737,7 +737,8 @@ def design_prompt(gem: dict, errors: list[str] | None = None, previous: dict | N
         f"(hint_unlock_wait คือเวลาที่ต้องคิดก่อนกดขอคำใบ้เองได้ ก่อนลองตอบครั้งแรก):\n{params}\n"
         "ตัวเลขในขั้นและในเงื่อนไขให้เอามาจากคำสั่งของครู ถ้าครูไม่ได้บอกให้ใช้ค่าของแม่แบบ\n\n"
         "after_stress (ไม่บังคับ): id ของขั้นที่ให้ไปหลังนักเรียนพักเพราะเครียดหรือท้อ (Circuit Breaker) เช่น lesson ที่ walkthrough true "
-        "ใส่เฉพาะเมื่อครูสั่ง ไม่ใส่ = กลับไปทำขั้นเดิม\n"
+        "ใส่เฉพาะเมื่อครูสั่ง ไม่ใส่ = กลับไปทำขั้นเดิม การพักเพราะเครียดระบบทำให้เองตามตัวเลข circuit_breaker_break "
+        "ห้ามสร้างขั้น break สำหรับเรื่องนี้\n"
         "การตอบแชตของ AI (chat ไม่บังคับ): ใส่เฉพาะเมื่อคำสั่งของครูพูดถึงวิธีที่ AI ตอบแชต บุคลิก วิธีอธิบาย ความยาว "
         "การกันนักเรียนหลอกล่อขอคำตอบ หรือสิ่งที่ให้ทำเมื่อนักเรียนพิมพ์บางอย่าง ถ้าคำสั่งไม่พูดถึงเลยห้ามใส่ (ระบบใช้แบบอัตโนมัติ) "
         "รูปแบบ: {\"style\": \"บุคลิกและวิธีอธิบายตามครู\", \"sentences\": 2–5, \"examples\": true ถ้าครูให้ยกตัวอย่างใหม่, "
@@ -902,6 +903,21 @@ REVIEW = ("Flow นี้ผ่านกฎของระบบแล้ว ต
           "(level \"auto\" = ตามครั้งที่ผิดและชนิดข้อผิดพลาด) แล้วส่ง Flow ทั้งหมดกลับมา ถ้าตรงทุกข้อให้ส่ง Flow เดิมกลับมาโดยไม่เปลี่ยน\n")
 
 
+def prune_unreachable(raw: dict) -> dict:
+    """Flow ที่ตัดขั้นซึ่งไม่มีเส้นไปถึงจากขั้นแรก แชต หรือหลังพักเพราะเครียด ออก (พร้อมเส้นของขั้นนั้น)"""
+    spec, _ = normalize(raw)
+    out = {s["id"]: [e for e in spec["edges"] if e["from"] == s["id"]] for s in spec["steps"]}
+    reachable = _reachable(spec["start"], out)
+    for root in [i["goto"] for i in (spec.get("chat") or {}).get("intents", []) if i["goto"]] + [spec.get("after_stress")]:
+        if root in out:
+            reachable |= _reachable(root, out)
+    spec["steps"] = [s for s in spec["steps"] if s["id"] in reachable]
+    spec["edges"] = [e for e in spec["edges"] if e["from"] in reachable and (e["to"] in reachable or e["to"] == BACK)]
+    for g in spec.get("guidelines", []):
+        g["steps"] = [sid for sid in g["steps"] if sid in reachable or sid == CHAT]
+    return spec
+
+
 def design_problems(checked: dict, keywords: list[str]) -> list[str]:
     """สิ่งที่ AI ต้องแก้ก่อนใช้ Flow: ข้อผิดพลาดของตัวตรวจ คำของครูที่หาย คำขอให้เล่นที่ไม่ได้เป็น Widget
     เส้นที่ไม่มีวันถูกใช้ และขั้นที่ไปไม่ถึง (ครูแก้เองยังบันทึกได้ แค่ขึ้นคำเตือน)"""
@@ -936,6 +952,14 @@ async def design(gem: dict, memory: dict | None = None, bugs: list[dict] | None 
         raw = raw if isinstance(raw, dict) else {}
         checked = validate(raw, bug_ids)
         problems = design_problems(checked, keywords)
+        if problems and all("ไปไม่ถึงจากขั้นแรก" in p for p in problems):
+            # เหลือแค่ขั้นที่ไม่มีทางเข้า (เช่น ขั้นพักที่ AI สร้างซ้ำกับการพักเพราะเครียดของระบบ): ตัดทิ้งแล้วตรวจใหม่
+            pruned = prune_unreachable(raw)
+            checked = validate(pruned, bug_ids)
+            problems = design_problems(checked, keywords)
+            if not problems:
+                raw = pruned
+                checked["warnings"].append("ระบบตัดขั้นที่ไม่มีทางเข้าออก (AI สร้างไว้แต่ไม่มีเส้นไปถึง)")
         if reviewing:
             # รอบตรวจกับแนวทางของครู: ใช้ผลใหม่ถ้ายังผ่านกฎ ไม่อย่างนั้นใช้แบบก่อนตรวจ
             if not problems:
@@ -946,9 +970,9 @@ async def design(gem: dict, memory: dict | None = None, bugs: list[dict] | None 
             best, reviewing = checked, True
             errors, previous = [REVIEW + simulate.table_text(checked["spec"])], raw
             continue
+        errors, previous = problems, raw
         if attempts >= 3:
             break
-        errors, previous = problems, raw
     if best is not None:
         notes = await write_widgets(gem, best["spec"], memory, items)
         warnings = [w for w in best["warnings"] if not w.startswith("Widget \"")] + notes

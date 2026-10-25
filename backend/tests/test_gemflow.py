@@ -758,3 +758,27 @@ def test_simulation_finds_dead_edges_and_shows_where_students_go():
     assert "ตอบผิด · ผิดครั้งที่ 1 · ไม่ตรง Bug Library → ทบทวน" in text
     assert "ตอบผิด · ผิดครั้งที่ 1 · สะเพร่า → คำใบ้ 1" in text
     assert "ผิดครั้งที่ 5" not in text and "ผิดครั้งที่ 0" not in text
+
+
+def test_unreachable_extra_steps_are_pruned_not_fatal(monkeypatch):
+    """จาก Gemini จริง: AI สร้างขั้นพักแยกสำหรับความเครียด (ระบบพักให้เองอยู่แล้ว) ขั้นนั้นไม่มีทางเข้า
+    ตัดทิ้งแล้วใช้ Flow ได้ ไม่เสียรอบออกแบบจนล้ม"""
+    import asyncio
+
+    from app.gems import builder
+
+    designed = {"start": "w", "after_stress": "walk",
+                "steps": [{"id": "w", "kind": "item", "pick": "main"}, {"id": "walk", "kind": "lesson", "walkthrough": True},
+                          {"id": "rest", "kind": "break", "seconds": 60}, {"id": "e", "kind": "end"}],
+                "edges": [{"from": "w", "to": "e", "when": "correct"}, {"from": "w", "to": "walk", "when": ""},
+                          {"from": "walk", "to": "back", "when": ""}, {"from": "rest", "to": "back", "when": ""}],
+                "guidelines": [{"text": "เครียดแล้วพักและดูตัวอย่าง", "steps": ["rest", "walk"]}]}
+
+    async def fake_ask(step, user, max_tokens=12000, thinking="minimal"):
+        return designed
+
+    monkeypatch.setattr(builder, "ask_json", fake_ask)
+    flow = asyncio.run(flowspec.design({"name": "สมการ", "instructions": "เครียดแล้วพัก"}))
+    assert [s["id"] for s in flow["spec"]["steps"]] == ["w", "walk", "e"]
+    assert flow["spec"]["guidelines"][0]["steps"] == ["walk"] and flow["spec"]["after_stress"] == "walk"
+    assert any("ตัดขั้นที่ไม่มีทางเข้า" in w for w in flow["warnings"])
