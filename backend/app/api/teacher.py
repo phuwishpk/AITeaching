@@ -6,7 +6,7 @@ from pydantic import BaseModel
 from .. import analytics, db, seed, services
 from ..content.readiness import check_set
 from ..engine import flow as F
-from ..tutor import rag
+from ..tutor import rag, reader, service
 from .deps import require
 
 router = APIRouter(prefix="/api/teacher", tags=["teacher"])
@@ -323,11 +323,12 @@ async def upload(subject_id: str, file: UploadFile = File(...), auth: dict = Dep
     data = await file.read()
     if len(data) > 15 * 1024 * 1024:
         raise HTTPException(400, "ไฟล์ใหญ่เกิน 15 MB")
-    text, warning = rag.extract_text(file.filename or "file.txt", data)
+    text, warning, how = await reader.read_file(file.filename or "file.txt", data)
     if not text:
         raise HTTPException(400, warning or "อ่านข้อความจากไฟล์นี้ไม่ได้")
-    doc_id = seed.add_document(subject_id, file.filename or "เอกสาร", text, warning)
-    return {"id": doc_id, "warning": warning, "chars": len(text)}
+    doc_id = seed.add_document(subject_id, file.filename or "เอกสาร", text, warning, how)
+    service.forget_memory(subject_id)
+    return {"id": doc_id, "warning": warning, "chars": len(text), "reader": how}
 
 
 @router.delete("/documents/{doc_id}")

@@ -19,7 +19,7 @@ CREATE TABLE IF NOT EXISTS subjects (
 );
 CREATE TABLE IF NOT EXISTS documents (
     id INTEGER PRIMARY KEY AUTOINCREMENT, subject_id TEXT, filename TEXT, kind TEXT,
-    chars INTEGER, chunks TEXT, warning TEXT, uploaded_at REAL
+    chars INTEGER, chunks TEXT, warning TEXT, uploaded_at REAL, reader TEXT
 );
 CREATE TABLE IF NOT EXISTS students (
     code TEXT PRIMARY KEY, kind TEXT DEFAULT 'real', persona TEXT, created_at REAL
@@ -100,7 +100,15 @@ def connect() -> sqlite3.Connection:
         _conn.row_factory = sqlite3.Row
         _conn.execute("PRAGMA journal_mode=WAL")
         _conn.executescript(SCHEMA)
+        _migrate(_conn)
     return _conn
+
+
+def _migrate(conn: sqlite3.Connection) -> None:
+    """คอลัมน์ที่เพิ่มทีหลังในฐานข้อมูลเดิม"""
+    columns = {row["name"] for row in conn.execute("PRAGMA table_info(documents)")}
+    if "reader" not in columns:
+        conn.execute("ALTER TABLE documents ADD COLUMN reader TEXT")
 
 
 def use_memory_db() -> None:

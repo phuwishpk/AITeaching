@@ -72,6 +72,8 @@ export interface GemFile {
   chars: number;
   chunks: number;
   warning: string | null;
+  // ใครอ่านไฟล์นี้: gemini (Gemini อ่านเอง รวมภาพสแกน) · gemini+local (บางหน้าใช้ตัวอ่านในเครื่อง) · local
+  reader: string | null;
 }
 
 export interface GemDetail {

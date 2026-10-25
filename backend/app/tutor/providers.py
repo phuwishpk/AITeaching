@@ -6,6 +6,7 @@
 """
 
 import asyncio
+import base64
 import time
 from dataclasses import dataclass
 
@@ -122,22 +123,25 @@ async def _post_gemini(url: str, body: dict, api_key: str, timeout: float = TIME
 
 
 async def call_gemini(api_key: str, model: str, system: str, user: str, max_tokens: int = 1024,
-                      json_mode: bool = False, timeout: float = TIMEOUT, backup_models: tuple[str, ...] = ()) -> LLMResult:
-    """backup_models: รุ่นที่ลองต่อเมื่อรุ่นหลักรับงานไม่ไหว (ใช้ตอนสร้าง Item Bank ซึ่งยาวและพลาดไม่ได้)"""
+                      json_mode: bool = False, timeout: float = TIMEOUT, backup_models: tuple[str, ...] = (),
+                      attachments: list[dict] | None = None) -> LLMResult:
+    """backup_models: รุ่นที่ลองต่อเมื่อรุ่นหลักรับงานไม่ไหว (ใช้ตอนสร้าง Item Bank ซึ่งยาวและพลาดไม่ได้)
+    attachments: ไฟล์ที่ให้ Gemini อ่านเอง เช่น PDF หรือรูป [{"mime": "application/pdf", "data": bytes}]"""
     for candidate in [model, *[m for m in backup_models if m != model]]:
         try:
-            return await _call_gemini_once(api_key, candidate, system, user, max_tokens, json_mode, timeout)
+            return await _call_gemini_once(api_key, candidate, system, user, max_tokens, json_mode, timeout, attachments)
         except ProviderBusy as error:
             busy = error
     raise busy
 
 
 async def _call_gemini_once(api_key: str, model: str, system: str, user: str, max_tokens: int,
-                            json_mode: bool, timeout: float) -> LLMResult:
+                            json_mode: bool, timeout: float, attachments: list[dict] | None = None) -> LLMResult:
     started = time.perf_counter()
+    files = [{"inlineData": {"mimeType": a["mime"], "data": base64.b64encode(a["data"]).decode()}} for a in attachments or []]
     body = {
         "systemInstruction": {"parts": [{"text": system}]},
-        "contents": [{"role": "user", "parts": [{"text": user}]}],
+        "contents": [{"role": "user", "parts": [*files, {"text": user}]}],
         # คำใบ้ยาวแค่ 2–3 ประโยค ให้โมเดลคิดน้อยที่สุด: ลดโทเคนที่ใช้คิดจากหลายร้อยเหลือศูนย์และตอบเร็วขึ้น
         "generationConfig": {"maxOutputTokens": max_tokens, "thinkingConfig": {"thinkingLevel": "minimal"}},
     }

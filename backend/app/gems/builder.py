@@ -731,6 +731,7 @@ async def build(gem_id: str) -> None:
         elif (gem.get("flow") or {}).get("source") == "teacher":
             gem["build"]["warnings"].append("ใช้ Flow ที่ครูแก้ไว้ต่อ กดออกแบบใหม่จากคำสั่งในแท็บ Flow ได้")
         _progress(gem, "save", "done")
+        service.forget_memory(gem_id)
         versions.record(gem, "AI", f"สร้างคลังโจทย์รุ่นที่ {version}")
     except Exception as error:  # noqa: BLE001 งานเบื้องหลังต้องจบด้วยสถานะเสมอ ไม่ค้างที่ "กำลังสร้าง"
         message = str(error) if isinstance(error, BuildError) else f"เกิดข้อผิดพลาดที่ไม่คาดคิด: {type(error).__name__}: {error}"

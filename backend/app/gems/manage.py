@@ -149,7 +149,7 @@ def can_build() -> str | None:
 
 def files(gem_id: str) -> list[dict]:
     rows = db.query(
-        "SELECT id, filename, kind, chars, warning, uploaded_at, chunks FROM documents WHERE subject_id = ? ORDER BY uploaded_at",
+        "SELECT id, filename, kind, chars, warning, uploaded_at, chunks, reader FROM documents WHERE subject_id = ? ORDER BY uploaded_at",
         (gem_id,),
     )
     for row in rows:

@@ -56,7 +56,7 @@ const PLACEHOLDER =
   "ตัวอย่าง: คุณเป็นพี่ติวเตอร์ใจดีที่สอนนักเรียน ม.2 เรื่องการแก้สมการเชิงเส้นตัวแปรเดียว ชวนให้คิดทีละขั้นด้วยการเปรียบเทียบกับตาชั่ง " +
   "ใช้ตัวอย่างใกล้ตัว เช่น ค่าขนมหรือเกม ไม่ตัดสินเมื่อนักเรียนตอบผิด และให้กำลังใจเสมอ";
 
-const ACCEPT = ".pdf,.txt,.md,.docx";
+const ACCEPT = ".pdf,.txt,.md,.docx,.png,.jpg,.jpeg,.webp";
 
 function toForm(gem: GemDetail): Form {
   return {
@@ -79,6 +79,8 @@ export default function GemEditor() {
   const [gem, setGem] = useState<GemDetail | null>(null);
   const [form, setForm] = useState<Form>(EMPTY);
   const [queued, setQueued] = useState<File[]>([]);
+  // ไฟล์ที่ Gemini กำลังอ่าน (PDF ยาวใช้เวลาหลายสิบวินาที)
+  const [reading, setReading] = useState<string[]>([]);
   const [knowledgeChanged, setKnowledgeChanged] = useState(false);
   const [saving, setSaving] = useState(false);
   const [askRebuild, setAskRebuild] = useState(false);
@@ -161,8 +163,13 @@ export default function GemEditor() {
   const uploadFile = async (id: string, file: File) => {
     const formData = new FormData();
     formData.append("file", file);
-    const result = await api<{ warning: string | null }>("teacher", `/api/gems/${id}/files`, { form: formData });
-    if (result.warning) toast(`${file.name}: ${result.warning}`, "warning");
+    setReading((r) => [...r, file.name]);
+    try {
+      const result = await api<{ warning: string | null }>("teacher", `/api/gems/${id}/files`, { form: formData });
+      if (result.warning) toast(`${file.name}: ${result.warning}`, "warning");
+    } finally {
+      setReading((r) => r.filter((name) => name !== file.name));
+    }
   };
 
   const addFiles = async (files: FileList) => {
@@ -264,7 +271,8 @@ export default function GemEditor() {
 
           <GemField label="ความรู้" info="ไฟล์ที่ AI ใช้สร้างโจทย์ และ RAG ใช้ค้นตอนสอน (PDF, DOCX, TXT, MD) AI อ้างอิงเฉพาะเนื้อหาในไฟล์และคำสั่ง">
             <Knowledge
-              files={isNew ? queued.map((f, i) => ({ id: -i - 1, filename: f.name, chars: f.size, warning: null })) : (gem?.files ?? [])}
+              files={isNew ? queued.map((f, i) => ({ id: -i - 1, filename: f.name, chars: 0, warning: null, reader: null })) : (gem?.files ?? [])}
+              reading={reading}
               onAdd={addFiles}
               onRemove={(id) => (isNew ? setQueued((q) => q.filter((_, i) => -i - 1 !== id)) : removeFile(id))}
             />
@@ -504,12 +512,20 @@ function AlertRules({ meta, rules, onChange }: { meta: GemMeta | null; rules: Re
   );
 }
 
+const READER_TEXT: Record<string, string> = {
+  gemini: "Gemini อ่านทั้งไฟล์",
+  "gemini+local": "Gemini อ่าน (บางหน้าใช้ตัวอ่านในเครื่อง)",
+  local: "อ่านในเครื่อง",
+};
+
 function Knowledge({
   files,
+  reading = [],
   onAdd,
   onRemove,
 }: {
-  files: { id: number; filename: string; chars: number; warning: string | null }[];
+  files: { id: number; filename: string; chars: number; warning: string | null; reader?: string | null }[];
+  reading?: string[];
   onAdd: (files: FileList) => void;
   onRemove: (id: number) => void;
 }) {
@@ -528,14 +544,25 @@ function Knowledge({
         }}
       />
       <button type="button" className="gem-add-file" onClick={() => input.current?.click()}>
-        <span>เพิ่มไฟล์ให้ Gem ใช้อ้างอิง</span>
+        <span>เพิ่มไฟล์ให้ Gem ใช้อ้างอิง (PDF รวมภาพสแกน, รูปภาพ, DOCX, TXT, MD)</span>
         <Plus size={20} />
       </button>
+      {reading.map((name) => (
+        <div key={name} className="gem-file" role="status">
+          <LoaderCircle size={16} className="spin" />
+          <span className="small">Gemini กำลังอ่าน {name} ทุกหน้า…</span>
+        </div>
+      ))}
       {files.map((f) => (
         <div key={f.id} className="gem-file">
           <FileText size={16} />
           <span className="stack grow" style={{ gap: 0, minWidth: 0 }}>
             <span className="small strong gem-file-name">{f.filename}</span>
+            {f.reader && (
+              <span className="xsmall faint">
+                {READER_TEXT[f.reader] ?? f.reader} · {f.chars.toLocaleString()} ตัวอักษร
+              </span>
+            )}
             {f.warning && <span className="xsmall" style={{ color: "var(--warning)" }}>{f.warning}</span>}
           </span>
           <Button variant="ghost" size="sm" className="btn-icon" icon={<Trash2 size={15} />} onClick={() => onRemove(f.id)} aria-label={`ลบ ${f.filename}`} />

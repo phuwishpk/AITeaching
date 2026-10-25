@@ -714,3 +714,57 @@ def test_chat_memory_stays_within_the_same_gem():
     db.execute("INSERT INTO messages (ts, code, set_id, sender, text) VALUES (4, 'S-50', 'gem-bbb-b2-set', 'student', 'ข้อความล่าสุด')")
     memory = services.chat_memory("S-50", "gem-bbb-b2-set")
     assert [m["text"] for m in memory] == ["คุยเรื่องสมการ", "ตอบเรื่องสมการ"]
+
+
+def test_gemini_reads_pdfs_page_by_page_and_falls_back_locally(monkeypatch):
+    import io
+
+    from pypdf import PdfWriter
+
+    from app import settings_store
+    from app.tutor import reader
+
+    writer = PdfWriter()
+    for _ in range(13):
+        writer.add_blank_page(width=200, height=200)
+    buffer = io.BytesIO()
+    writer.write(buffer)
+    pdf = buffer.getvalue()
+    # ไม่มี Gemini key: ใช้ตัวอ่านในเครื่อง (PDF เปล่าจึงอ่านไม่ได้และบอกเหตุผล)
+    text, warning, how = asyncio.run(reader.read_file("blank.pdf", pdf))
+    assert how == "local" and not text and warning
+
+    monkeypatch.setattr(settings_store, "api_key", lambda provider: ("fake-key", "test"))
+    monkeypatch.setattr(settings_store, "ai_settings", lambda: {"active": "gemini", "gemini_model": "gemini-test", "order": ["gemini"]})
+    asked = []
+
+    async def fake_gemini(key, model, system, user, **options):
+        asked.append(user)
+        if "หน้า 7–12" in user:
+            raise providers.ProviderError("ล่ม")
+        return providers.LLMResult(f"ข้อความที่ถอดจาก{user}", "gemini", model, 1, 1, 1)
+
+    monkeypatch.setattr(providers, "call_gemini", fake_gemini)
+    text, warning, how = asyncio.run(reader.read_file("book.pdf", pdf))
+    assert len(asked) == 3 and "หน้า 1–6" in text and "หน้า 13–13" in text
+    assert how == "gemini+local" and "7–12" in warning
+
+
+def test_tutor_prompts_carry_the_whole_gem_document(monkeypatch):
+    from app import seed
+
+    gem = manage.create({"name": "จำเอกสาร"}, "teacher")
+    seed.add_document(gem["id"], "notes.md", "ครูสอนว่า ÷ กับ × มีศักดิ์ศรีเท่ากัน ทำจากซ้ายไปขวา")
+    seen = {}
+
+    async def fake_call(system, user, **options):
+        seen["system"] = system
+        return providers.LLMResult("ลองดูเครื่องหมายทางซ้ายก่อนนะ", "gemini", "fake", 1, 1, 1), []
+
+    monkeypatch.setattr(service, "_call", fake_call)
+    subject = {"id": "s", "name": "คณิต", "grade": "ม.1", "gem": {"id": gem["id"], "instructions": ""}}
+    item = {"id": "G-01", "prompt": "จงหาค่า", "math": "12 ÷ 2 × 3", "format": "numeric", "answer": {"value": 18}, "hints": {}}
+    result = asyncio.run(service.chat_reply(subject, item, "PEMDAS", {}, "ทำอะไรก่อน", None, [], "ลองคิดดู", "S-1"))
+    assert "ศักดิ์ศรีเท่ากัน" in seen["system"] and result["source"] == "gemini"
+    log = db.query_one("SELECT frames FROM ai_logs ORDER BY id DESC LIMIT 1")
+    assert "ส่งเอกสารของ Gem ทั้งหมด" in db.loads(log["frames"])["knowledge"]

@@ -17,11 +17,11 @@ DEMO_STUDENTS = [
 ]
 
 
-def add_document(subject_id: str, filename: str, text: str, warning: str | None = None) -> int:
+def add_document(subject_id: str, filename: str, text: str, warning: str | None = None, reader: str = "local") -> int:
     chunks = rag.chunk_text(text)
     cursor = db.execute(
-        "INSERT INTO documents (subject_id, filename, kind, chars, chunks, warning, uploaded_at) VALUES (?,?,?,?,?,?,?)",
-        (subject_id, filename, filename.rsplit(".", 1)[-1].lower(), len(text), db.dumps(chunks), warning, time.time()),
+        "INSERT INTO documents (subject_id, filename, kind, chars, chunks, warning, uploaded_at, reader) VALUES (?,?,?,?,?,?,?,?)",
+        (subject_id, filename, filename.rsplit(".", 1)[-1].lower(), len(text), db.dumps(chunks), warning, time.time(), reader),
     )
     rebuild_index(subject_id)
     return cursor.lastrowid

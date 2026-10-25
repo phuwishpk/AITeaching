@@ -65,6 +65,44 @@ def _log(code: str | None, purpose: str, frames: dict | None, retrieved: list | 
     return cursor.lastrowid
 
 
+# ความจำเอกสารของ Gem: ส่งเอกสารทั้งหมดให้ AI ทุกครั้งที่เขียนคำใบ้ ตอบแชต หรือประเมินคำอธิบาย
+# ไม่เกิน MEMORY_LIMIT ตัวอักษรส่งต้นฉบับเต็ม ยาวกว่านั้นใช้บันทึกที่ AI สรุปไว้ตอนสร้างคลังโจทย์ (ครอบคลุมทุกส่วน)
+# วางไว้ใน system prompt ส่วนที่เหมือนเดิมทุกครั้ง Gemini จึงแคชส่วนนี้ให้เองและคิดค่าโทเคนถูกลง
+MEMORY_LIMIT = 100_000
+_memory: dict[str, str] = {}
+
+
+def forget_memory(gem_id: str) -> None:
+    _memory.pop(gem_id, None)
+
+
+def knowledge_memory(subject: dict) -> str:
+    from ..gems import builder  # builder import ไฟล์นี้ จึง import ตอนใช้
+
+    gem_id = (subject.get("gem") or {}).get("id") or subject["id"]
+    if gem_id not in _memory:
+        total = sum(len(text) for _, text in builder.documents_text(gem_id))
+        stored = (db.get_gem(gem_id) or {}).get("knowledge") or {}
+        if total > MEMORY_LIMIT and stored.get("mode") == "digest" and stored.get("text"):
+            _memory[gem_id] = stored["text"][:MEMORY_LIMIT]
+        else:
+            _memory[gem_id] = builder.knowledge_text(gem_id, MEMORY_LIMIT) if total else ""
+    return _memory[gem_id]
+
+
+def _with_memory(built: dict, memory: str) -> dict:
+    if not memory:
+        return built
+    frames = built["frames"]
+    built["system"] = (
+        f"{frames['role']}\n\n<knowledge>\nเอกสารประกอบการสอนทั้งหมดที่ครูแนบไว้ใน Gem นี้ ใช้อ้างอิงเนื้อหา คำอธิบาย ตัวอย่าง "
+        f"และแนวทางการสอนของครู\n{memory}\n</knowledge>\n\n{frames['constraints']}"
+    )
+    # บันทึกใน ai_logs แค่ขนาด ไม่เก็บเอกสารเต็มซ้ำทุกครั้ง
+    frames["knowledge"] = f"ส่งเอกสารของ Gem ทั้งหมด {len(memory):,} ตัวอักษรไปใน system prompt"
+    return built
+
+
 # ไฟล์ความรู้สั้น (รวมไม่เกิน WHOLE_DOC ตัวอักษร) ส่งทั้งหมดทุกครั้ง ไม่ต้องเดาว่าย่อหน้าไหนเกี่ยว
 # ยาวกว่านั้นค้นด้วย BM25 แล้วส่ง RETRIEVE_K ย่อหน้าที่ตรงที่สุด
 WHOLE_DOC = 8000
@@ -99,8 +137,9 @@ async def generate_hint(subject: dict, item: dict, concept_name: str, level: int
                         tag: dict | None, code: str | None) -> dict:
     authored = authored_hint(item, level, tag["id"] if tag else None)
     query = " ".join(filter(None, [item.get("prompt"), item.get("math"), concept_name, tag["name"] if tag else None, authored]))
-    terms, docs = _retrieve(subject, query)
-    built = prompt.hint_prompt(subject, item, concept_name, level, student, tag, docs, authored)
+    memory = knowledge_memory(subject)
+    terms, docs = _retrieve(subject, query) if not memory else (rag.tokenize(query), [])
+    built = _with_memory(prompt.hint_prompt(subject, item, concept_name, level, student, tag, docs, authored), memory)
     result, errors = await _call(built["system"], built["user"])
     retrieved = {"query_terms": terms[:30], "documents": docs, "tag": tag["id"] if tag else None}
     if result is None:
@@ -121,8 +160,10 @@ async def chat_reply(subject: dict, item: dict | None, concept_name: str, studen
                      tag: dict | None, hints_shown: list[str], fallback: str, code: str | None,
                      history: list[dict] | None = None) -> dict:
     query = " ".join(filter(None, [message, item.get("prompt") if item else None, concept_name]))
-    terms, docs = _retrieve(subject, query)
-    built = prompt.chat_prompt(subject, item, concept_name, student, message, tag, docs, hints_shown, history)
+    memory = knowledge_memory(subject)
+    terms, docs = _retrieve(subject, query) if not memory else (rag.tokenize(query), [])
+    built = _with_memory(prompt.chat_prompt(subject, item, concept_name, student, message, tag, docs, hints_shown, history),
+                         memory)
     result, errors = await _call(built["system"], built["user"])
     retrieved = {"query_terms": terms[:30], "documents": docs, "tag": tag["id"] if tag else None}
     if result is None:
@@ -174,8 +215,13 @@ async def judge_reflection(subject: dict, item: dict | None, step: dict, answer:
         f"เกณฑ์ของครู: {step.get('rubric') or 'อธิบายขั้นตอนที่ใช้และเหตุผลได้ถูกต้อง'}\n"
         f"คำอธิบายของนักเรียน: \"\"\"{answer}\"\"\""
     )
-    result, errors = await _call(system, user, max_tokens=400, json_mode=True, timeout=40.0)
+    memory = knowledge_memory(subject)
     frames = {"role": system, "task": user}
+    if memory:
+        # ประเมินโดยเห็นเอกสารของครูทั้งหมด เช่น นิยามและลำดับขั้นที่ครูใช้สอน
+        system = f"{system}\n\n<knowledge>\n{memory}\n</knowledge>"
+        frames["knowledge"] = f"ส่งเอกสารของ Gem ทั้งหมด {len(memory):,} ตัวอักษรไปใน system prompt"
+    result, errors = await _call(system, user, max_tokens=400, json_mode=True, timeout=40.0)
     if result is None:
         _log(code, "judge_reflect", frames, None, None, "", None, errors)
         return {"pass": None, "score": None, "reason": "", "error": "; ".join(errors) or "เรียก AI ไม่สำเร็จ"}

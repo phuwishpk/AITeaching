@@ -11,7 +11,7 @@ from .. import db, seed, services
 from ..gems import alerts as gem_alerts
 from ..gems import builder, design, flows, flowspec, items, manage, versions
 from ..engine import core as engine
-from ..tutor import rag, service
+from ..tutor import rag, reader, service
 from .deps import require
 
 router = APIRouter(prefix="/api/gems", tags=["gems"])
@@ -184,11 +184,13 @@ async def upload_file(gem_id: str, file: UploadFile = File(...), auth: dict = De
     data = await file.read()
     if len(data) > 15 * 1024 * 1024:
         raise HTTPException(400, "ไฟล์ใหญ่เกิน 15 MB")
-    text, warning = rag.extract_text(file.filename or "file.txt", data)
+    # Gemini อ่านไฟล์เอง (PDF รวมภาพสแกน และรูปภาพ) ไม่มี key ก็ใช้ตัวอ่านในเครื่อง
+    text, warning, how = await reader.read_file(file.filename or "file.txt", data)
     if not text:
         raise HTTPException(400, warning or "อ่านข้อความจากไฟล์นี้ไม่ได้")
-    doc_id = seed.add_document(gem_id, file.filename or "เอกสาร", text, warning)
-    return {"id": doc_id, "warning": warning, "chars": len(text)}
+    doc_id = seed.add_document(gem_id, file.filename or "เอกสาร", text, warning, how)
+    service.forget_memory(gem_id)
+    return {"id": doc_id, "warning": warning, "chars": len(text), "reader": how}
 
 
 @router.delete("/{gem_id}/files/{doc_id}")
@@ -196,6 +198,7 @@ def delete_file(gem_id: str, doc_id: int, auth: dict = Depends(teacher)):
     _load(gem_id)
     db.execute("DELETE FROM documents WHERE id = ? AND subject_id = ?", (doc_id, gem_id))
     seed.rebuild_index(gem_id)
+    service.forget_memory(gem_id)
     return {"ok": True}
 
 
