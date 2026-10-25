@@ -104,6 +104,9 @@ docker compose -f deploy/docker-compose.yml --profile quick up -d --build && sle
 ./deploy/tunnel.sh tutor.example.com
 ```
 
+หลายบัญชีในลิงก์เดียว: clone โฟลเดอร์ละบัญชี (ตั้ง `TUTOR_PORT` ใน `.env` ไม่ให้ซ้ำ) รัน `./deploy/up.sh` ในแต่ละโฟลเดอร์
+แล้วรัน `./deploy/gateway.sh <รหัสบัญชี>=<ชื่อโฟลเดอร์> ...` ครั้งเดียว ผู้ใช้เลือกบัญชีที่ `<ลิงก์>/a/<รหัสบัญชี>` แต่ละบัญชีแยกข้อมูลและ API key กัน
+
 ข้อมูลทั้งหมด (ฐานข้อมูล API key ไฟล์อัปโหลด) อยู่ในโฟลเดอร์ `runtime/` บนเซิร์ฟเวอร์ คอนเทนเนอร์เปิดใหม่เองเมื่อเครื่องรีบูต
 อัปเดตเวอร์ชัน: `git pull && docker compose -f deploy/docker-compose.yml up -d --build`
 
