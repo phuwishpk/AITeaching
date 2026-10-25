@@ -1,4 +1,6 @@
-# รันบนเซิร์ฟเวอร์ (ต้องมี ../.env ที่มีรหัสผ่านครูและ Admin ไม่อยู่ใน git)
+# รันบนเซิร์ฟเวอร์ด้วย ./deploy/up.sh (ต้องมี ../.env ที่มีรหัสผ่านครูและ Admin ไม่อยู่ใน git)
+# หนึ่งโฟลเดอร์ = หนึ่งบัญชี: ข้อมูล API key และลิงก์แยกกัน รันหลายบัญชีได้ด้วยการ clone หลายโฟลเดอร์
+# แล้วตั้ง TUTOR_PORT ใน .env ของแต่ละโฟลเดอร์ไม่ให้ซ้ำกัน
 #   ลิงก์ชั่วคราวแบบไม่ต้องมีโดเมน: docker compose -f deploy/docker-compose.yml --profile quick up -d --build
 #                                    แล้วดูลิงก์ด้วย ./deploy/link.sh (ลิงก์ *.trycloudflare.com เปลี่ยนเมื่อ tunnel เริ่มใหม่)
 #   ลิงก์ถาวรบนโดเมนของเราใน Cloudflare: ./deploy/tunnel.sh <ชื่อโดเมน> (ใช้ profile named และ cloudflared/ ที่สคริปต์สร้าง)
@@ -13,7 +15,8 @@ services:
     volumes:
       - ../runtime:/app/runtime
     ports:
-      - "127.0.0.1:8010:8000"  # ดูจากในเครื่องเซิร์ฟเวอร์ได้ (8000 มีโปรแกรมอื่นใช้)
+      - "127.0.0.1:${TUTOR_PORT:-8010}:8000"  # ดูจากในเครื่องเซิร์ฟเวอร์ได้ (8000 มีโปรแกรมอื่นใช้)
+    mem_limit: 700m  # หลายบัญชีอยู่เครื่องเดียวกับบริการอื่น ไม่ให้ชุดใดกิน RAM จนเครื่องล่ม
   quick:
     image: cloudflare/cloudflared:2024.12.2
     profiles: ["quick"]
