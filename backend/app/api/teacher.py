@@ -118,8 +118,9 @@ class DraftSend(BaseModel):
 
 
 @router.get("/students/{code}/messages")
-def student_messages(code: str, auth: dict = Depends(teacher)):
-    return {"messages": services.messages_for(code, include_drafts=True), "mode": services.chat_mode(code)}
+def student_messages(code: str, before: float | None = None, hints: bool = True, auth: dict = Depends(teacher)):
+    """ประวัติแชตกับ AI และครู ย้อนหลังได้ด้วย before (เวลาของข้อความเก่าสุดที่เห็นแล้ว)"""
+    return {**services.teacher_history(code, before, hints=hints), "mode": services.chat_mode(code)}
 
 
 @router.post("/students/{code}/chat-mode")

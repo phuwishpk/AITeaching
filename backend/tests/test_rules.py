@@ -270,8 +270,34 @@ def test_teacher_joins_chat_and_reviews_ai_draft(content):
     student_view = client.get("/api/student/sets/QS-1/messages", headers=student).json()
     assert all(m["sender"] != "draft" for m in student_view["messages"]) and student_view["mode"] == "teacher"
 
-    sent = client.post(f"/api/teacher/drafts/{draft['id']}/send", json={"text": "ลองนึกถึงตาชั่งดูนะ"}, headers=teacher).json()
+    sent = client.post(f"/api/teacher/drafts/{draft['draft_id']}/send", json={"text": "ลองนึกถึงตาชั่งดูนะ"}, headers=teacher).json()
     assert sent["sender"] == "teacher" and sent["text"] == "ลองนึกถึงตาชั่งดูนะ"
     senders = [m["sender"] for m in client.get("/api/student/sets/QS-1/messages", headers=student).json()["messages"]]
     assert senders[-2:] == ["student", "teacher"] and "draft" not in senders
     assert client.get("/api/teacher/inbox", headers=teacher).json()[0]["code"] == "S-10"
+
+
+def test_teacher_sees_full_ai_chat_history_with_hints(content):
+    """ครูเห็นประวัติที่นักเรียนคุยกับ AI ย้อนหลังได้ทีละหน้า พร้อมคำใบ้ที่ AI ให้ และชื่อชุดคำถาม"""
+    from app import db, services
+
+    db.save_subject(content.subject)
+    db.execute("INSERT INTO students (code, kind, persona, created_at) VALUES ('S-11', 'real', NULL, 0)")
+    for i in range(70):
+        sender = "student" if i % 2 == 0 else "tutor"
+        db.execute("INSERT INTO messages (ts, code, set_id, sender, text) VALUES (?, 'S-11', 'QS-1', ?, ?)",
+                   (1000 + i, sender, f"ข้อความ {i}"))
+    db.execute("INSERT INTO ai_logs (ts, code, purpose, provider, final_text) VALUES (1010.5, 'S-11', 'hint_l2', 'gemini', 'ลองใช้สมบัติการเท่ากัน')")
+    teacher = {"Authorization": f"Bearer {issue_token('teacher')}"}
+    client = TestClient(app)
+    latest = client.get("/api/teacher/students/S-11/messages", headers=teacher).json()
+    assert latest["has_more"] and len(latest["messages"]) == 60 and latest["messages"][-1]["text"] == "ข้อความ 69"
+    assert latest["messages"][-1]["sender"] == "tutor" and latest["messages"][-1]["set_name"] == "ชุดที่ 1 แก้สมการสองขั้น"
+    older = client.get(f"/api/teacher/students/S-11/messages?before={latest['messages'][0]['ts']}", headers=teacher).json()
+    assert not older["has_more"]
+    hint = next(m for m in older["messages"] + latest["messages"] if m["sender"] == "hint")
+    assert hint["level"] == 2 and hint["text"] == "ลองใช้สมบัติการเท่ากัน"
+    texts = [m["text"] for m in older["messages"] + latest["messages"] if m["sender"] != "hint"]
+    assert texts == [f"ข้อความ {i}" for i in range(70)]  # ไม่ซ้ำ ไม่หาย เรียงตามเวลา
+    plain = client.get("/api/teacher/students/S-11/messages?hints=false", headers=teacher).json()
+    assert all(m["sender"] != "hint" for m in plain["messages"])

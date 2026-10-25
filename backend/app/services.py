@@ -554,6 +554,37 @@ def messages_for(code: str, limit: int = 80, include_drafts: bool = False) -> li
     return list(reversed(rows))
 
 
+def teacher_history(code: str, before: float | None = None, limit: int = 60, hints: bool = True) -> dict:
+    """ประวัติที่นักเรียนคุยกับ AI และกับครู สำหรับหน้าครู ย้อนหลังได้ทีละหน้า (before = เวลาของข้อความเก่าสุดที่เห็นแล้ว)
+
+    รวมคำใบ้ที่ AI ให้นักเรียน (จาก ai_logs) เข้าไปตามเวลา และบอกว่าแต่ละข้อความอยู่ใน Gem หรือชุดคำถามไหน
+    ร่างคำตอบของ AI ที่รอครูตรวจอยู่ในหน้าล่าสุดเท่านั้น
+    """
+    window = "AND ts < ?" if before is not None else ""
+    params = (code,) + ((before,) if before is not None else ())
+    drafts = "" if before is None else "AND sender != 'draft'"
+    rows = db.query(f"SELECT * FROM messages WHERE code = ? {window} {drafts} ORDER BY ts DESC, id DESC LIMIT ?",
+                    (*params, limit + 1))
+    entries = [{**r, "id": f"m{r['id']}", "draft_id": r["id"] if r["sender"] == "draft" else None} for r in rows]
+    if hints:
+        logs = db.query(f"SELECT id, ts, purpose, provider, final_text FROM ai_logs WHERE code = ? AND purpose LIKE 'hint_l%' "
+                        f"{window} ORDER BY ts DESC LIMIT ?", (*params, limit + 1))
+        entries += [{"id": f"h{r['id']}", "ts": r["ts"], "sender": "hint", "text": r["final_text"], "set_id": None,
+                     "level": int(r["purpose"][-1]), "authored": r["provider"] == "offline"} for r in logs]
+    entries.sort(key=lambda e: e["ts"], reverse=True)
+    page = list(reversed(entries[:limit]))
+    names: dict[str, str] = {}
+    for entry in page:
+        set_id = entry.get("set_id")
+        if set_id and set_id not in names:
+            try:
+                names[set_id] = find_set(set_id)[1]["name"]
+            except NotFound:
+                names[set_id] = set_id
+        entry["set_name"] = names.get(set_id)
+    return {"messages": page, "has_more": len(entries) > limit}
+
+
 def chat_mode(code: str) -> str:
     """ai = AI Tutor ตอบเอง · teacher = ครูเข้าร่วมแชต AI ร่างคำตอบให้ครูตรวจก่อน"""
     row = db.query_one("SELECT mode FROM chat_modes WHERE code = ?", (code,))

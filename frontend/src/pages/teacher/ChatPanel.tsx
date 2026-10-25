@@ -1,5 +1,5 @@
-import { useEffect, useRef, useState } from "react";
-import { Bot, Check, LogIn, LogOut, PencilLine, Send, Trash2, UserRound } from "lucide-react";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
+import { Bot, Check, History, Lightbulb, LogIn, LogOut, PencilLine, Send, Trash2, UserRound } from "lucide-react";
 import { api } from "../../lib/api";
 import { useLoad } from "../../lib/hooks";
 import { clock } from "../../lib/format";
@@ -8,11 +8,22 @@ import { useTeacher } from "./TeacherApp";
 
 // บทสนทนากับนักเรียนหนึ่งคน: ครูตอบเองได้ และเข้าร่วมแชตเพื่อตรวจร่างคำตอบของ AI ก่อนถึงนักเรียน (Human-in-the-Loop)
 
+// ประวัติที่นักเรียนคุยกับ AI และกับครู รวมคำใบ้ที่ AI ให้ (hint) ย้อนหลังได้ทีละหน้า
 interface Message {
-  id: number;
+  id: string;
   ts: number;
-  sender: "student" | "tutor" | "teacher" | "system" | "draft";
+  sender: "student" | "tutor" | "teacher" | "system" | "draft" | "hint";
   text: string;
+  draft_id?: number | null;
+  set_name?: string | null;
+  level?: number;
+  authored?: boolean;
+}
+
+interface Page {
+  messages: Message[];
+  has_more: boolean;
+  mode: "ai" | "teacher";
 }
 
 const SENDER: Record<Message["sender"], string> = {
@@ -21,6 +32,7 @@ const SENDER: Record<Message["sender"], string> = {
   system: "ระบบ",
   teacher: "ครู",
   draft: "ร่างจาก AI · รอครูตรวจ",
+  hint: "คำใบ้",
 };
 
 const QUICK_REPLIES = [
@@ -33,10 +45,15 @@ const QUICK_REPLIES = [
 export default function ChatPanel({ code, name, position }: { code: string; name: string; position: string | null }) {
   const toast = useToast();
   const { lastEvent } = useTeacher();
-  const thread = useLoad(() => api<{ messages: Message[]; mode: "ai" | "teacher" }>("teacher", `/api/teacher/students/${code}/messages`), [code]);
+  const [hints, setHints] = useState(true);
+  const thread = useLoad(() => api<Page>("teacher", `/api/teacher/students/${code}/messages?hints=${hints}`), [code, hints]);
+  // หน้าที่โหลดย้อนหลังเพิ่ม เก็บแยกจากหน้าล่าสุดที่โหลดใหม่ทุกครั้งที่มีข้อความเข้า
+  const [older, setOlder] = useState<{ messages: Message[]; has_more: boolean } | null>(null);
+  const [loadingOlder, setLoadingOlder] = useState(false);
+  const keepScroll = useRef<number | null>(null);
   const [text, setText] = useState("");
   const [busy, setBusy] = useState<string | null>(null);
-  const [editing, setEditing] = useState<{ id: number; text: string } | null>(null);
+  const [editing, setEditing] = useState<{ id: string; text: string } | null>(null);
   const listRef = useRef<HTMLDivElement>(null);
   const mode = thread.data?.mode ?? "ai";
 
@@ -47,9 +64,36 @@ export default function ChatPanel({ code, name, position }: { code: string; name
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [lastEvent]);
 
+  useEffect(() => setOlder(null), [code, hints]);
+
   useEffect(() => {
     listRef.current?.scrollTo({ top: listRef.current.scrollHeight });
   }, [thread.data]);
+
+  // โหลดหน้าเก่าแล้วคงตำแหน่งที่อ่านอยู่ ไม่กระโดดไปบนสุด
+  useLayoutEffect(() => {
+    const list = listRef.current;
+    if (list && keepScroll.current != null) {
+      list.scrollTop = list.scrollHeight - keepScroll.current;
+      keepScroll.current = null;
+    }
+  }, [older]);
+
+  const latest = thread.data?.messages ?? [];
+  const messages = [...(older?.messages ?? []), ...latest.filter((m) => !(older?.messages ?? []).some((o) => o.id === m.id))];
+  const hasMore = older ? older.has_more : (thread.data?.has_more ?? false);
+
+  const loadOlder = async () => {
+    if (!messages.length) return;
+    setLoadingOlder(true);
+    try {
+      const page = await api<Page>("teacher", `/api/teacher/students/${code}/messages?hints=${hints}&before=${messages[0].ts}`);
+      keepScroll.current = (listRef.current?.scrollHeight ?? 0) - (listRef.current?.scrollTop ?? 0);
+      setOlder({ messages: [...page.messages, ...(older?.messages ?? [])], has_more: page.has_more });
+    } finally {
+      setLoadingOlder(false);
+    }
+  };
 
   const run = async (key: string, job: () => Promise<unknown>) => {
     setBusy(key);
@@ -74,7 +118,7 @@ export default function ChatPanel({ code, name, position }: { code: string; name
     run("mode", () => api("teacher", `/api/teacher/students/${code}/chat-mode`, { body: { mode: next } }));
 
   const waiting = position === "SAFETY_STOP" || position === "STAGNATION_DEADLOCK";
-  const drafts = (thread.data?.messages ?? []).filter((m) => m.sender === "draft").length;
+  const drafts = latest.filter((m) => m.sender === "draft").length;
 
   return (
     <div className="stack chat-panel">
@@ -108,11 +152,35 @@ export default function ChatPanel({ code, name, position }: { code: string; name
       )}
       {drafts > 0 && <Badge tone="info">ร่างจาก AI รอครูตรวจ {drafts} ข้อความ</Badge>}
 
+      <div className="spread" style={{ flexWrap: "wrap", gap: 6 }}>
+        <span className="xsmall muted row row-sm">
+          <History size={13} />
+          ประวัติทั้งหมดกับ AI และครู
+        </span>
+        <label className="check xsmall">
+          <input type="checkbox" checked={hints} onChange={(e) => setHints(e.target.checked)} />
+          แสดงคำใบ้จาก AI
+        </label>
+      </div>
       <div className="teacher-thread" ref={listRef}>
         {thread.loading && !thread.data && <Spinner />}
-        {thread.data?.messages.length === 0 && <p className="small faint">ยังไม่มีข้อความ ครูเริ่มทักนักเรียนได้เลย</p>}
-        {thread.data?.messages.map((m) =>
-          m.sender === "draft" ? (
+        {hasMore && (
+          <Button size="sm" variant="ghost" className="thread-older" loading={loadingOlder} onClick={loadOlder}>
+            ดูข้อความเก่ากว่านี้
+          </Button>
+        )}
+        {thread.data && messages.length === 0 && <p className="small faint">ยังไม่มีข้อความ ครูเริ่มทักนักเรียนได้เลย</p>}
+        {messages.map((m, i) => [
+          divider(m, messages[i - 1]),
+          m.sender === "hint" ? (
+            <div key={m.id} className="tmsg tmsg-hint">
+              <span className="tmsg-meta xsmall row row-sm">
+                <Lightbulb size={12} />
+                คำใบ้ระดับ {m.level} {m.authored ? "(ข้อความต้นฉบับ AI ไม่ได้ปรับ)" : "จาก AI"} · {clock(m.ts)}
+              </span>
+              <span className="tmsg-text">{m.text}</span>
+            </div>
+          ) : m.sender === "draft" ? (
             <div key={m.id} className="tmsg tmsg-draft">
               <span className="tmsg-meta xsmall">
                 {SENDER.draft} · {clock(m.ts)}
@@ -139,7 +207,7 @@ export default function ChatPanel({ code, name, position }: { code: string; name
                     disabled={!editing.text.trim()}
                     onClick={() =>
                       run(`d${m.id}`, async () => {
-                        await api("teacher", `/api/teacher/drafts/${m.id}/send`, { body: { text: editing.text } });
+                        await api("teacher", `/api/teacher/drafts/${m.draft_id}/send`, { body: { text: editing.text } });
                         setEditing(null);
                       })
                     }
@@ -153,7 +221,7 @@ export default function ChatPanel({ code, name, position }: { code: string; name
                       variant="primary"
                       icon={<Check size={14} />}
                       loading={busy === `d${m.id}`}
-                      onClick={() => run(`d${m.id}`, () => api("teacher", `/api/teacher/drafts/${m.id}/send`, { body: {} }))}
+                      onClick={() => run(`d${m.id}`, () => api("teacher", `/api/teacher/drafts/${m.draft_id}/send`, { body: {} }))}
                     >
                       ส่งตามนี้
                     </Button>
@@ -166,7 +234,7 @@ export default function ChatPanel({ code, name, position }: { code: string; name
                   size="sm"
                   variant="ghost"
                   icon={<Trash2 size={14} />}
-                  onClick={() => run(`x${m.id}`, () => api("teacher", `/api/teacher/drafts/${m.id}`, { method: "DELETE" }))}
+                  onClick={() => run(`x${m.id}`, () => api("teacher", `/api/teacher/drafts/${m.draft_id}`, { method: "DELETE" }))}
                 >
                   ทิ้ง
                 </Button>
@@ -180,7 +248,7 @@ export default function ChatPanel({ code, name, position }: { code: string; name
               <span className="tmsg-text">{m.text}</span>
             </div>
           ),
-        )}
+        ])}
       </div>
       <div className="pill-list">
         {QUICK_REPLIES.map((q) => (
@@ -216,6 +284,23 @@ export default function ChatPanel({ code, name, position }: { code: string; name
         </Button>
       </form>
       <p className="xsmall faint">ข้อความของนักเรียนที่แสดงเป็นฉบับที่ลบข้อมูลส่วนตัวแล้ว ข้อความของครูขึ้นในกล่องแชตของนักเรียนทันทีพร้อมป้าย "ครู"</p>
+    </div>
+  );
+}
+
+// เส้นคั่นเมื่อขึ้นวันใหม่หรือเปลี่ยน Gem: ครูเห็นว่าแต่ละช่วงคุยกันตอนไหน เรื่องอะไร
+function divider(m: Message, prev: Message | undefined) {
+  const day = (ts: number) => new Date(ts * 1000).toLocaleDateString("th-TH", { dateStyle: "medium" });
+  const setOf = (x: Message | undefined) => x?.set_name ?? null;
+  const newDay = !prev || day(prev.ts) !== day(m.ts);
+  const newSet = m.set_name && setOf(prev) !== m.set_name;
+  if (!newDay && !newSet) return null;
+  return (
+    <div key={`d-${m.id}`} className="thread-divider xsmall">
+      <span>
+        {day(m.ts)}
+        {m.set_name ? ` · ${m.set_name}` : ""}
+      </span>
     </div>
   );
 }

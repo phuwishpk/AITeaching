@@ -3914,3 +3914,31 @@ button.route-node:hover {
   align-items: center;
   gap: 4px;
 }
+
+/* ---------- ประวัติแชตฝั่งครู ---------- */
+.thread-older {
+  align-self: center;
+}
+
+.thread-divider {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin: 6px 0;
+  color: var(--text-3);
+}
+
+.thread-divider::before,
+.thread-divider::after {
+  content: "";
+  flex: 1;
+  height: 1px;
+  background: var(--border);
+}
+
+.tmsg-hint {
+  align-self: flex-start;
+  max-width: 85%;
+  border: 1px dashed var(--border-strong);
+  background: var(--calm-soft);
+}
