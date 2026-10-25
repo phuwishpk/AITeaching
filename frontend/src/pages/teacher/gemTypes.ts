@@ -264,6 +264,8 @@ export interface ChatSpec {
   style: string;
   sentences: number;
   examples: boolean;
+  // ถามเรื่องโจทย์ในแชตนับเป็นการขอคำใบ้ระดับ 1 (ค่าเริ่มต้น)
+  count_as_hint: boolean;
   guards: string[];
   intents: ChatIntent[];
   reason?: string;

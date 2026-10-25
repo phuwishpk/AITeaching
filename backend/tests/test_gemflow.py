@@ -817,3 +817,29 @@ def test_concepts_the_teacher_mentions_must_appear_in_the_flow():
     gaps = flowspec.concept_gaps(instructions, flowspec.validate(flow)["spec"])
     assert any("impasse" in g for g in gaps) and any("rounds" in g for g in gaps) and any("after_stress" in g for g in gaps)
     assert not any("prerequisite" in g for g in gaps), "มีขั้นทบทวนพื้นฐานแล้ว"
+
+
+def test_asking_the_chat_counts_as_using_a_hint(subject):
+    """ถามครูผู้ช่วยในแชตเรื่องข้อที่ทำแล้วตอบถูก ไม่ใช่ "ถูกตั้งแต่ครั้งแรก": ได้ข้อคู่ขนาน และ Mastery ไม่เต็ม"""
+    from app.engine import gemflow
+
+    flow = {"start": "w", "steps": [{"id": "w", "kind": "item", "pick": "main"},
+                                    {"id": "iso", "kind": "item", "pick": "isomorphic"}, {"id": "e", "kind": "end"}],
+            "edges": [{"from": "w", "to": "iso", "when": "correct and hint_level > 0"},
+                      {"from": "w", "to": "e", "when": "correct and items_done >= 5"},
+                      {"from": "w", "to": "w", "when": ""}, {"from": "iso", "to": "w", "when": ""}]}
+    content = gem_content(subject, flow)
+    state, ctx = start(content)
+    assert gemflow.is_help("ข้อนี้ต้องทำอะไรก่อน") and gemflow.is_help("ไม่เข้าใจเลย") and not gemflow.is_help("ขอบคุณครับ")
+    fx = engine.chat_help(state, at(ctx, 1010))
+    assert fx.result == {"kind": "counted", "count": 1}
+    concept = it_of(content, state)["concept"]
+    engine.submit(state, at(ctx, 1040), demo.correct_raw(it_of(content, state)))
+    assert step(state) == "iso", "ถูกหลังถามในแชต = ถูกหลังใช้คำใบ้"
+    assert state["mastery"][concept][-1]["w"] == 0.7 and state["flow"]["streak"] == 0
+
+    flow["chat"] = {"count_as_hint": False}
+    content = gem_content(subject, flow)
+    state, ctx = start(content)
+    assert not engine.chat_help(state, at(ctx, 1010)).result, "ครูสั่งว่าไม่นับ"
+    assert flowspec.concept_gaps("ถามในแชตไม่นับเป็นคำใบ้", flowspec.validate({**flow, "chat": None})["spec"])

@@ -10,6 +10,8 @@ Flow คือกราฟของขั้น (step) จากคลังข�
 นอกจากนี้ผิดข้อเดียวกันครบ STUCK_LIMIT ครั้งจะส่งต่อครู กัน Flow ที่ไม่มีทางออก
 """
 
+import re
+
 from ..config import WEIGHTS
 from ..ml import fuzzy
 from ..tutor import guard
@@ -110,7 +112,8 @@ def values(state: dict, ctx: C.Ctx, step_id: str) -> dict:
         "judge_pass": last.get("judge_pass"),
         "judge_score": last.get("judge_score"),
         "error_count": item["error_count"] if item else 0,
-        "hint_level": item["hint_level"] if item else 0,
+        "hint_level": C.help_level(item) if item else 0,
+        "chat_help": item.get("chat_help", 0) if item else 0,
         "impasse": round(fuzzy.impasse(rts, it.get("expected_time", 45))["output"], 1) if len(rts) >= 2 else 0.0,
         "mastery": C.mastery_value(state, ctx, ctx.content.target) or 0.0,
         "concept_mastery": (C.mastery_value(state, ctx, it["concept"]) or 0.0) if it else 0.0,
@@ -483,12 +486,13 @@ def submit(state: dict, ctx: C.Ctx, raw) -> C.Fx:
         C._count_rt(state, rt)
         state["correct_total"] += 1
         state["rapid_streak"] = 0
-        if item["hint_level"] >= 1:
+        if C.help_level(item) >= 1:
             state["hints_useful"] += 1
-        first_try = data["first_attempt"] and item["hint_level"] == 0
+        # ถามครูผู้ช่วยในแชตแล้วตอบถูก ไม่นับว่าถูกตั้งแต่ครั้งแรก (นับเท่าใช้คำใบ้)
+        first_try = data["first_attempt"] and C.help_level(item) == 0
         if data["first_attempt"]:
             C.record_format(state, it["concept"], it["format"], True)
-            if item["hint_level"] == 0:
+            if C.help_level(item) == 0:
                 state["first_attempt_correct"] += 1
         fx.trace("answer", it["id"], {**base, "correct": True, "raw": data["raw"]}, now)
         on_solved(state, ctx, it)
@@ -565,7 +569,8 @@ def on_solved(state: dict, ctx: C.Ctx, it: dict):
         state["remedial"]["streak"] += 1
     if item["voided"]:
         return
-    weight = (1.0 if item["error_count"] == 0 else WEIGHTS["self"]) if item["mode"] == "isomorphic" else C.item_weight(item)
+    weight = ((1.0 if item["error_count"] == 0 else WEIGHTS["self"]) if not item.get("chat_help") else WEIGHTS[1]) \
+        if item["mode"] == "isomorphic" else C.item_weight(item)
     C.add_mastery(state, it["concept"], weight, it["id"], it["format"])
     if item["mode"] == "challenge" and it["concept"] != ctx.content.target:
         C.add_mastery(state, ctx.content.target, weight, it["id"], it["format"])
@@ -706,6 +711,29 @@ def widget(state: dict, ctx: C.Ctx, response: dict) -> C.Fx:
         fx.result = {"kind": "correct" if result["correct"] else "wrong", "marks": result["marks"] if again else None,
                      "message": "ถูกต้อง เก่งมาก" if result["correct"] and graded else
                      "ยังไม่ถูก ลองดูใหม่อีกครั้งนะ" if again else "บันทึกแล้ว ไปต่อกันเลย"}
+    return fx
+
+
+# ข้อความที่เป็นการถามขอความช่วยเหลือเรื่องโจทย์ (ไม่ใช่ทักทายหรือขอบคุณ) ตรวจด้วยคำ อธิบายได้ว่าทำไมนับ
+HELP_WORDS = re.compile(r"\?|ไหม|มั้ย|ยังไง|อย่างไร|ทำไม|อะไร|เท่าไ|ตรงไหน|ช่วย|ไม่เข้าใจ|ไม่รู้|งง|คำใบ้|hint|เฉลย|คำตอบ|"
+                        r"ขั้นแรก|ต้องทำ|ทำต่อ|ตัวอย่าง|อธิบาย|สอน", re.I)
+
+
+def is_help(message: str) -> bool:
+    return bool(HELP_WORDS.search(message or ""))
+
+
+def chat_help(state: dict, ctx: C.Ctx) -> C.Fx:
+    """นักเรียนถามครูผู้ช่วยในแชตเรื่องข้อที่กำลังทำ: นับเป็นการขอคำใบ้ (ปิดได้ในแนวทางแชตของครู)
+    ไม่อย่างนั้นถาม AI จนได้คำตอบแล้วยังนับว่าถูกตั้งแต่ครั้งแรก ได้ Mastery เต็ม และข้ามข้อคู่ขนาน"""
+    fx = C.Fx()
+    item = state.get("item")
+    chat = (spec(ctx) or {}).get("chat") or {}
+    if item is None or state["position"] not in F.CAN_ANSWER or chat.get("count_as_hint") is False:
+        return fx
+    item["chat_help"] = item.get("chat_help", 0) + 1
+    fx.trace("chat_help", item["id"], {"count": item["chat_help"]}, ctx.now)
+    fx.result = {"kind": "counted", "count": item["chat_help"]}
     return fx
 
 

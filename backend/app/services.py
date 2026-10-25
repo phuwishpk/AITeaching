@@ -495,15 +495,20 @@ async def chat(code: str, set_id: str, message: str) -> dict:
         await post_message(code, set_id, "system", DISTRESS_REPLY["stress"])
         return {"reply": DISTRESS_REPLY["stress"], "source": "safety", "distress": "stress",
                 "view": engine.student_view(state, ctx)}
+    # ถามเรื่องโจทย์ในแชตแล้วได้ความช่วยเหลือ นับเป็นการขอคำใบ้ (ถูกหลังถาม = ถูกหลังใช้คำใบ้ Mastery ไม่เต็ม)
+    counted = None
+    if content.spec and not reply.get("off_topic") and gemflow.is_help(scrubbed):
+        state, content, ctx, helped = await run_event(code, set_id, engine.chat_help)
+        counted = (helped.result or {}).get("count")
     if teacher_here:
         # ครูอยู่ในแชตและเปิดหน้าแชตนี้อยู่: คำตอบของ AI เป็นแค่ร่างให้ครูตรวจ แก้ หรือทิ้ง ก่อนถึงนักเรียน (Human-in-the-Loop)
         # ครูไม่ได้เปิดหน้าแชต: AI ตอบเองในขอบเขตบทเรียน นักเรียนไม่ต้องรอ ครูอ่านย้อนหลังได้ทุกข้อความ
         await post_message(code, set_id, "draft", reply["text"])
         await hub.to_staff({"type": "chat", "code": code, "log_id": reply.get("log_id")})
-        return {"reply": None, "to_teacher": True, "view": engine.student_view(state, ctx)}
+        return {"reply": None, "to_teacher": True, "counted_hint": counted, "view": engine.student_view(state, ctx)}
     await post_message(code, set_id, "tutor", reply["text"])
     await hub.to_staff({"type": "chat", "code": code, "log_id": reply.get("log_id")})
-    return {"reply": reply["text"], "source": reply["source"], "view": engine.student_view(state, ctx)}
+    return {"reply": reply["text"], "source": reply["source"], "counted_hint": counted, "view": engine.student_view(state, ctx)}
 
 
 async def reflect(code: str, set_id: str, text: str) -> dict:

@@ -180,7 +180,7 @@ function Room({ code, onLogout }: { code: string; onLogout: () => void }) {
   const act = useCallback(
     async (path: string, body?: unknown) => {
       try {
-        const response = await api<{ result?: Result; view: View; reply?: string; source?: string; to_teacher?: boolean }>("student", `${base}/${path}`, {
+        const response = await api<{ result?: Result; view: View; reply?: string; source?: string; to_teacher?: boolean; counted_hint?: number | null }>("student", `${base}/${path}`, {
           body: body ?? {},
         });
         applyView(response.view);
@@ -339,13 +339,16 @@ function Room({ code, onLogout }: { code: string; onLogout: () => void }) {
                   setChat((list) => [...list, { from: "me", text: message }]);
                   const response = await act("chat", { message });
                   if (!response) return;
+                  // ถามเรื่องโจทย์ในแชตนับเป็นการขอคำใบ้ บอกนักเรียนตรง ๆ ไม่ซ่อน
+                  const counted = response.counted_hint ? `นับเป็นการขอคำใบ้ครั้งที่ ${response.counted_hint} ของข้อนี้` : undefined;
                   if (response.to_teacher) {
-                    setChat((list) => list.map((m, i) => (i === list.length - 1 ? { ...m, note: "ส่งถึงครูแล้ว รอครูตอบนะ" } : m)));
+                    const note = ["ส่งถึงครูแล้ว รอครูตอบนะ", counted].filter(Boolean).join(" · ");
+                    setChat((list) => list.map((m, i) => (i === list.length - 1 ? { ...m, note } : m)));
                   } else if (response.reply) {
                     const reply = response.reply;
                     // safety = ข้อความดูแลจิตใจ · error = AI ขัดข้อง ทั้งสองแสดงเป็นข้อความของระบบ
                     const system = response.source === "safety" || response.source === "error";
-                    setChat((list) => [...list, { from: system ? "system" : "tutor", text: reply }]);
+                    setChat((list) => [...list, { from: system ? "system" : "tutor", text: reply, note: counted }]);
                   }
                 }}
               />

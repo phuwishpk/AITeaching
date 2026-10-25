@@ -812,7 +812,7 @@ function Vars({ catalog }: { catalog: FlowCatalog }) {
 }
 
 const CHAT_GOTO_KINDS = ["hint", "lesson", "activity", "widget", "reflect", "break", "notify", "teacher"];
-const CHAT_DEFAULT: ChatSpec = { style: "", sentences: 3, examples: false, guards: [], intents: [] };
+const CHAT_DEFAULT: ChatSpec = { style: "", sentences: 3, examples: false, count_as_hint: true, guards: [], intents: [] };
 
 // แนวทางการตอบแชตของ AI: AI ดึงจากคำสั่งของครูตอนออกแบบ Flow ครูแก้ได้ ไม่มี = แชตแบบอัตโนมัติ
 function ChatEditor({
@@ -840,6 +840,7 @@ function ChatEditor({
       <div className="stack">
         <p className="small">
           <strong>แบบอัตโนมัติ</strong> คำสั่งของครูไม่ได้พูดถึงการตอบแชต AI ตอบแบบโสเครตีสไม่เกิน 3 ประโยค ใช้คำสั่งทั้งหมดของ Gem เป็นบุคลิก
+          และการถามเรื่องโจทย์ในแชตนับเป็นการขอคำใบ้ระดับ 1
         </p>
         <p className="xsmall muted">
           เขียนเรื่องแชตใน prompt ของ Gem แล้วกดออกแบบใหม่ หรือกำหนดเองที่นี่ เช่น บุคลิก ความยาว กฎกันหลอกล่อ หรือสิ่งที่ให้ทำเมื่อนักเรียนพิมพ์ขอเฉลย
@@ -878,6 +879,10 @@ function ChatEditor({
           ยกตัวอย่างใหม่ได้ (ตัวเลขต่างจากโจทย์)
         </label>
       </div>
+      <label className="row row-sm small">
+        <input type="checkbox" checked={chat.count_as_hint !== false} onChange={(e) => set({ count_as_hint: e.target.checked })} />
+        ถามเรื่องโจทย์ในแชตนับเป็นการขอคำใบ้ (ถูกหลังถาม = ถูกหลังใช้คำใบ้ Mastery ไม่เต็ม)
+      </label>
       <Field label="กฎกันหลอกล่อของครู" hint="บรรทัดละข้อ ใช้เพิ่มจากข้อห้ามที่ล็อกไว้ ไม่แทน">
         <textarea
           className="input"

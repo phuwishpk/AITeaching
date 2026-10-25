@@ -293,9 +293,14 @@ def submit_edge(position: str) -> str:
 
 # ---------------------------------------------------------------- Mastery
 
+def help_level(item: dict) -> int:
+    """ความช่วยเหลือที่นักเรียนได้ในข้อนี้: ระดับคำใบ้ที่เห็น และการถามครูผู้ช่วยในแชต (นับเท่าคำใบ้ระดับ 1)"""
+    return max(item["hint_level"], 1 if item.get("chat_help") else 0)
+
+
 def item_weight(item: dict) -> float:
-    if item["hint_level"] >= 1:
-        return WEIGHTS[min(item["hint_level"], 3)]
+    if help_level(item) >= 1:
+        return WEIGHTS[min(help_level(item), 3)]
     if item["error_count"] > 0:
         return WEIGHTS["self"]
     return WEIGHTS["first"]
@@ -1490,6 +1495,11 @@ def reflect(state: dict, ctx: Ctx, text: str, verdict: dict | None = None) -> Fx
         fx.result = {"kind": "blocked", "message": "ชุดคำถามนี้ไม่มีขั้นอธิบายความคิด"}
         return fx
     return gemflow.reflect(state, ctx, text, verdict)
+
+
+def chat_help(state: dict, ctx: Ctx) -> Fx:
+    """ถามครูผู้ช่วยในแชตนับเป็นการขอคำใบ้ (Flow ของ Gem)"""
+    return gemflow.chat_help(state, ctx) if ctx.content.spec else Fx()
 
 
 def chat_goto(state: dict, ctx: Ctx, intent: dict) -> Fx:
