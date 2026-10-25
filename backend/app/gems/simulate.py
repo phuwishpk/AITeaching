@@ -25,6 +25,11 @@ DOMAINS = {
     "bug_type": ["", "slip", "misconception"],
 }
 MAX_CASES = 4096
+# กรณีทดสอบมาตรฐานของขั้นทำโจทย์ ลองเสมอแม้ Flow ไม่ได้ใช้ตัวแปรนั้น ตารางจึงเห็นแนวทางที่ AI ลืมใส่
+# เช่น ผิดครั้งที่ 3 แล้วติดหล่ม แต่ยังได้คำใบ้ระดับ 3 (ตัวแปรที่ไม่ได้ใช้ไม่ทำให้ engine เลือกต่างกัน แค่โผล่ในตาราง)
+PROBES = {"wrong": ["bug_type", "impasse", "has_prerequisite", "rounds"],
+          "correct": ["hint_level", "mastery", "mains_left", "challenge_done"]}
+SHOW_ALWAYS = {"impasse", "has_prerequisite", "rounds", "mastery", "mains_left", "challenge_done"}
 DEAD = "เส้นที่ไม่มีวันถูกใช้: "
 
 
@@ -95,6 +100,7 @@ def _groups(step: dict, edges: list[dict]) -> list[tuple[dict, list[str]]]:
         names = sorted(set().union(*[u for u in used if other not in u]) - {"correct", "wrong"} if used else set())
         if outcome == "wrong" and "error_count" not in names:
             names.append("error_count")
+        names += [p for p in PROBES[outcome] if p not in names]
         groups.append(({"correct": outcome == "correct", "wrong": outcome == "wrong"}, names))
     return groups
 
@@ -200,13 +206,20 @@ def table(flow_spec: dict, limit: int = 40) -> list[dict]:
         for key, values, name, target in variants:
             if (values.get("error_count") or 0) > 4:
                 continue
-            if target != baseline.get(key) and (key, name, target) not in shown:
+            # ตัวแปรของกรณีทดสอบมาตรฐานแสดงเสมอ (ผิดตั้งแต่ครั้งที่ 3 หรือตอบถูกโดยไม่ใช้คำใบ้) แม้ผลไม่ต่าง
+            probe = name in SHOW_ALWAYS and (values.get("error_count", 0) >= 3 if values.get("wrong")
+                                             else values.get("hint_level") == 0) and values.get("bug_type", "") == ""
+            if (target != baseline.get(key) or probe) and (key, name, target) not in shown:
                 shown.add((key, name, target))
                 row(values, _say(name, values[name]), target)
         out.append({"step": step["id"], "label": step["label"], "rows": rows[:limit]})
     return out
 
 
+BASELINE = ("กรณีทั่วไปในตาราง: Mastery 0.6 โจทย์หลักยังเหลือ 3 ข้อ มีพื้นฐานให้ทบทวน ยังไม่เคยส่งไปทบทวน "
+            "ไม่ติดหล่ม ถูกแล้ว 1 ข้อ แต่ละแถวเปลี่ยนจากกรณีทั่วไปเฉพาะที่เขียนไว้\n")
+
+
 def table_text(flow_spec: dict) -> str:
-    return "\n".join(f"ขั้น {t['label']} ({t['step']}):\n" + "\n".join(f"- {r['case']} → {r['to']}" for r in t["rows"])
+    return BASELINE + "\n".join(f"ขั้น {t['label']} ({t['step']}):\n" + "\n".join(f"- {r['case']} → {r['to']}" for r in t["rows"])
                      for t in table(flow_spec))
