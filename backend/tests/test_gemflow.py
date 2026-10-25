@@ -282,3 +282,24 @@ def test_designed_flow_must_map_every_guideline_to_a_step():
     assert checked["spec"]["steps"][1]["reason"] == "Slip ให้คำใบ้ระดับ 1"
     flow["guidelines"][1]["steps"] = ["end"]
     assert not flowspec.validate(flow)["errors"]
+
+
+def test_back_returns_to_the_item_step_the_student_came_from(subject):
+    flow = {
+        "start": "a",
+        "steps": [{"id": "a", "kind": "item", "pick": "main"}, {"id": "b", "kind": "item", "pick": "main"},
+                  {"id": "h", "kind": "hint", "level": 1}, {"id": "e", "kind": "end"}],
+        "edges": [{"from": "a", "to": "b", "when": "correct"}, {"from": "a", "to": "h", "when": ""},
+                  {"from": "b", "to": "e", "when": "correct"}, {"from": "b", "to": "h", "when": ""},
+                  {"from": "h", "to": "back", "when": ""}],
+    }
+    checked = flowspec.validate(flow)
+    assert not checked["errors"]
+    assert any(e["target"] == "h" and e["source"] == "h" for e in flowspec.map_view(checked["spec"])["edges"])
+    content = gem_content(subject, flow)
+    state, ctx = start(content)
+    engine.submit(state, at(ctx, 1020), demo.correct_raw(it_of(content, state)))
+    assert step(state) == "b"
+    second = state["item"]["id"]
+    engine.submit(state, at(ctx, 1050), demo.other_wrong(it_of(content, state)))
+    assert step(state) == "b" and state["item"]["id"] == second and state["item"]["hint_level"] >= 1

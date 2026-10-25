@@ -160,8 +160,12 @@ def follow(state: dict, ctx: C.Ctx, fx: C.Fx, from_step: str, edges: list[str], 
         notes.append(f"ไม่มีเส้นออกจาก \"{label(step)}\" ที่เงื่อนไขเป็นจริง ใช้ทางเริ่มต้นของระบบ")
         enter(state, ctx, fx, target, edges, notes, hops + 1)
         return
-    notes.append(f"{edge_text(edge)} → {label(step_of(ctx, edge['to']))}")
-    enter(state, ctx, fx, edge["to"], edges + [edge["id"]], notes, hops + 1)
+    target = edge["to"]
+    if target == "back":
+        # กลับไปขั้นทำโจทย์ที่นักเรียนมา (ขั้นคำใบ้หรือบทเรียนที่หลายขั้นโจทย์ใช้ร่วมกัน)
+        target = fs(state).get("item_step") or spec(ctx)["start"]
+    notes.append(f"{edge_text(edge)} → {label(step_of(ctx, target))}")
+    enter(state, ctx, fx, target, edges + [edge["id"]], notes, hops + 1)
 
 
 def go(state: dict, ctx: C.Ctx, fx: C.Fx, position: str, edges: list[str], notes: list[str], detail: dict | None = None):

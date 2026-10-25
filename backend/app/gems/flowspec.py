@@ -76,6 +76,9 @@ GUARDS = [
 TOOL_KINDS = {"hints": "บันไดคำใบ้", "isomorphic": "Isomorphic Test", "walkthrough": "Walkthrough", "remedial": "ทบทวนพื้นฐาน"}
 
 
+BACK = "back"
+
+
 class FlowError(Exception):
     pass
 
@@ -210,7 +213,8 @@ def normalize(raw: dict) -> tuple[dict, list[str]]:
         if not isinstance(e, dict):
             continue
         source = renamed.get(str(e.get("from")), _slug(e.get("from"), ""))
-        target = renamed.get(str(e.get("to")), _slug(e.get("to"), ""))
+        # "back" = กลับไปขั้นทำโจทย์ที่นักเรียนมาจริง ใช้กับขั้นคำใบ้หรือบทเรียนที่หลายขั้นโจทย์ใช้ร่วมกัน
+        target = BACK if str(e.get("to")).strip().lower() == BACK else renamed.get(str(e.get("to")), _slug(e.get("to"), ""))
         edges.append({"id": f"f{len(edges) + 1}", "from": source, "to": target,
                       "when": str(e.get("when") or "").strip()[:200], "label": _text(e.get("label"), 40)})
     params = {}
@@ -268,7 +272,7 @@ def validate(raw: dict, tools: dict | None = None, bugs: list[str] | None = None
         errors.append("ขั้นแรกของ Flow ต้องเป็นขั้นทำโจทย์")
     out: dict[str, list[dict]] = {sid: [] for sid in steps}
     for edge in spec["edges"]:
-        if edge["from"] not in steps or edge["to"] not in steps:
+        if edge["from"] not in steps or (edge["to"] not in steps and edge["to"] != BACK):
             errors.append(f"เส้น \"{edge['label'] or edge['id']}\" ชี้ไปขั้นที่ไม่มีใน Flow")
             continue
         try:
@@ -329,7 +333,7 @@ def _reachable(start: str, out: dict[str, list[dict]]) -> set[str]:
         if node in seen or node not in out:
             continue
         seen.add(node)
-        stack += [e["to"] for e in out[node]]
+        stack += [e["to"] for e in out[node] if e["to"] != BACK]
     return seen
 
 
@@ -350,7 +354,7 @@ def _instant_loop(steps: dict, out: dict[str, list[dict]]) -> list[str] | None:
         path.append(node)
         for edge in out[node]:
             nxt = edge["to"]
-            if nxt not in instant:
+            if nxt == BACK or nxt not in instant:
                 continue
             if state.get(nxt) == 1:
                 return path[path.index(nxt):] + [nxt]
@@ -443,7 +447,9 @@ def map_view(spec: dict) -> dict:
     """กล่องและเส้นสำหรับวาดผังของ Gem (หน้าเว็บจัดตำแหน่งเองด้วย dagre)"""
     nodes = [{"id": s["id"], "label": s["label"], "kind": s["kind"], "lane": KINDS[s["kind"]]["lane"],
               "about": describe_step(s), "start": s["id"] == spec["start"]} for s in spec["steps"]]
-    edges = [{"id": e["id"], "source": e["from"], "target": e["to"], "label": e.get("label") or "",
+    # เส้น "back" วาดเป็นสัญลักษณ์วนกลับที่กล่องต้นทาง (กลับขั้นทำโจทย์ที่นักเรียนมา)
+    edges = [{"id": e["id"], "source": e["from"], "target": e["from"] if e["to"] == BACK else e["to"],
+              "label": e.get("label") or ("กลับขั้นทำโจทย์เดิม" if e["to"] == BACK else ""),
               "when": e.get("when") or "", "text": conditions.describe(e.get("when"))} for e in spec["edges"]]
     return {"nodes": nodes, "edges": edges, "guards": GUARDS}
 
@@ -507,6 +513,8 @@ def design_prompt(gem: dict, errors: list[str] | None = None, previous: dict | N
         + f"เครื่องมือที่ครูเปิด: {', '.join(on) or '-'} · ที่ครูปิด (ห้ามใช้): {', '.join(off) or '-'}\n\n"
         f"ชนิดขั้นที่ใช้ได้:\n{kinds}\n"
         f"ขั้น item มี pick (วิธีเลือกโจทย์):\n{picks}\n"
+        "เส้นที่ to เป็น \"back\" = กลับไปขั้นทำโจทย์ที่นักเรียนเพิ่งมาจาก (ทำข้อเดิมต่อ) ใช้กับขั้นคำใบ้ บทเรียน หรือกิจกรรม "
+        "ที่หลายขั้นโจทย์ใช้ร่วมกัน ไม่ต้องเดาด้วยเงื่อนไข\n"
         "ขั้น item มี hint_button (true/false), hint มี level (1, 2, 3 หรือ \"auto\") และ delay (วินาที 0–60), "
         "lesson มี title, text (เนื้อหาสั้น ๆ ไม่เกิน 5 บรรทัด ห้ามมีคำตอบของโจทย์) และ walkthrough (true = แสดงตัวอย่างทีละขั้นของมโนทัศน์), "
         "reflect มี question, judge (true เฉพาะเมื่อครูสั่งให้ประเมินคำอธิบาย) และ rubric (เกณฑ์ของครู), "
