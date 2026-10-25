@@ -299,6 +299,14 @@ export interface GemFlowDetail {
   outdated: boolean;
   // คำที่ครูเขียนไว้ใน prompt ให้จับในแชต
   teacher_keywords: string[];
+  table: FlowTable[];
+}
+
+// ระบบจำลองว่านักเรียนแต่ละแบบจะไปขั้นไหน (gems/simulate.py)
+export interface FlowTable {
+  step: string;
+  label: string;
+  rows: { case: string; to: string }[];
 }
 
 export interface FlowCheck {
@@ -306,6 +314,7 @@ export interface FlowCheck {
   errors: string[];
   warnings: string[];
   map: FlowMapData | null;
+  table: FlowTable[];
 }
 
 export interface FlowCatalog {

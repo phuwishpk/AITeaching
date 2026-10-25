@@ -441,7 +441,7 @@ def test_design_writes_html_for_widgets_the_library_lacks(monkeypatch):
     monkeypatch.setattr(builder, "ask_json", fake_ask)
     flow = asyncio.run(flowspec.design({"name": "PEMDAS", "instructions": "มีเกมลูกโป่ง"}))
     html = flow["spec"]["steps"][0]["config"]["html"]
-    assert asked == ["flow", "widget"] and "ยิงลูกโป่ง" in html and "x.example" not in html
+    assert asked == ["flow", "flow", "widget"] and "ยิงลูกโป่ง" in html and "x.example" not in html, "ออกแบบ ตรวจกับแนวทาง แล้วเขียน Widget"
     assert not any("ยังไม่มีหน้าเว็บ" in w for w in flow["warnings"])
 
 
@@ -650,11 +650,11 @@ def test_teacher_keywords_in_the_prompt_are_required(monkeypatch):
 
     async def fake_ask(step, user, max_tokens=12000, thinking="minimal"):
         prompts.append(user)
-        return designs[len(prompts) - 1]
+        return designs[min(len(prompts), len(designs)) - 1]
 
     monkeypatch.setattr(builder, "ask_json", fake_ask)
     result = asyncio.run(flowspec.design({"name": "PEMDAS", "instructions": instructions}))
-    assert len(prompts) == 2 and '"บอกคำตอบ"' in prompts[0], "บอก AI ทุกคำของครูตั้งแต่รอบแรก"
+    assert len(prompts) == 3 and '"บอกคำตอบ"' in prompts[0], "บอก AI ทุกคำของครูตั้งแต่รอบแรก (รอบที่ 3 คือรอบตรวจกับแนวทาง)"
     assert "บอกคำตอบ" in prompts[1] and "ยังไม่อยู่" in prompts[1], "รอบแรกทำคำหาย ต้องออกแบบใหม่"
     assert not flowspec.missing_keywords(result["spec"], flowspec.teacher_keywords(instructions))
 
@@ -696,11 +696,11 @@ def test_play_requests_must_be_interactive_and_chat_targets_are_reachable(monkey
         asked.append(step)
         if step == "widget":
             return {"html": "<p>มินิเกมจับเวลา</p><button>เสร็จแล้ว</button>"}
-        return designs[asked.count("flow") - 1]
+        return designs[min(asked.count("flow"), len(designs)) - 1]
 
     monkeypatch.setattr(builder, "ask_json", fake_ask)
     result = asyncio.run(flowspec.design({"name": "เศษส่วน", "instructions": "ถ้าเด็กบอกว่าเบื่อ ให้มีมินิเกมคั่น"}))
-    assert asked.count("flow") == 2 and next(s for s in result["spec"]["steps"] if s["id"] == "minigame")["kind"] == "widget"
+    assert asked.count("flow") == 3 and next(s for s in result["spec"]["steps"] if s["id"] == "minigame")["kind"] == "widget"
 
 
 def test_after_stress_and_missing_prerequisite_match_the_standard_map(subject):
@@ -731,3 +731,30 @@ def gemflow_values(state, ctx):
     from app.engine import gemflow
 
     return gemflow.values(state, ctx, state["flow"]["step"])
+
+
+def test_simulation_finds_dead_edges_and_shows_where_students_go():
+    """จาก Gemini จริง: ผิดครั้งแรกแบบไม่ตรง Bug Library ถูกส่งไปทบทวนพื้นฐานทันที ตารางจำลองทำให้เห็น
+    และเส้นที่ถูกเส้นก่อนหน้าดักไว้หมดเป็นข้อผิดพลาดที่ AI ต้องแก้"""
+    from app.gems import simulate
+
+    flow = {"start": "w",
+            "steps": [{"id": "w", "kind": "item", "label": "ทำโจทย์", "pick": "main"},
+                      {"id": "h1", "kind": "hint", "label": "คำใบ้ 1", "level": 1},
+                      {"id": "rem", "kind": "item", "label": "ทบทวน", "pick": "prerequisite"},
+                      {"id": "t", "kind": "teacher", "label": "รอครู"}, {"id": "e", "kind": "end"}],
+            "edges": [{"from": "w", "to": "e", "when": "correct and mains_left == 0"},
+                      {"from": "w", "to": "h1", "when": "wrong and error_count == 1 and bug_type == 'slip'"},
+                      {"from": "w", "to": "rem", "when": "wrong"},
+                      {"from": "w", "to": "t", "when": "wrong and rounds >= 2", "label": "ทบทวนครบ 2 รอบ"},
+                      {"from": "w", "to": "w", "when": ""}, {"from": "h1", "to": "back", "when": ""},
+                      {"from": "rem", "to": "w", "when": "correct"}, {"from": "rem", "to": "rem", "when": ""},
+                      {"from": "t", "to": "w", "when": ""}]}
+    checked = flowspec.validate(flow)
+    dead = [w for w in checked["warnings"] if w.startswith(simulate.DEAD)]
+    assert len(dead) == 1 and "ทบทวนครบ 2 รอบ" in dead[0]
+    assert flowspec.design_problems(checked, []) == dead
+    text = simulate.table_text(checked["spec"])
+    assert "ตอบผิด · ผิดครั้งที่ 1 · ไม่ตรง Bug Library → ทบทวน" in text
+    assert "ตอบผิด · ผิดครั้งที่ 1 · สะเพร่า → คำใบ้ 1" in text
+    assert "ผิดครั้งที่ 5" not in text and "ผิดครั้งที่ 0" not in text

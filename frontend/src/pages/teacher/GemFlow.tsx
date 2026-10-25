@@ -15,6 +15,7 @@ import {
   type FlowEdgeSpec,
   type FlowSpec,
   type FlowStepSpec,
+  type FlowTable,
   type GemDetail,
   type GemFlowDetail,
   type GemMeta,
@@ -23,7 +24,7 @@ import {
 // แท็บ Flow ของครู (ADR-0004): AI ออกแบบ Flow การสอนจากคำสั่งของครู ครูตรวจ ปรับขั้น เส้น เงื่อนไข และตัวเลข
 // ทุกการแก้ถูกตรวจที่ server ทันที (POST /flow/check) และบันทึกได้เมื่อไม่มีข้อผิดพลาด
 
-type Side = "step" | "chat" | "params" | "vars" | "locked";
+type Side = "step" | "chat" | "sim" | "params" | "vars" | "locked";
 
 export default function GemFlowPage() {
   const { gemId } = useParams();
@@ -284,6 +285,7 @@ export default function GemFlowPage() {
                 items={[
                   { id: "step", label: "ขั้นที่เลือก" },
                   { id: "chat", label: "แชต AI" },
+                  { id: "sim", label: "จำลอง" },
                   { id: "params", label: "ตัวเลข" },
                   { id: "vars", label: "ตัวแปร" },
                   { id: "locked", label: "ล็อกไว้" },
@@ -312,6 +314,7 @@ export default function GemFlowPage() {
                 ) : (
                   <p className="small muted">กดกล่องในผังหรือในรายการขั้นเพื่อดูและแก้</p>
                 ))}
+              {side === "sim" && <Simulation table={check?.table ?? detail.table ?? []} />}
               {side === "chat" && <ChatEditor spec={draft} update={update} teacherKeywords={detail.teacher_keywords ?? []} />}
               {side === "params" && <Params spec={draft} catalog={catalog} update={update} />}
               {side === "vars" && <Vars catalog={catalog} />}
@@ -926,6 +929,31 @@ function ChatEditor({
       <Button size="sm" variant="ghost" onClick={() => update((s) => void delete s.chat)} style={{ alignSelf: "flex-start" }}>
         กลับไปใช้แบบอัตโนมัติ
       </Button>
+    </div>
+  );
+}
+
+// ตารางจำลอง: ระบบลองทุกกรณีของตัวแปรที่เส้นใช้ แล้วบอกว่านักเรียนแต่ละแบบไปขั้นไหน ครูเทียบกับคำสั่งของตัวเองได้
+function Simulation({ table }: { table: FlowTable[] }) {
+  if (!table.length) return <p className="small muted">แก้ข้อผิดพลาดของ Flow ก่อน ระบบจึงจำลองได้</p>;
+  return (
+    <div className="stack">
+      <p className="xsmall muted">ระบบจำลองจากเงื่อนไขบนเส้นจริง ไม่ใช่ AI เดา แสดงกรณีทั่วไปและกรณีพิเศษที่ทำให้ไปคนละทาง ถ้าแถวไหนไม่ตรงกับที่ตั้งใจ แก้เส้นหรือลำดับเส้นของขั้นนั้น</p>
+      {table.map((t) => (
+        <div key={t.step} className="stack stack-sm">
+          <span className="small strong">ที่ขั้น "{t.label}"</span>
+          <table className="table sim-table">
+            <tbody>
+              {t.rows.map((r, i) => (
+                <tr key={i}>
+                  <td className="xsmall">{r.case || "ทุกกรณี"}</td>
+                  <td className="xsmall nowrap strong">→ {r.to}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      ))}
     </div>
   );
 }

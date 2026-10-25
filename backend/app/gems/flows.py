@@ -6,7 +6,7 @@ AI ออกแบบตอนสร้างคลังโจทย์ หร�
 """
 
 from .. import db
-from . import builder, flowspec, manage, versions
+from . import builder, flowspec, manage, simulate, versions
 
 
 def _subject(gem: dict) -> dict | None:
@@ -54,12 +54,16 @@ def detail(gem: dict) -> dict:
         "outdated": "instructions_key" in flow and builder.flow_needs_design(gem),
         # คำที่ครูเขียนไว้ใน prompt ให้จับในแชต หน้า Flow ทำเครื่องหมายว่าคำไหนมาจากครู
         "teacher_keywords": flowspec.teacher_keywords(gem.get("instructions", "")),
+        # ระบบจำลองว่านักเรียนแต่ละแบบจะไปขั้นไหน ให้ครูเทียบกับคำสั่งของตัวเอง
+        "table": simulate.table(checked["spec"]) if checked and checked["spec"] else [],
     }
 
 
 def check(gem: dict, raw: dict) -> dict:
     checked = _validate(gem, raw)
-    return {**checked, "map": flowspec.map_view(checked["spec"]) if checked["spec"] and not checked["errors"] else None}
+    ok = checked["spec"] and not checked["errors"]
+    return {**checked, "map": flowspec.map_view(checked["spec"]) if ok else None,
+            "table": simulate.table(checked["spec"]) if ok else []}
 
 
 def save(gem_id: str, raw: dict, actor: str) -> dict:

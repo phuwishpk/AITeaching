@@ -15,6 +15,7 @@ from ..engine import conditions
 from ..engine import flow as F
 from ..engine import widgets as W
 from ..engine.answers import normalize as plain
+from . import simulate
 from ..engine.gemflow import PICKS, STUCK_LIMIT, features  # noqa: F401 (หน้าเว็บใช้ผ่าน flowspec)
 
 KINDS = {
@@ -402,6 +403,7 @@ def validate(raw: dict, bugs: list[str] | None = None) -> dict:
         if not any(sid in steps or (sid == CHAT and spec.get("chat")) for sid in g["steps"]):
             errors.append(f"แนวทาง \"{g['text'][:80]}\" ยังไม่มีขั้นใน Flow ที่ทำแนวทางนี้ (ใส่ id ของขั้นใน steps ของแนวทาง)")
     warnings += overlaps(steps, out)
+    warnings += simulate.dead_edges(spec)
     loop = _instant_loop(steps, out)
     if loop:
         errors.append("มีวงที่วนผ่าน " + " → ".join(steps[s]["label"] for s in loop)
@@ -777,7 +779,7 @@ def design_prompt(gem: dict, errors: list[str] | None = None, previous: dict | N
     )
     if errors and previous:
         text += ("\n\nFlow ที่คุณส่งมารอบก่อนตรวจไม่ผ่าน แก้ข้อผิดพลาดเหล่านี้แล้วส่งใหม่ทั้งหมด:\n- " + "\n- ".join(errors)
-                 + f"\nFlow รอบก่อน:\n{json.dumps(previous, ensure_ascii=False)[:6000]}")
+                 + f"\nFlow รอบก่อน:\n{json.dumps(previous, ensure_ascii=False)[:14000]}")
     return text
 
 
@@ -893,6 +895,28 @@ async def write_widgets(gem: dict, flow_spec: dict, memory: dict | None = None, 
     return notes
 
 
+REVIEW = ("Flow นี้ผ่านกฎของระบบแล้ว ตรวจกับแนวทางของครูอีกรอบ: ตารางด้านล่างระบบจำลองจากเงื่อนไขของคุณ "
+          "ว่านักเรียนแต่ละแบบจะไปขั้นไหนจริง ไล่ทีละแถวเทียบกับคำสั่งของครู แถวไหนไม่ตรงคำสั่ง แก้เส้นหรือลำดับเส้น "
+          "แล้วส่ง Flow ทั้งหมดกลับมา ถ้าตรงทุกแถวให้ส่ง Flow เดิมกลับมาโดยไม่เปลี่ยน\n")
+
+
+def design_problems(checked: dict, keywords: list[str]) -> list[str]:
+    """สิ่งที่ AI ต้องแก้ก่อนใช้ Flow: ข้อผิดพลาดของตัวตรวจ คำของครูที่หาย คำขอให้เล่นที่ไม่ได้เป็น Widget
+    เส้นที่ไม่มีวันถูกใช้ และขั้นที่ไปไม่ถึง (ครูแก้เองยังบันทึกได้ แค่ขึ้นคำเตือน)"""
+    if checked["errors"]:
+        return checked["errors"]
+    problems = []
+    missing = missing_keywords(checked["spec"], keywords)
+    if missing:
+        problems.append(f"คำที่ครูกำหนดให้จับในแชตยังไม่อยู่ใน chat.intents: {', '.join(missing)} "
+                        "ใส่ทุกคำตามตัวอักษรใน keywords ของ intent ที่ตรงกับคำสั่งของครู")
+    problems += mismatched_asks(checked["spec"])
+    problems += [w for w in checked["warnings"] if w.startswith(simulate.DEAD)]
+    problems += [w + " (ถ้าขั้นนี้ใช้หลังพักเพราะเครียด ใส่ id ใน after_stress ถ้าแชตพาไปใส่ใน chat.intents goto)"
+                 for w in checked["warnings"] if "ไปไม่ถึงจากขั้นแรก" in w]
+    return problems
+
+
 async def design(gem: dict, memory: dict | None = None, bugs: list[dict] | None = None,
                  items: list[dict] | None = None) -> dict:
     """ให้ AI ออกแบบ Flow เฉพาะของ Gem จากคำสั่งของครูและสิ่งที่จดจากเอกสาร ตรวจผ่านแล้วคืน gem["flow"]
@@ -902,22 +926,31 @@ async def design(gem: dict, memory: dict | None = None, bugs: list[dict] | None 
     errors, previous = None, None
     bug_ids = [b["id"] for b in bugs] if bugs else None
     keywords = teacher_keywords(gem.get("instructions", ""))
-    for _ in range(3):
+    best, reviewing, attempts = None, False, 0
+    while attempts < 4:
+        attempts += 1
         # ออกแบบ Flow ต้องไล่แนวทางของครูทีละข้อ จึงให้โมเดลคิดเต็มที่ (โทเคนที่ใช้คิดนับรวมใน max_tokens)
         raw = await builder.ask_json("flow", design_prompt(gem, errors, previous, memory, bugs), 32000, thinking="high")
         raw = raw if isinstance(raw, dict) else {}
         checked = validate(raw, bug_ids)
-        missing = missing_keywords(checked["spec"], keywords) if not checked["errors"] else []
-        if missing:
-            checked["errors"] = [f"คำที่ครูกำหนดให้จับในแชตยังไม่อยู่ใน chat.intents: {', '.join(missing)} "
-                                 "ใส่ทุกคำตามตัวอักษรใน keywords ของ intent ที่ตรงกับคำสั่งของครู"]
-        if not checked["errors"]:
-            checked["errors"] = mismatched_asks(checked["spec"])
-        if not checked["errors"]:
-            notes = await write_widgets(gem, checked["spec"], memory, items)
-            warnings = [w for w in checked["warnings"] if not w.startswith("Widget \"")] + notes
-            return record(checked["spec"], "ai", warnings, reviewed=False)
-        errors, previous = checked["errors"], raw
+        problems = design_problems(checked, keywords)
+        if reviewing:
+            # รอบตรวจกับแนวทางของครู: ใช้ผลใหม่ถ้ายังผ่านกฎ ไม่อย่างนั้นใช้แบบก่อนตรวจ
+            if not problems:
+                best = checked
+            break
+        if not problems:
+            # ผ่านกฎแล้ว: ให้ AI ดูตารางว่า Flow จะพานักเรียนไปไหนในแต่ละกรณี เทียบกับแนวทางของครูหนึ่งรอบ
+            best, reviewing = checked, True
+            errors, previous = [REVIEW + simulate.table_text(checked["spec"])], raw
+            continue
+        if attempts >= 3:
+            break
+        errors, previous = problems, raw
+    if best is not None:
+        notes = await write_widgets(gem, best["spec"], memory, items)
+        warnings = [w for w in best["warnings"] if not w.startswith("Widget \"")] + notes
+        return record(best["spec"], "ai", warnings, reviewed=False)
     # ผังมาตรฐานเป็นแค่แม่แบบอ้างอิง ไม่ใช้แทน Flow ของ Gem: ออกแบบไม่ผ่านก็แจ้งให้ออกแบบใหม่
     raise builder.BuildError("AI ออกแบบ Flow ที่ตรวจผ่านไม่ได้ 3 รอบ (" + "; ".join(errors or [])[:300] + ") "
                              "กดให้ AI ออกแบบใหม่ในแท็บ Flow หรือเขียนคำสั่งให้ชัดขึ้น")
