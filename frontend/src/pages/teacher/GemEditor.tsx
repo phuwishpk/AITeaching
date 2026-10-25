@@ -382,6 +382,13 @@ function Instructions({
   const [future, setFuture] = useState<string[]>([]);
   const [refining, setRefining] = useState(false);
 
+  // เพิ่มหรือแทนคำสั่งจากคู่มือ ย้อนกลับได้เหมือนปุ่มให้ AI เกลา
+  const apply = (next: string) => {
+    setPast((p) => [...p, value]);
+    setFuture([]);
+    onChange(next);
+  };
+
   const refine = async () => {
     setRefining(true);
     try {
@@ -447,13 +454,21 @@ function Instructions({
             คู่มือคำที่ใช้เขียนคำสั่ง (กด + เพื่อเพิ่มลงคำสั่ง)
           </summary>
           <p className="xsmall muted">{meta.guide_note}</p>
+          {meta.examples?.map((example) => (
+            <div key={example.title} className="row row-sm">
+              <span className="small strong grow">ตัวอย่างคำสั่งทั้งชุด: {example.title}</span>
+              <Button size="sm" onClick={() => apply(example.text)} title="แทนคำสั่งเดิมทั้งหมด กดย้อนกลับได้">
+                ใช้ตัวอย่างนี้
+              </Button>
+            </div>
+          ))}
           {meta.guide.map((group) => (
             <div key={group.title} className="stack stack-sm">
               <span className="small strong">{group.title}</span>
               <ul className="gem-guide-list">
                 {group.items.map((item) => (
                   <li key={item.say}>
-                    <button type="button" className="icon-btn" onClick={() => onChange(value.trim() ? `${value.trimEnd()}\n${item.say}` : item.say)} aria-label={`เพิ่ม ${item.say}`}>
+                    <button type="button" className="icon-btn" onClick={() => apply(value.trim() ? `${value.trimEnd()}\n${item.say}` : item.say)} aria-label={`เพิ่ม ${item.say}`}>
                       <Plus size={14} />
                     </button>
                     <span className="stack" style={{ gap: 0 }}>

@@ -15,8 +15,8 @@ from ..engine import conditions
 from ..engine import flow as F
 from ..engine import widgets as W
 from ..engine.answers import normalize as plain
-from . import simulate
 from ..engine.gemflow import PICKS, STUCK_LIMIT, features  # noqa: F401 (หน้าเว็บใช้ผ่าน flowspec)
+from . import simulate
 
 KINDS = {
     "item": {"label": "ทำโจทย์", "lane": "correct", "wait": True,
@@ -903,6 +903,18 @@ REVIEW = ("Flow นี้ผ่านกฎของระบบแล้ว ต
           "(level \"auto\" = ตามครั้งที่ผิดและชนิดข้อผิดพลาด) แล้วส่ง Flow ทั้งหมดกลับมา ถ้าตรงทุกข้อให้ส่ง Flow เดิมกลับมาโดยไม่เปลี่ยน\n")
 
 
+def ending_on_wrong(flow_spec: dict) -> list[str]:
+    """เส้นจากขั้นทำโจทย์ไปขั้นจบ (สำเร็จ) ที่ไม่ได้ต้องตอบถูก: นักเรียนตอบผิดก็จบชุดได้ (เจอจาก Gemini จริง)"""
+    steps = {s["id"]: s for s in flow_spec["steps"]}
+    notes = []
+    for edge in flow_spec["edges"]:
+        source, target = steps.get(edge["from"]), steps.get(edge["to"])
+        if (source and target and source["kind"] == "item" and target["kind"] == "end" and target.get("result") == "completed"
+                and edge.get("when") and "correct" not in conditions.names(edge["when"])):
+            notes.append(f"เส้น \"{edge.get('label') or edge['when']}\" จบชุดได้แม้นักเรียนตอบผิด ใส่ correct and ในเงื่อนไข")
+    return notes
+
+
 def prune_unreachable(raw: dict) -> dict:
     """Flow ที่ตัดขั้นซึ่งไม่มีเส้นไปถึงจากขั้นแรก แชต หรือหลังพักเพราะเครียด ออก (พร้อมเส้นของขั้นนั้น)"""
     spec, _ = normalize(raw)
@@ -929,6 +941,7 @@ def design_problems(checked: dict, keywords: list[str]) -> list[str]:
         problems.append(f"คำที่ครูกำหนดให้จับในแชตยังไม่อยู่ใน chat.intents: {', '.join(missing)} "
                         "ใส่ทุกคำตามตัวอักษรใน keywords ของ intent ที่ตรงกับคำสั่งของครู")
     problems += mismatched_asks(checked["spec"])
+    problems += ending_on_wrong(checked["spec"])
     problems += [w for w in checked["warnings"] if w.startswith(simulate.DEAD)]
     problems += [w + " (ถ้าขั้นนี้ใช้หลังพักเพราะเครียด ใส่ id ใน after_stress ถ้าแชตพาไปใส่ใน chat.intents goto)"
                  for w in checked["warnings"] if "ไปไม่ถึงจากขั้นแรก" in w]

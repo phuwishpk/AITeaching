@@ -22,6 +22,8 @@ export interface GemMeta {
   // คู่มือคำที่ใช้เขียนคำสั่ง: ตัวอย่างที่ครูพิมพ์ และระบบทำอะไร (ไม่บังคับ AI ตีความตามบริบท)
   guide: { title: string; items: { say: string; does: string }[] }[];
   guide_note: string;
+  // ตัวอย่างคำสั่งทั้งชุด เช่น ครบผังมาตรฐาน
+  examples: { title: string; text: string }[];
 }
 
 export interface GemTools {

@@ -7,6 +7,8 @@
 
 import ast
 import itertools
+import json
+from functools import lru_cache
 
 from ..engine import conditions
 
@@ -24,7 +26,7 @@ DOMAINS = {
     "impasse": [0.0, 80.0], "rt": [20.0, 60.0], "rt_ratio": [1.0, 2.0], "judge_score": [90, 30],
     "bug_type": ["", "slip", "misconception"],
 }
-MAX_CASES = 4096
+MAX_CASES = 20000
 # กรณีทดสอบมาตรฐานของขั้นทำโจทย์ ลองเสมอแม้ Flow ไม่ได้ใช้ตัวแปรนั้น ตารางจึงเห็นแนวทางที่ AI ลืมใส่
 # เช่น ผิดครั้งที่ 3 แล้วติดหล่ม แต่ยังได้คำใบ้ระดับ 3 (ตัวแปรที่ไม่ได้ใช้ไม่ทำให้ engine เลือกต่างกัน แค่โผล่ในตาราง)
 PROBES = {"wrong": ["bug_type", "impasse", "has_prerequisite", "rounds"],
@@ -34,7 +36,7 @@ DEAD = "เส้นที่ไม่มีวันถูกใช้: "
 
 
 def _constants(edges: list[dict]) -> dict[str, set]:
-    """ตัวเลขที่เงื่อนไขเทียบกับตัวแปร เช่น items_done == 5 → ลอง 4 5 6 ด้วย"""
+    """ตัวเลขที่เงื่อนไขเทียบกับตัวแปร เช่น items_done == 5 → ลอง 4 5 6 ด้วย (ค่าตรงตัวมาก่อน ค่า ±1 ไว้ท้าย ถูกตัดก่อน)"""
     found: dict[str, set] = {}
     for edge in edges:
         tree = conditions.parse(edge.get("when"))
@@ -61,10 +63,19 @@ def _domain(name: str, extra: set) -> list:
         return [""] + sorted(v for v in extra if isinstance(v, str))
     values = list(DOMAINS.get(name, [BASE.get(name, 0)]))
     low = 1 if name in ("error_count", "visits", "widget_tries") else 0
-    for value in sorted(v for v in extra if not isinstance(v, str)):
+    numbers = sorted(v for v in extra if not isinstance(v, str))
+    exact = [v for v in numbers if not any(abs(v - w) in (1, 0.05) and w in numbers and v != w and _is_exact(w, numbers)
+                                           for w in numbers)]
+    for value in exact + [v for v in numbers if v not in exact]:
         if value not in values and value >= low:
             values.append(value)
     return values
+
+
+def _is_exact(value, numbers: list) -> bool:
+    """ค่าตรงตัวจากเงื่อนไข = ค่าที่มีทั้ง ค่า-1 และ ค่า+1 อยู่ในชุด (ชุดถูกสร้างเป็นสามค่าเสมอ)"""
+    step = 1 if isinstance(value, int) else 0.05
+    return any(abs((value - step) - n) < 1e-9 for n in numbers) and any(abs((value + step) - n) < 1e-9 for n in numbers)
 
 
 def _consistent(values: dict) -> dict:
@@ -105,9 +116,21 @@ def _groups(step: dict, edges: list[dict]) -> list[tuple[dict, list[str]]]:
     return groups
 
 
-def cases(flow_spec: dict, step: dict):
-    """ทุกกรณีของขั้นนี้: (ค่าตัวแปรที่ลอง, เส้นที่ engine เลือก)"""
+def cases(flow_spec: dict, step: dict) -> list[tuple[dict, dict | None]]:
+    """ทุกกรณีของขั้นนี้: (ค่าตัวแปรที่ลอง, เส้นที่ engine เลือก) จำผลไว้ หน้าแก้ Flow ตรวจซ้ำบ่อย"""
     edges = [e for e in flow_spec["edges"] if e["from"] == step["id"]]
+    key = json.dumps([step["id"], step["kind"], [[e["to"], e.get("when") or ""] for e in edges]], ensure_ascii=False)
+    return [(values, edges[index] if index is not None else None) for values, index in _cases(key)]
+
+
+@lru_cache(maxsize=256)
+def _cases(key: str) -> tuple:
+    step_id, kind, pairs = json.loads(key)
+    edges = [{"to": to, "when": when, "index": i} for i, (to, when) in enumerate(pairs)]
+    return tuple((values, (edge or {}).get("index")) for values, edge in _enumerate({"id": step_id, "kind": kind}, edges))
+
+
+def _enumerate(step: dict, edges: list[dict]):
     try:
         parsed = [(e, conditions.parse(e.get("when"))) for e in edges]
     except conditions.ConditionError:
@@ -116,7 +139,8 @@ def cases(flow_spec: dict, step: dict):
     for fixed, names in _groups(step, edges):
         domains = [_domain(n, extra.get(n, set())) for n in names]
         while len(names) and _product(domains) > MAX_CASES:
-            longest = max(range(len(domains)), key=lambda i: len(domains[i]))
+            # ตัดจากโดเมนที่ยาวที่สุดทีละค่าท้าย (ค่า ±1 ของตัวเลขในเงื่อนไข) ครั้งที่ผิด 1–4 ไม่ตัด
+            longest = max(range(len(domains)), key=lambda i: len(domains[i]) - (10 if names[i] == "error_count" else 0))
             domains[longest] = domains[longest][:-1]
         for combo in itertools.product(*domains) if names else [()]:
             values = _consistent({**BASE, **fixed, **dict(zip(names, combo))})

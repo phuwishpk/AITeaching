@@ -96,7 +96,7 @@ def gem_meta(auth: dict = Depends(viewer)):
     return {"alert_situations": gem_alerts.catalog({}, chat=False), "alert_defaults": gem_alerts.defaults(),
             "icons": manage.ICONS, "colors": manage.COLORS, "flow": flowspec.catalog(),
             # คู่มือคำที่ใช้เขียนคำสั่ง (ไม่บังคับ AI ตีความตามบริบท สิ่งที่ไม่มี AI สร้างใหม่)
-            "guide": guide.guide(), "guide_note": guide.ADDON_NOTE}
+            "guide": guide.guide(), "guide_note": guide.ADDON_NOTE, "examples": guide.EXAMPLES}
 
 
 @router.get("/{gem_id}")
