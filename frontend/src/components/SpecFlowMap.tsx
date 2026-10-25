@@ -39,6 +39,7 @@ export const KIND_TEXT: Record<string, string> = {
   teacher: "หยุดรอครู",
   check: "ด่านตัดสินใจ",
   activity: "กิจกรรมที่ AI สร้าง",
+  widget: "Widget",
   end: "จบ",
 };
 

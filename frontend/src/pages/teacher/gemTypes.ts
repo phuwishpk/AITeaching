@@ -129,6 +129,8 @@ export interface FlowFeatures {
   walkthrough?: boolean;
   reflect?: boolean;
   activity?: boolean;
+  widget?: boolean;
+  widgets?: string[];
   break?: boolean;
   notify?: boolean;
   teacher?: boolean;
@@ -136,7 +138,7 @@ export interface FlowFeatures {
   remedial?: boolean;
 }
 
-export const FEATURE_LABELS: [Exclude<keyof FlowFeatures, "all">, string][] = [
+export const FEATURE_LABELS: [Exclude<keyof FlowFeatures, "all" | "widgets">, string][] = [
   ["hint_button", "ปุ่มขอคำใบ้"],
   ["hints", "คำใบ้หลังตอบผิด"],
   ["isomorphic", "Isomorphic Test (ข้อคู่ขนานไม่มีคำใบ้)"],
@@ -145,6 +147,7 @@ export const FEATURE_LABELS: [Exclude<keyof FlowFeatures, "all">, string][] = [
   ["walkthrough", "ตัวอย่างทีละขั้น (Walkthrough)"],
   ["reflect", "อธิบายความคิด"],
   ["activity", "กิจกรรมที่ AI สร้าง"],
+  ["widget", "Widget ให้ลงมือทำ"],
   ["break", "พักสายตา"],
   ["notify", "แจ้งครู"],
   ["teacher", "หยุดรอครู"],
@@ -223,6 +226,10 @@ export interface FlowStepSpec {
   result?: string;
   goal?: string;
   response?: string;
+  // ขั้น widget: ชนิดในคลัง (หรือ custom ที่ AI เขียนเอง) คำสั่งถึงนักเรียน และข้อมูลของ Widget
+  widget?: string;
+  prompt?: string;
+  config?: Record<string, unknown>;
   // ข้อความในคำสั่งของครูหรือเอกสารที่เป็นที่มาของขั้นนี้
   reason?: string;
 }
@@ -275,6 +282,7 @@ export interface FlowCheck {
 export interface FlowCatalog {
   kinds: { key: string; label: string; lane: string; wait: boolean; about: string }[];
   picks: { key: string; label: string }[];
+  widgets: { key: string; label: string; about: string; config: string; graded: boolean }[];
   vars: { key: string; label: string; type: string }[];
   params: { key: string; label: string; min: number; max: number; default: number }[];
   step_numbers: Record<string, { min: number; max: number }>;

@@ -13,6 +13,7 @@ import time
 from ..config import DEFAULT_PARAMS, PARAM_LABELS
 from ..engine import conditions
 from ..engine import flow as F
+from ..engine import widgets as W
 from ..engine.gemflow import PICKS, STUCK_LIMIT, features  # noqa: F401 (หน้าเว็บใช้ผ่าน flowspec)
 
 KINDS = {
@@ -33,6 +34,10 @@ KINDS = {
                  "about": "ขั้นที่คลังขั้นไม่มี: บรรยายใน goal ว่าต้องการกิจกรรมแบบไหน (เช่น ให้เรียงลำดับขั้น PEMDAS "
                           "อธิบายด้วยตัวอย่างใหม่ ตั้งคำถามชวนสังเกต) AI สร้างเนื้อหาจริงตอนนักเรียนมาถึงจากเอกสารของครู "
                           "นักเรียนอ่านแล้วไปต่อ หรือพิมพ์ตอบให้ AI ประเมินตาม rubric"},
+    "widget": {"label": "Widget", "lane": "help", "wait": True,
+               "about": "Widget ให้นักเรียนลงมือทำ เลือกจากคลัง (ลากเรียงลำดับ จับคู่ ตาชั่งสมการ แบบจำลองเศษส่วน "
+                        "เส้นจำนวน เติมคำ) ระบบตรวจถูกผิดด้วยกฎและนับเข้า Mastery ถ้าคำสั่งของครูขอ Widget ที่คลังไม่มี "
+                        "ใช้ custom ให้ AI เขียนขึ้นใหม่ (ไม่นับคะแนน)"},
     "end": {"label": "จบ", "lane": "correct", "wait": True, "about": "จบชุดคำถาม (สำเร็จ หรือหยุดไว้ก่อน)"},
 }
 
@@ -74,7 +79,7 @@ GUARDS = [
 ]
 
 BACK = "back"
-START_KINDS = ("item", "lesson", "activity", "reflect")
+START_KINDS = ("item", "lesson", "activity", "reflect", "widget")
 
 
 class FlowError(Exception):
@@ -203,6 +208,22 @@ def normalize(raw: dict) -> tuple[dict, list[str]]:
             step["goal"] = _text(s.get("goal"), 800) or step["label"]
             step["response"] = "text" if s.get("response") == "text" else "none"
             step["rubric"] = _text(s.get("rubric"), 600)
+        elif kind == "widget":
+            widget = s.get("widget")
+            if widget not in W.WIDGETS:
+                raise FlowError(f"ขั้น \"{original}\" ใช้ Widget \"{widget}\" ที่คลังไม่มี "
+                                f"(มี {', '.join(W.WIDGETS)} ถ้าไม่มีแบบที่ต้องการให้ใช้ custom พร้อม goal)")
+            step["widget"] = widget
+            step["title"] = _text(s.get("title"), 60) or step["label"]
+            step["prompt"] = _text(s.get("prompt"), 300)
+            try:
+                step["config"] = W.normalize_config(widget, s.get("config"))
+            except W.WidgetError as error:
+                raise FlowError(f"ขั้น \"{original}\": {error}") from error
+            if widget == "custom":
+                step["goal"] = _text(s.get("goal"), 800)
+                if not step["goal"]:
+                    raise FlowError(f"ขั้น \"{original}\" เป็น Widget ที่ AI เขียนเอง ต้องบรรยายใน goal ว่าต้องการ Widget แบบไหน")
         elif kind == "end":
             step["result"] = "stopped" if s.get("result") == "stopped" else "completed"
             step["text"] = _text(s.get("text"), 200)
@@ -269,7 +290,7 @@ def validate(raw: dict, bugs: list[str] | None = None) -> dict:
         return {"spec": spec, "errors": ["Flow ต้องมีอย่างน้อยหนึ่งขั้น"], "warnings": warnings}
     # เริ่มได้ด้วยขั้นที่นักเรียนทำเองได้ เช่น ทำโจทย์ อ่านบทเรียนย่อก่อน หรือกิจกรรม (ไม่ใช่ขั้นจบ พัก หรือรอครู)
     if not spec["start"] or steps[spec["start"]]["kind"] not in START_KINDS:
-        errors.append("ขั้นแรกของ Flow ต้องเป็นขั้นทำโจทย์ บทเรียนย่อ อธิบายความคิด หรือกิจกรรม")
+        errors.append("ขั้นแรกของ Flow ต้องเป็นขั้นทำโจทย์ บทเรียนย่อ อธิบายความคิด กิจกรรม หรือ Widget")
     elif not any(s["kind"] == "item" for s in steps.values()):
         errors.append("Flow ต้องมีขั้นทำโจทย์อย่างน้อยหนึ่งขั้น")
     out: dict[str, list[dict]] = {sid: [] for sid in steps}
@@ -292,6 +313,8 @@ def validate(raw: dict, bugs: list[str] | None = None) -> dict:
         if answer_vars and kind not in ("item", "hint", "check", "notify"):
             warnings.append(f"เส้นจาก \"{steps[edge['from']]['label']}\" ใช้ผลการตอบ ({', '.join(sorted(answer_vars))}) "
                             "แต่ขั้นนี้ไม่ได้รับคำตอบ ค่าจะเป็นของคำตอบล่าสุด")
+        if used & {"widget_pass", "widget_tries"} and kind != "widget":
+            warnings.append(f"เส้นจาก \"{steps[edge['from']]['label']}\" ใช้ผลของ Widget แต่ขั้นนี้ไม่ใช่ Widget")
         if used & {"judge_pass", "judge_score"} and kind not in ("reflect", "activity"):
             warnings.append(f"เส้นจาก \"{steps[edge['from']]['label']}\" ใช้ผลการประเมินคำอธิบาย แต่ไม่ใช่ขั้นอธิบายความคิด")
         out[edge["from"]].append(edge)
@@ -300,6 +323,8 @@ def validate(raw: dict, bugs: list[str] | None = None) -> dict:
             errors.append(f"ขั้น \"{step['label']}\" ไม่มีเส้นออก นักเรียนจะติดอยู่ที่ขั้นนี้")
         if step["kind"] == "activity" and step.get("response") == "text" and not step.get("rubric"):
             warnings.append(f"ขั้น \"{step['label']}\" ให้นักเรียนพิมพ์ตอบแต่ยังไม่มีเกณฑ์ประเมิน AI จะประเมินตามเป้าหมายของกิจกรรม")
+        if step["kind"] == "widget" and step["widget"] == "custom" and not step["config"].get("html"):
+            warnings.append(f"Widget \"{step['label']}\" ยังไม่มีหน้าเว็บ ให้ AI เขียนในแท็บ Flow (ยังไม่มี ระบบจะข้ามขั้นนี้)")
         if step["kind"] == "reflect" and step.get("judge") and not step.get("rubric"):
             warnings.append(f"ขั้น \"{step['label']}\" ให้ AI ประเมินแต่ยังไม่มีเกณฑ์ของครู")
         catch_all = [i for i, e in enumerate(out[sid]) if not (e["when"] or "").strip() or e["when"].strip() in conditions.ALWAYS]
@@ -410,6 +435,11 @@ def leak_warnings(spec: dict, items: list[dict]) -> list[str]:
             if found:
                 notes.append(f"บทเรียนย่อ \"{step['label']}\" มีโจทย์ข้อ {found} พร้อมคำตอบ ระบบจะซ่อนข้อความนี้จากนักเรียน "
                              "แก้ให้เป็นตัวอย่างที่ไม่อยู่ในคลังโจทย์")
+        if step["kind"] == "widget":
+            found = leaked_item(W.text_of(step["widget"], step["config"]), items)
+            if found:
+                notes.append(f"Widget \"{step['label']}\" ใช้โจทย์ข้อ {found} ในคลังพร้อมเฉลย ระบบจะข้ามขั้นนี้ไปจนกว่านักเรียน"
+                             "จะทำข้อนั้นผ่าน แก้ให้ใช้ตัวเลขอื่น")
     return notes
 
 
@@ -420,6 +450,7 @@ def catalog() -> dict:
     return {
         "kinds": [{"key": k, **v} for k, v in KINDS.items()],
         "picks": [{"key": k, "label": v} for k, v in PICKS.items()],
+        "widgets": [{"key": k, **v} for k, v in W.WIDGETS.items()],
         "vars": [{"key": k, "label": v[0], "type": v[1]} for k, v in conditions.VARS.items()],
         "params": [{"key": k, "label": PARAM_LABELS[k], "min": lo, "max": hi, "default": DEFAULT_PARAMS[k]}
                    for k, (lo, hi) in PARAM_RANGES.items()],
@@ -462,6 +493,10 @@ def _describe(step: dict) -> str:
         return step.get("text") or ""
     if kind == "activity":
         return step.get("goal", "") + (" · นักเรียนพิมพ์ตอบ AI ประเมินตามเกณฑ์" if step.get("response") == "text" else "")
+    if kind == "widget":
+        info = W.WIDGETS[step["widget"]]
+        return f"{info['label']}: " + (step.get("goal") if step["widget"] == "custom" else step.get("prompt") or step["title"]) + (
+            "" if info["graded"] else " · ไม่นับคะแนน")
     if kind == "end":
         return "จบชุด (สำเร็จ)" if step.get("result") == "completed" else "หยุดไว้ก่อน บันทึกความคืบหน้า"
     return KINDS[kind]["about"]
@@ -484,6 +519,7 @@ def design_prompt(gem: dict, errors: list[str] | None = None, previous: dict | N
                   memory: dict | None = None, bugs: list[dict] | None = None) -> str:
     kinds = "\n".join(f"- {k}: {v['about']}" for k, v in KINDS.items())
     picks = "\n".join(f"  - {k}: {v}" for k, v in PICKS.items())
+    widgets = "\n".join(f"- {k} ({v['label']}): {v['about']} · config {v['config']}" for k, v in W.WIDGETS.items())
     variables = "\n".join(f"- {k}: {v[0]}" for k, v in conditions.VARS.items())
     params = "\n".join(f"- {k}: {PARAM_LABELS[k]} ช่วง {lo}–{hi} (ค่าเริ่มต้น {DEFAULT_PARAMS[k]:g})"
                        for k, (lo, hi) in PARAM_RANGES.items())
@@ -507,7 +543,13 @@ def design_prompt(gem: dict, errors: list[str] | None = None, previous: dict | N
         "break มี seconds (15–300) และ text, notify มี level (urgent/normal/silent) และ text, teacher มี text, "
         "end มี result (completed/stopped) และ text, "
         "activity มี title, goal (บรรยายให้ชัดว่า AI ต้องสร้างกิจกรรมอะไร อิงเอกสารของครู), response (\"none\" หรือ \"text\") "
-        "และ rubric (เกณฑ์ประเมินเมื่อ response เป็น text)\n\n"
+        "และ rubric (เกณฑ์ประเมินเมื่อ response เป็น text), "
+        "widget มี widget (ชนิดจากคลังด้านล่าง), title, prompt (คำสั่งสั้น ๆ ถึงนักเรียน) และ config (ข้อมูลตามชนิด "
+        "ห้ามใช้โจทย์ในคลังพร้อมเฉลย ใช้ตัวเลขหรือตัวอย่างอื่น) ถ้าเป็น custom ใส่ goal แทน config\n\n"
+        f"คลัง Widget (ใช้เมื่อคำสั่งของครูให้นักเรียนลงมือทำ เช่น ลาก เรียง จับคู่ ระบาย วางบนเส้นจำนวน หรือใช้ตาชั่ง):\n{widgets}\n"
+        "Widget ในคลังตรวจถูกผิดด้วยกฎ เส้นออกใช้ widget_pass และ widget_tries ได้ เช่น ผิดให้ลองใหม่ที่ขั้นเดิม "
+        "(เส้นกลับขั้นตัวเอง) จนครบ 2 ครั้งแล้วไปบทเรียนย่อ ถ้าคำสั่งขอ Widget ที่คลังไม่มีจริง ๆ ให้ใช้ custom "
+        "และบรรยาย goal ให้ละเอียด (หน้าตา สิ่งที่นักเรียนทำ สิ่งที่ Widget บอกนักเรียน)\n\n"
         "กติกาของขั้นทำโจทย์: กลับมาที่ขั้น item เดิมขณะที่ข้อยังไม่ถูก = ทำข้อเดิมต่อ (ใช้หลังให้คำใบ้) "
         "ถ้าข้อถูกแล้วหรือมาจากขั้น item อื่น = ได้ข้อใหม่ตาม pick "
         "หลังทบทวนพื้นฐาน (pick prerequisite) ขั้น item ถัดไปจะให้ข้อที่พักไว้ก่อนเสมอ\n\n"
@@ -574,6 +616,65 @@ FORMAT_EXAMPLE = {
 }
 
 
+# ---------------------------------------------------------------- Widget ที่ AI เขียนเอง
+
+def widget_prompt(gem: dict, step: dict, memory: dict | None = None) -> str:
+    return (
+        "เขียน Widget เล็ก ๆ ให้นักเรียนลงมือทำ เป็นหน้าเว็บ HTML ไฟล์เดียว ใช้ในบทเรียนของติวเตอร์ภาษาไทย\n\n"
+        f"ชื่อ Gem: {gem.get('name', '')}\nคำสั่งของครู:\n\"\"\"\n{gem.get('instructions', '')[:4000]}\n\"\"\"\n"
+        + (f"สิ่งที่ AI จดจากเอกสารของครู:\n{json.dumps(memory, ensure_ascii=False)[:4000]}\n" if memory else "")
+        + f"\nWidget ที่ต้องการ (ขั้น \"{step.get('label', '')}\"): {step.get('goal', '')}\n"
+        + (f"คำสั่งถึงนักเรียน: {step['prompt']}\n" if step.get("prompt") else "")
+        + "\nข้อกำหนด:\n"
+        "- HTML ไฟล์เดียว CSS และ JavaScript อยู่ในไฟล์ทั้งหมด ห้ามโหลดอะไรจากภายนอก (ไม่มี CDN fetch รูปจากลิงก์ หรือฟอนต์ภายนอก) "
+        "ใช้ SVG หรือ CSS วาดแทนรูป\n"
+        "- ข้อความภาษาไทย อ่านง่าย ปุ่มใหญ่กดง่ายบนมือถือ กว้างเต็มกรอบ สูงไม่เกิน 520px สีหลักชมพู #d6336c พื้นขาว\n"
+        "- ห้ามบอกคำตอบของโจทย์ในบทเรียน ถ้าต้องใช้ตัวเลขให้ใช้ตัวอย่างใหม่ บอกนักเรียนได้แค่ว่าทำถูกหรือยัง พร้อมคำถามชวนคิด\n"
+        "- มีปุ่ม \"เสร็จแล้ว\" เมื่อกดให้เรียก parent.postMessage({type: \"widget-done\", result: \"สรุปสั้น ๆ ว่านักเรียนทำอะไร\"}, \"*\")\n"
+        "- ไม่ใช้ localStorage cookie alert prompt หรือ window.open\n"
+        f"- ยาวไม่เกิน {W.HTML_LIMIT // 2} ตัวอักษร\n\n"
+        "ตอบเป็น JSON: {\"html\": \"<!doctype html>...\"}"
+    )
+
+
+def clean_html(html: str) -> str:
+    """ตัดสิ่งที่โหลดจากภายนอกออก (หน้านักเรียนรันใน iframe sandbox ที่มี CSP ห้ามเน็ตซ้ำอีกชั้น)"""
+    html = re.sub(r"<script[^>]*\bsrc\s*=[^>]*>\s*</script>", "", html, flags=re.I)
+    html = re.sub(r"<(link|base|iframe|object|embed|meta)\b[^>]*>", "", html, flags=re.I)
+    html = re.sub(r"\b(src|href)\s*=\s*([\"'])\s*(https?:|//)[^\"']*\2", r"\1=\2#\2", html, flags=re.I)
+    return html[:W.HTML_LIMIT]
+
+
+async def write_widget(gem: dict, step: dict, memory: dict | None = None) -> str:
+    """ให้ AI เขียนหน้าเว็บของ Widget custom ไม่สำเร็จ raise BuildError"""
+    from . import builder
+
+    raw = await builder.ask_json("widget", widget_prompt(gem, step, memory), 16000)
+    html = clean_html(str((raw or {}).get("html") or "") if isinstance(raw, dict) else "")
+    if "<" not in html or len(html) < 40:
+        raise builder.BuildError(f"AI เขียน Widget \"{step.get('label', '')}\" ไม่สำเร็จ")
+    return html
+
+
+async def write_widgets(gem: dict, flow_spec: dict, memory: dict | None = None) -> list[str]:
+    """เขียนหน้าเว็บให้ Widget custom ทุกขั้นที่ยังไม่มี คืนคำเตือนของขั้นที่เขียนไม่สำเร็จ (ขั้นนั้นจะถูกข้าม)"""
+    import asyncio
+
+    from . import builder
+
+    todo = [s for s in flow_spec["steps"] if s["kind"] == "widget" and s["widget"] == "custom" and not s["config"].get("html")]
+    results = await asyncio.gather(*(write_widget(gem, s, memory) for s in todo), return_exceptions=True)
+    notes = []
+    for step, result in zip(todo, results):
+        if isinstance(result, builder.BuildError):
+            notes.append(f"{result} ระบบจะข้ามขั้นนี้ ให้ AI เขียนใหม่ในแท็บ Flow")
+        elif isinstance(result, BaseException):
+            raise result
+        else:
+            step["config"] = {"html": result}
+    return notes
+
+
 async def design(gem: dict, memory: dict | None = None, bugs: list[dict] | None = None) -> dict:
     """ให้ AI ออกแบบ Flow เฉพาะของ Gem จากคำสั่งของครูและสิ่งที่จดจากเอกสาร ตรวจผ่านแล้วคืน gem["flow"]
     แก้สองรอบแล้วยังตรวจไม่ผ่าน ใช้ผังมาตรฐานของระบบ (บอกครูในคำเตือน)"""
@@ -587,7 +688,9 @@ async def design(gem: dict, memory: dict | None = None, bugs: list[dict] | None 
         raw = raw if isinstance(raw, dict) else {}
         checked = validate(raw, bug_ids)
         if not checked["errors"]:
-            return record(checked["spec"], "ai", checked["warnings"], reviewed=False)
+            notes = await write_widgets(gem, checked["spec"], memory)
+            warnings = [w for w in checked["warnings"] if not w.startswith("Widget \"")] + notes
+            return record(checked["spec"], "ai", warnings, reviewed=False)
         errors, previous = checked["errors"], raw
     # ผังมาตรฐานเป็นแค่แม่แบบอ้างอิง ไม่ใช้แทน Flow ของ Gem: ออกแบบไม่ผ่านก็แจ้งให้ออกแบบใหม่
     raise builder.BuildError("AI ออกแบบ Flow ที่ตรวจผ่านไม่ได้ 3 รอบ (" + "; ".join(errors or [])[:300] + ") "

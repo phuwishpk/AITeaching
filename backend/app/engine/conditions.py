@@ -32,6 +32,8 @@ VARS: dict[str, tuple[str, str]] = {
     "visits": ("เข้าขั้นนี้มาแล้วกี่ครั้งใน Session นี้", "int"),
     "judge_pass": ("AI ประเมินว่าคำอธิบายผ่านเกณฑ์ของครู", "bool"),
     "judge_score": ("คะแนนคำอธิบายที่ AI ประเมิน (0–100)", "num"),
+    "widget_pass": ("นักเรียนทำ Widget ล่าสุดถูก (Widget ที่ AI เขียนเองเป็นจริงเสมอ)", "bool"),
+    "widget_tries": ("จำนวนครั้งที่ส่งคำตอบใน Widget นี้ นับรวมครั้งล่าสุดแล้ว", "int"),
     "bug": ("รหัสข้อผิดพลาดของคำตอบผิดล่าสุด", "text"),
     "bug_type": ("ชนิดข้อผิดพลาดล่าสุด (misconception หรือ slip)", "text"),
 }

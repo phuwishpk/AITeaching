@@ -434,7 +434,7 @@ async def chat(code: str, set_id: str, message: str) -> dict:
                 "view": engine.student_view(state, ctx)}
 
     paused = db.load_state(code, set_id)
-    if paused and paused["position"] not in F.CAN_ANSWER | {F.LESSON, F.REFLECT, F.ACTIVITY}:
+    if paused and paused["position"] not in F.CAN_ANSWER | {F.LESSON, F.REFLECT, F.ACTIVITY, F.WIDGET}:
         # ระบบหยุดรอครูหรือนักเรียนกำลังพัก: ข้อความส่งถึงครูโดยตรง AI ไม่ตอบ
         content = content_for(paused["subject_id"], set_id)
         return {"reply": None, "to_teacher": True, "view": engine.student_view(paused, make_ctx(content))}
@@ -519,6 +519,12 @@ async def reflect(code: str, set_id: str, text: str) -> dict:
         if verdict.get("error"):
             await raise_alert(code, set_id, "ai_outage", f"AI ขัดข้องตอนประเมินคำอธิบาย: {verdict['error']}")
     state, content, ctx, fx = await run_event(code, set_id, engine.reflect, scrubbed, verdict)
+    return {"result": fx.result, "view": engine.student_view(state, ctx)}
+
+
+async def widget(code: str, set_id: str, response: dict) -> dict:
+    """ขั้น Widget ของ Flow ใน Gem: ตรวจด้วยกฎ (engine/widgets.py) ไม่ใช้ AI"""
+    state, content, ctx, fx = await run_event(code, set_id, engine.widget, response if isinstance(response, dict) else {})
     return {"result": fx.result, "view": engine.student_view(state, ctx)}
 
 

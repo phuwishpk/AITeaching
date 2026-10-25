@@ -346,3 +346,100 @@ def test_only_features_in_the_flow_are_shown(subject):
     content = gem_content(subject, flow, {"hints": False})
     state, ctx = start(content)
     assert engine.student_view(state, ctx)["hint_button"]["visible"] is True
+
+
+def test_widget_steps_are_checked_by_rules_and_hide_the_answer(subject):
+    """Widget ในคลัง: หน้านักเรียนไม่เห็นลำดับที่ถูก ตรวจด้วยกฎ ผิดลองที่เดิม ครบ 2 ครั้งไปบทเรียน และนับเข้า Mastery"""
+    from app.engine import widgets
+
+    order = ["วงเล็บ", "เลขยกกำลัง", "คูณหรือหาร", "บวกหรือลบ"]
+    flow = {"start": "sort",
+            "steps": [{"id": "sort", "kind": "widget", "widget": "order", "title": "เรียง PEMDAS",
+                       "prompt": "ลากเรียงลำดับการคำนวณ", "config": {"items": order}},
+                      {"id": "read", "kind": "lesson", "text": "จำว่า P E MD AS"},
+                      {"id": "w", "kind": "item", "pick": "main"}, {"id": "e", "kind": "end"}],
+            "edges": [{"from": "sort", "to": "w", "when": "widget_pass"},
+                      {"from": "sort", "to": "read", "when": "widget_tries >= 2"},
+                      {"from": "sort", "to": "sort", "when": ""},
+                      {"from": "read", "to": "w", "when": ""},
+                      {"from": "w", "to": "e", "when": "correct"}, {"from": "w", "to": "w", "when": ""}]}
+    content = gem_content(subject, flow)
+    state, ctx = start(content)
+    assert state["position"] == F.WIDGET
+    shown = engine.student_view(state, ctx)["widget"]
+    assert sorted(shown["data"]["items"]) == sorted(order) and shown["data"]["items"] != order
+    assert "config" not in shown and shown["graded"]
+
+    fx = engine.widget(state, at(ctx, 1010), {"order": list(reversed(order))})
+    assert state["position"] == F.WIDGET and fx.result["kind"] == "wrong" and fx.result["marks"] == [False] * 4
+    engine.widget(state, at(ctx, 1020), {"order": order})
+    assert state["position"] == F.ANSWERING and step(state) == "w", "ถูกในครั้งที่สอง ไปตามเส้น widget_pass"
+    target = content.target if not state.get("item") else content.item(state["item"]["id"])["concept"]
+    entry = [e for e in state["mastery"][target] if e["item"] == "widget:sort"]
+    assert entry and entry[0]["w"] == 0.5, "แก้จนถูก = 0.5"
+
+    state, ctx = start(content)
+    engine.widget(state, at(ctx, 1010), {})
+    engine.widget(state, at(ctx, 1020), {})
+    assert state["position"] == F.LESSON, "ผิดครบ 2 ครั้งไปบทเรียนย่อ"
+
+    balance = widgets.normalize_config("balance", {"equation": "3x+2=11"})
+    assert widgets.check("balance", balance, widgets.solution("balance", balance))["correct"]
+    lopsided = widgets.check("balance", balance, {"steps": [{"op": "-", "n": 2, "side": "left"}, {"op": "/", "n": 3}]})
+    assert not lopsided["correct"] and lopsided["lopsided"] == 1, "ลบข้างเดียว ตาชั่งเสียสมดุล"
+
+
+def test_widget_errors_and_custom_widgets(subject):
+    bad = {"start": "b", "steps": [{"id": "b", "kind": "widget", "widget": "balance", "config": {"equation": "2x+3=8"}},
+                                   {"id": "e", "kind": "end"}],
+           "edges": [{"from": "b", "to": "e", "when": ""}]}
+    assert "จำนวนเต็ม" in " ".join(flowspec.validate(bad)["errors"])
+    bad["steps"][0].update(widget="spinner")
+    assert "custom" in " ".join(flowspec.validate(bad)["errors"]), "ชนิดที่คลังไม่มี ให้ใช้ custom"
+
+    # custom ที่ยังไม่มีหน้าเว็บ: เตือนครู และนักเรียนข้ามขั้นนี้ไปเอง
+    flow = {"start": "play",
+            "steps": [{"id": "play", "kind": "widget", "widget": "custom", "goal": "เกมยิงลูกโป่งตอบลำดับการคำนวณ"},
+                      {"id": "w", "kind": "item", "pick": "main"}, {"id": "e", "kind": "end"}],
+            "edges": [{"from": "play", "to": "w", "when": ""}, {"from": "w", "to": "e", "when": "correct"},
+                      {"from": "w", "to": "w", "when": ""}]}
+    assert any("ยังไม่มีหน้าเว็บ" in w for w in flowspec.validate(flow)["warnings"])
+    state, ctx = start(gem_content(subject, flow))
+    assert state["position"] == F.ANSWERING
+    flow["steps"][0]["config"] = {"html": flowspec.clean_html(
+        '<script src="https://cdn.example.com/x.js"></script><button onclick="parent.postMessage({type:\'widget-done\'},\'*\')">เสร็จแล้ว</button>')}
+    assert "cdn.example.com" not in flow["steps"][0]["config"]["html"]
+    content = gem_content(subject, flow)
+    state, ctx = start(content)
+    assert state["position"] == F.WIDGET and engine.student_view(state, ctx)["widget"]["graded"] is False
+    engine.widget(state, at(ctx, 1010), {"done": True})
+    assert state["position"] == F.ANSWERING and not any(
+        e["item"].startswith("widget:") for entries in state["mastery"].values() for e in entries), "custom ไม่นับคะแนน"
+
+
+def test_design_writes_html_for_widgets_the_library_lacks(monkeypatch):
+    """AI ออกแบบ Flow ที่ขอ Widget ที่คลังไม่มี: เขียนหน้าเว็บให้ตอนออกแบบ ตัดสิ่งที่โหลดจากภายนอกออก"""
+    import asyncio
+
+    from app.gems import builder
+
+    designed = {"start": "play",
+                "steps": [{"id": "play", "kind": "widget", "widget": "custom", "goal": "เกมลูกโป่งเรียงลำดับ PEMDAS"},
+                          {"id": "w", "kind": "item", "pick": "main"}, {"id": "e", "kind": "end"}],
+                "edges": [{"from": "play", "to": "w", "when": ""}, {"from": "w", "to": "e", "when": "correct"},
+                          {"from": "w", "to": "w", "when": ""}]}
+    asked = []
+
+    async def fake_ask(step, user, max_tokens=12000, thinking="minimal"):
+        asked.append(step)
+        if step == "flow":
+            return designed
+        assert "เกมลูกโป่ง" in user
+        return {"html": '<!doctype html><link rel="stylesheet" href="https://x.example/a.css">'
+                        '<body><p>ยิงลูกโป่งตามลำดับ</p><button>เสร็จแล้ว</button></body>'}
+
+    monkeypatch.setattr(builder, "ask_json", fake_ask)
+    flow = asyncio.run(flowspec.design({"name": "PEMDAS", "instructions": "มีเกมลูกโป่ง"}))
+    html = flow["spec"]["steps"][0]["config"]["html"]
+    assert asked == ["flow", "widget"] and "ยิงลูกโป่ง" in html and "x.example" not in html
+    assert not any("ยังไม่มีหน้าเว็บ" in w for w in flow["warnings"])

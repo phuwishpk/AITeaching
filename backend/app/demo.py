@@ -14,6 +14,7 @@ from fractions import Fraction
 from . import db, services, settings_store
 from .engine import core as engine
 from .engine import flow as F
+from .engine import widgets
 from .engine.answers import match_bug
 from .engine.core import Content, Ctx, Fx
 from .hub import hub
@@ -134,6 +135,14 @@ def agent_act(state: dict, content, persona_key: str, rng: random.Random, t: flo
         step = (state.get("flow") or {}).get("step")
         answer = (content.steps.get(step) or {}).get("response") == "text"
         fxs.append(engine.reflect(state, ctx, "ลองทำตามกิจกรรมแล้ว", None) if answer else engine.walkthrough_done(state, ctx))
+        return fxs, t
+    if position == F.WIDGET:
+        # นักเรียนจำลองทำ Widget ถูกบ้างผิดบ้าง (ผิด = ส่งคำตอบว่าง)
+        t += rng.uniform(15, 40)
+        ctx.now = t
+        step = content.steps.get((state.get("flow") or {}).get("step")) or {}
+        good = rng.random() < 0.7
+        fxs.append(engine.widget(state, ctx, widgets.solution(step["widget"], step["config"]) if good and step else {}))
         return fxs, t
     if position == F.REFLECT:
         t += rng.uniform(20, 50)

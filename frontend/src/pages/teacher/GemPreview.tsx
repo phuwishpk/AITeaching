@@ -6,6 +6,7 @@ import { ago } from "../../lib/format";
 import type { AiLog } from "../../lib/types";
 import AiLogCard from "../../components/AiLog";
 import { Badge, Button, Modal, useToast } from "../../components/ui";
+import FlowWidget, { type WidgetResult, type WidgetView } from "../../components/FlowWidget";
 import type { GemDetail, GemVersion } from "./gemTypes";
 
 // แท็บ "ลองเรียน": ครูเรียน Gem ผ่าน engine จริงในบทบาทนักเรียนทดสอบ (ไม่นับเข้าสถิติ ไม่ส่งแจ้งเตือน)
@@ -24,6 +25,7 @@ interface PreviewView {
   reflect?: { question: string };
   activity?: { title: string; status: string; text: string | null; question: string | null; response: "none" | "text" };
   break_text?: string | null;
+  widget?: WidgetView;
   error_count: number;
   ended: boolean;
   gem: { tools: Record<string, boolean>; starter_prompts: string[] } | null;
@@ -33,7 +35,7 @@ interface PreviewResponse {
   view: PreviewView | null;
   code: string;
   ai: AiLog | null;
-  result?: { kind: string; message: string } | null;
+  result?: (WidgetResult & { message: string }) | null;
   reply?: string | null;
   to_teacher?: boolean;
 }
@@ -167,6 +169,12 @@ export function PreviewTry({ gem }: { gem: GemDetail }) {
                 ทำเสร็จแล้ว ไปต่อ
               </Button>
             ))}
+        </div>
+      ) : view.position === "FLOW_WIDGET" && view.widget ? (
+        <div className="gem-item">
+          <span className="small strong">{view.widget.title}</span>
+          {view.widget.prompt && <span className="small">{view.widget.prompt}</span>}
+          <FlowWidget key={`${view.widget.title}-${view.widget.type}`} widget={view.widget} onSubmit={async (response) => (await call("/widget", { response }))?.result} />
         </div>
       ) : view.position === "FLOW_REFLECT" ? (
         <TryReflect question={view.reflect?.question ?? ""} busy={busy} onSend={async (text) => setMessage((await call("/reflect", { answer: text }))?.result?.message ?? null)} />

@@ -38,12 +38,14 @@ STUDENT_LABELS = {
     F.LESSON: "บทเรียนย่อ",
     F.REFLECT: "อธิบายความคิดของเรา",
     F.ACTIVITY: "กิจกรรม",
+    F.WIDGET: "ลงมือทำ",
 }
 
 BLOCK_MESSAGES = {
     F.LESSON: "อ่านบทเรียนย่อให้จบก่อนนะ",
     F.REFLECT: "เขียนอธิบายความคิดก่อนนะ",
     F.ACTIVITY: "ทำกิจกรรมนี้ให้เสร็จก่อนนะ",
+    F.WIDGET: "ทำกิจกรรมนี้ให้เสร็จก่อนนะ",
     F.LIVE: "กำลังเตรียมโจทย์ใหม่ให้ รอสักครู่นะ",
     F.OUTAGE: "AI ขัดข้องชั่วคราว ระบบกำลังลองใหม่",
     F.LOCK: "ระบบพักปุ่มตอบไว้สักครู่ ลองอ่านโจทย์อีกครั้งนะ",
@@ -310,7 +312,7 @@ def cross_format_flag(state: dict, concept: str) -> bool:
     """Cross-Format Check: ปรนัยได้ดี แต่โจทย์เติมคำทำไม่ได้ แปลว่าที่ผ่านมาอาจเป็นการเดา"""
     stats = state["format_stats"].get(concept, {})
     mcq = stats.get("mcq", [])
-    other = stats.get("numeric", []) + stats.get("short", [])
+    other = stats.get("numeric", []) + stats.get("short", []) + stats.get("widget", [])
     if len(mcq) >= 2 and len(other) >= 2:
         return sum(mcq) / len(mcq) >= 0.8 and sum(other) / len(other) <= 0.34
     return False
@@ -1488,6 +1490,15 @@ def reflect(state: dict, ctx: Ctx, text: str, verdict: dict | None = None) -> Fx
         fx.result = {"kind": "blocked", "message": "ชุดคำถามนี้ไม่มีขั้นอธิบายความคิด"}
         return fx
     return gemflow.reflect(state, ctx, text, verdict)
+
+
+def widget(state: dict, ctx: Ctx, response: dict) -> Fx:
+    """นักเรียนส่งคำตอบของ Widget ในขั้น "widget" ของ Flow ที่ออกแบบใน Gem (ตรวจด้วยกฎ)"""
+    if not ctx.content.spec:
+        fx = Fx()
+        fx.result = {"kind": "blocked", "message": "ชุดคำถามนี้ไม่มี Widget"}
+        return fx
+    return gemflow.widget(state, ctx, response)
 
 
 def risk_inputs(state: dict) -> dict:

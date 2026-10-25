@@ -22,6 +22,7 @@ import { mmss } from "../../lib/format";
 import { TopBar } from "../../components/Shell";
 import { Badge, Button, Modal, Spinner } from "../../components/ui";
 import { StudentLogin } from "../Login";
+import FlowWidget, { type WidgetResult, type WidgetView } from "../../components/FlowWidget";
 
 interface Hint {
   level: number;
@@ -57,6 +58,7 @@ interface View {
   reflect?: { question: string };
   activity?: { title: string; status: "pending" | "ready" | "fallback"; text: string | null; question: string | null; response: "none" | "text" };
   break_text?: string | null;
+  widget?: WidgetView;
   // ฟีเจอร์ที่ Flow ของ Gem ใช้จริง ไม่มีใน Flow ก็ไม่แสดง (ไม่มีค่านี้ = ชุดคำถามผังมาตรฐาน ใช้ทุกอย่าง)
   features?: FlowFeatures;
   remedial: { concept_name: string; round: number } | null;
@@ -313,7 +315,7 @@ function Room({ code, onLogout }: { code: string; onLogout: () => void }) {
           </div>
           <aside className="stack">
             {/* หน้าบทเรียนย่อและอธิบายความคิดของ Flow ใน Gem: ซ่อนคำใบ้ของข้อเดิม ลดสิ่งรบกวน (Extraneous Load) */}
-            {!["FLOW_LESSON", "FLOW_REFLECT", "FLOW_ACTIVITY"].includes(view.position) &&
+            {!["FLOW_LESSON", "FLOW_REFLECT", "FLOW_ACTIVITY", "FLOW_WIDGET"].includes(view.position) &&
               (uses(view, "hints") || view.hints.length > 0) && <HintPanel
               view={view}
               socratic={socratic}
@@ -331,7 +333,7 @@ function Room({ code, onLogout }: { code: string; onLogout: () => void }) {
               <TutorChat
                 messages={chat}
                 starters={view.gem?.starter_prompts ?? []}
-                toTeacher={!answering && !["FLOW_LESSON", "FLOW_REFLECT", "FLOW_ACTIVITY"].includes(view.position)}
+                toTeacher={!answering && !["FLOW_LESSON", "FLOW_REFLECT", "FLOW_ACTIVITY", "FLOW_WIDGET"].includes(view.position)}
                 teacherIn={teacherIn}
                 onSend={async (message) => {
                   setChat((list) => [...list, { from: "me", text: message }]);
@@ -634,6 +636,19 @@ function StateScreen({
       );
     case "FLOW_ACTIVITY":
       return <ActivityCard view={view} act={act} onTimer={onTimer} />;
+    case "FLOW_WIDGET":
+      return view.widget ? (
+        <article className="card state-card state-left fade-in">
+          <p className="eyebrow">ลงมือทำ</p>
+          <h2 className="title-lg">{view.widget.title}</h2>
+          {view.widget.prompt && <p className="prose">{view.widget.prompt}</p>}
+          <FlowWidget
+            key={`${view.widget.title}-${view.widget.type}`}
+            widget={view.widget}
+            onSubmit={async (response) => ((await act("widget", { response })) as { result?: WidgetResult } | null)?.result}
+          />
+        </article>
+      ) : null;
     case "FLOW_REFLECT":
       return <ReflectCard question={view.reflect?.question ?? "อธิบายว่าเราคิดอย่างไร"} onSend={(text) => act("reflect", { message: text })} />;
     case "IDLE_PAUSE":

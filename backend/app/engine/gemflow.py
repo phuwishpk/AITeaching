@@ -15,6 +15,7 @@ from ..ml import fuzzy
 from ..tutor import guard
 from . import core as C
 from . import flow as F
+from . import widgets as W
 from .answers import normalize
 from .conditions import describe, evaluate
 
@@ -121,6 +122,8 @@ def values(state: dict, ctx: C.Ctx, step_id: str) -> dict:
         "mains_left": len([m for m in mains if m["id"] not in state["main_done"]]),
         "challenge_done": bool(state["challenge_correct"]),
         "visits": flow["visits"].get(step_id, 0),
+        "widget_pass": bool(last.get("widget_pass")),
+        "widget_tries": last.get("widget_tries", 0),
         "bug": last.get("bug") or "",
         "bug_type": last.get("bug_type") or "",
     }
@@ -156,7 +159,9 @@ def follow(state: dict, ctx: C.Ctx, fx: C.Fx, from_step: str, edges: list[str], 
     step = step_of(ctx, from_step)
     if edge is None:
         # ไม่มีเส้นที่เงื่อนไขเป็นจริง: ขั้นทำโจทย์อยู่ที่เดิม (ถูกแล้วได้ข้อใหม่ ผิดก็ลองข้อเดิมต่อ) ขั้นอื่นกลับไปขั้นทำโจทย์ล่าสุด
-        target = from_step if step and step["kind"] == "item" else fs(state).get("item_step") or spec(ctx)["start"]
+        # Widget ที่ยังทำไม่ถูกให้ลองที่เดิม
+        retry = step and (step["kind"] == "item" or (step["kind"] == "widget" and not fs(state)["last"].get("widget_pass")))
+        target = from_step if retry else fs(state).get("item_step") or spec(ctx)["start"]
         notes.append(f"ไม่มีเส้นออกจาก \"{label(step)}\" ที่เงื่อนไขเป็นจริง ใช้ทางเริ่มต้นของระบบ")
         enter(state, ctx, fx, target, edges, notes, hops + 1)
         return
@@ -181,6 +186,7 @@ def enter(state: dict, ctx: C.Ctx, fx: C.Fx, step_id: str, edges: list[str], not
     if hops > MAX_HOPS or step is None:
         stuck(state, ctx, fx, edges, notes + ["Flow วนผ่านขั้นที่ไม่หยุดรอนานเกินไป ส่งต่อครู"])
         return
+    previous = flow.get("step")
     flow["step"] = step_id
     flow["visits"][step_id] = flow["visits"].get(step_id, 0) + 1
     kind = step["kind"]
@@ -221,6 +227,24 @@ def enter(state: dict, ctx: C.Ctx, fx: C.Fx, step_id: str, edges: list[str], not
         flow["activity"] = {"step": step_id, "status": "pending", "text": None, "question": None}
         fx.activity = {"step": step_id}
         go(state, ctx, fx, F.ACTIVITY, edges, notes + [f"AI สร้างกิจกรรม \"{label(step)}\""])
+    elif kind == "widget":
+        skip = None
+        if step["widget"] == "custom" and not step["config"].get("html"):
+            skip = "ข้าม Widget (AI ยังไม่ได้เขียนหน้าเว็บของขั้นนี้)"
+        else:
+            pending = [it for it in ctx.content.items.values() if it["id"] not in state["done_items"]]
+            leaked = leaked_item(W.text_of(step["widget"], step["config"]), pending, (state.get("item") or {}).get("id"))
+            if leaked:
+                skip = f"Answer-Leak Guard ข้าม Widget เพราะมีคำตอบของข้อ {leaked}"
+        if skip:
+            flow["last"] = {"widget_pass": True, "widget_tries": 0}
+            notes.append(skip)
+            follow(state, ctx, fx, step_id, edges, notes, hops)
+            return
+        # กลับมาที่ Widget เดิมทันที (ลองใหม่) นับครั้งต่อ เข้าจากขั้นอื่นนับใหม่
+        if previous != step_id or (flow.get("widget") or {}).get("step") != step_id:
+            flow["widget"] = {"step": step_id, "tries": 0}
+        go(state, ctx, fx, F.WIDGET, edges, notes + [f"แสดง Widget \"{label(step)}\" ({W.WIDGETS[step['widget']]['label']})"])
     elif kind == "reflect":
         go(state, ctx, fx, F.REFLECT, edges, notes + ["ให้นักเรียนอธิบายความคิด" + (" แล้วให้ AI ประเมินตามเกณฑ์ของครู" if step.get("judge") else "")])
     elif kind == "break":
@@ -598,6 +622,45 @@ def reflect(state: dict, ctx: C.Ctx, text: str, verdict: dict | None) -> C.Fx:
     return fx
 
 
+def widget(state: dict, ctx: C.Ctx, response: dict) -> C.Fx:
+    """ตรวจคำตอบของ Widget ด้วยกฎ บันทึกร่องรอยให้ครู นับเข้า Mastery (เฉพาะ Widget ในคลัง) แล้วไปตามเส้นของ Flow"""
+    fx = C.Fx()
+    resolve_timers(state, ctx, fx)
+    if state["position"] != F.WIDGET:
+        fx.result = {"kind": "blocked", "message": C.BLOCK_MESSAGES.get(state["position"], "")}
+        return fx
+    step = flow_step(state, ctx)
+    flow = fs(state)
+    kind = step["widget"]
+    result = W.check(kind, step["config"], response)
+    tracked = flow.setdefault("widget", {"step": step["id"], "tries": 0})
+    tracked["tries"] += 1
+    graded = W.WIDGETS[kind]["graded"]
+    item = state.get("item")
+    concept = ctx.content.item(item["id"])["concept"] if item else ctx.content.target
+    if graded:
+        # ถูกตั้งแต่ครั้งแรก = 1 แก้จนถูก = 0.5 ยังไม่ถูก = 0 (หนึ่งค่าต่อการเข้าขั้นหนึ่งครั้ง) และนับเป็นรูปแบบไม่ใช่ปรนัย
+        key = f"widget:{step['id']}"
+        if tracked["tries"] == 1:
+            C.record_format(state, concept, "widget", result["correct"])
+            C.add_mastery(state, concept, 1.0 if result["correct"] else 0.0, key, "widget")
+        elif result["correct"]:
+            entry = next((e for e in reversed(state["mastery"].get(concept, [])) if e["item"] == key), None)
+            if entry and entry["w"] == 0.0:
+                entry["w"] = 0.5
+    fx.trace("widget", step["id"], {"widget": kind, "value": result["value"], "correct": result["correct"] if graded else None,
+                                    "tries": tracked["tries"], "label": label(step)}, ctx.now)
+    flow["last"] = {"widget_pass": result["correct"], "widget_tries": tracked["tries"]}
+    verdict = ("ทำถูก" if result["correct"] else "ยังไม่ถูก") if graded else "ทำเสร็จ"
+    follow(state, ctx, fx, step["id"], [], [f"ส่ง Widget \"{label(step)}\": {verdict} ({result['value']})"])
+    if not fx.result:
+        again = state["position"] == F.WIDGET and flow.get("step") == step["id"]
+        fx.result = {"kind": "correct" if result["correct"] else "wrong", "marks": result["marks"] if again else None,
+                     "message": "ถูกต้อง เก่งมาก" if result["correct"] and graded else
+                     "ยังไม่ถูก ลองดูใหม่อีกครั้งนะ" if again else "บันทึกแล้ว ไปต่อกันเลย"}
+    return fx
+
+
 def judged(step: dict | None) -> bool:
     """ขั้นที่ให้ AI ประเมินคำตอบที่นักเรียนพิมพ์: อธิบายความคิดที่ครูเปิดประเมิน หรือกิจกรรมที่ให้พิมพ์ตอบ"""
     return bool(step) and (bool(step.get("judge")) or (step["kind"] == "activity" and step.get("response") == "text"))
@@ -721,6 +784,8 @@ def features(flow_spec: dict | None) -> dict:
         "break": "break" in kinds,
         "notify": "notify" in kinds,
         "teacher": "teacher" in kinds,
+        "widget": "widget" in kinds,
+        "widgets": sorted({s["widget"] for s in steps if s["kind"] == "widget"}),
         "isomorphic": "isomorphic" in picks,
         "remedial": "prerequisite" in picks,
     }
@@ -782,6 +847,11 @@ def student_extras(state: dict, ctx: C.Ctx) -> dict:
         extras["activity"] = {"title": step.get("title") or label(step), "status": activity.get("status", "pending"),
                               "text": activity.get("text"), "question": activity.get("question"),
                               "response": step.get("response", "none")}
+    if state["position"] == F.WIDGET and step:
+        kind = step["widget"]
+        extras["widget"] = {"type": kind, "title": step.get("title") or label(step), "prompt": step.get("prompt") or "",
+                            "graded": W.WIDGETS[kind]["graded"], "tries": (fs(state).get("widget") or {}).get("tries", 0),
+                            "data": W.public(kind, step["config"], f"{step['id']}:{fs(state)['visits'].get(step['id'], 0)}")}
     if state["position"] == F.CB and (fs(state).get("pending") or {}).get("kind") == "break" and step:
         extras["break_text"] = step.get("text")
     return extras

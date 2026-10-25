@@ -23,6 +23,7 @@ import { useLoad, useNow } from "../../lib/hooks";
 import { mmss } from "../../lib/format";
 import GemIcon, { GEM_COLORS, GEM_ICONS } from "../../components/GemIcon";
 import SpecFlowMap from "../../components/SpecFlowMap";
+import { WIDGET_NAMES } from "../../components/FlowWidget";
 import { Badge, Button, Modal, Spinner, Tabs, useToast } from "../../components/ui";
 import { PreviewTry, Versions } from "./GemPreview";
 import GemItems from "./GemItems";
@@ -509,7 +510,15 @@ export function FeatureList({ features }: { features: FlowFeatures | null }) {
     <div className="stack stack-sm">
       <span className="small muted">Flow นี้ใช้</span>
       <div className="pill-list">
-        {used.length ? used.map(([key, label]) => <Badge key={key}>{label}</Badge>) : <span className="xsmall muted">ทำโจทย์อย่างเดียว</span>}
+        {used.length ? (
+          used.map(([key, label]) => (
+            <Badge key={key}>
+              {key === "widget" && features.widgets?.length ? `Widget: ${features.widgets.map((w) => WIDGET_NAMES[w] ?? w).join(", ")}` : label}
+            </Badge>
+          ))
+        ) : (
+          <span className="xsmall muted">ทำโจทย์อย่างเดียว</span>
+        )}
       </div>
     </div>
   );

@@ -66,6 +66,10 @@ class FlowBody(BaseModel):
     spec: dict
 
 
+class PreviewWidget(BaseModel):
+    response: dict = {}
+
+
 def _fields(body: GemBody) -> dict:
     return body.model_dump(exclude_none=True)
 
@@ -242,6 +246,16 @@ def save_flow(gem_id: str, body: FlowBody, auth: dict = Depends(owner)):
     return _flow(lambda: flows.save(gem_id, body.spec, auth["role"]))
 
 
+@router.post("/{gem_id}/flow/widget/{step_id}")
+async def write_flow_widget(gem_id: str, step_id: str, auth: dict = Depends(owner)):
+    """ให้ AI เขียนหน้าเว็บของ Widget ที่คลังไม่มี (ขั้น custom) ใหม่"""
+    _load(gem_id)
+    try:
+        return await flows.write_widget(gem_id, step_id, auth["role"])
+    except manage.GemError as error:
+        raise HTTPException(400, str(error)) from error
+
+
 @router.post("/{gem_id}/flow/approve")
 def approve_flow(gem_id: str, auth: dict = Depends(owner)):
     _load(gem_id)
@@ -358,6 +372,13 @@ async def preview_reflect(gem_id: str, body: PreviewAnswer, auth: dict = Depends
     gem = _load(gem_id)
     code = _preview_code(gem)
     return _preview(code, await services.reflect(code, _preview_set(gem), body.answer))
+
+
+@router.post("/{gem_id}/preview/widget")
+async def preview_widget(gem_id: str, body: PreviewWidget, auth: dict = Depends(teacher)):
+    gem = _load(gem_id)
+    code = _preview_code(gem)
+    return _preview(code, await services.widget(code, _preview_set(gem), body.response))
 
 
 @router.post("/{gem_id}/preview/resume")

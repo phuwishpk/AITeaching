@@ -4,6 +4,7 @@ import { ArrowDown, ArrowLeft, ArrowUp, CircleAlert, CircleCheck, Lock, Plus, Sa
 import { api } from "../../lib/api";
 import { useLoad } from "../../lib/hooks";
 import SpecFlowMap, { KIND_TEXT } from "../../components/SpecFlowMap";
+import FlowWidget, { CustomFrame } from "../../components/FlowWidget";
 import { Badge, Button, Card, CardHead, Field, Spinner, Tabs, useToast } from "../../components/ui";
 import {
   FLOW_SOURCE,
@@ -33,7 +34,7 @@ export default function GemFlowPage() {
   const [check, setCheck] = useState<FlowCheck | null>(null);
   const [selected, setSelected] = useState<string | null>(null);
   const [side, setSide] = useState<Side>("step");
-  const [busy, setBusy] = useState<"" | "save" | "design" | "approve">("");
+  const [busy, setBusy] = useState<"" | "save" | "design" | "approve" | "widget">("");
   // ผังมาตรฐานเป็นแค่แม่แบบอ้างอิง เปิดดูได้ ไม่ใช้เป็น Flow ของ Gem
   const [showReference, setShowReference] = useState(false);
 
@@ -81,6 +82,8 @@ export default function GemFlowPage() {
     run("save", () => api<GemFlowDetail>("teacher", `/api/gems/${gemId}/flow`, { method: "PUT", body: { spec: draft } }), "บันทึก Flow แล้ว นักเรียนที่เริ่มรอบใหม่ใช้ Flow นี้");
   const design = () =>
     run("design", () => api<GemFlowDetail>("teacher", `/api/gems/${gemId}/flow/design`, { method: "POST" }), "AI ออกแบบ Flow จากคำสั่งแล้ว ตรวจก่อนกดยืนยันนะ");
+  const writeWidget = (stepId: string) =>
+    run("widget", () => api<GemFlowDetail>("teacher", `/api/gems/${gemId}/flow/widget/${stepId}`, { method: "POST" }), "AI เขียน Widget แล้ว ลองเล่นดูในตัวอย่างหรือแท็บลองเรียน");
   const approve = () => run("approve", () => api<GemFlowDetail>("teacher", `/api/gems/${gemId}/flow/approve`, { method: "POST" }), "ยืนยันว่าตรวจ Flow แล้ว");
 
   const update = (change: (spec: FlowSpec) => void) =>
@@ -283,6 +286,9 @@ export default function GemFlowPage() {
                     catalog={catalog}
                     described={check?.spec?.edges}
                     update={update}
+                    saved={!dirty}
+                    writing={busy === "widget"}
+                    onWrite={() => writeWidget(step.id)}
                     onRemove={() => {
                       update((spec) => {
                         spec.steps = spec.steps.filter((s) => s.id !== step.id);
@@ -331,9 +337,125 @@ function defaultsFor(kind: string, id: string): FlowStepSpec {
       return { ...base, result: "completed", text: "" };
     case "activity":
       return { ...base, title: "", goal: "", response: "none", rubric: "" };
+    case "widget":
+      return { ...base, widget: "order", title: "", prompt: "", config: { items: ["ขั้นที่ 1", "ขั้นที่ 2", "ขั้นที่ 3"] } };
     default:
       return base;
   }
+}
+
+const WIDGET_EXAMPLES: Record<string, Record<string, unknown>> = {
+  order: { items: ["วงเล็บ", "เลขยกกำลัง", "คูณหรือหาร", "บวกหรือลบ"] },
+  match: { pairs: [["2x = 6", "x = 3"], ["x + 4 = 9", "x = 5"]] },
+  balance: { equation: "2x+3=7" },
+  fraction: { shape: "circle", parts: 8, target: "3/8" },
+  numberline: { min: -5, max: 5, step: "1", target: "-2" },
+  blank: { text: "ทำในวงเล็บ ___ แล้วจึงคูณหรือหาร", answers: [["ก่อน"]] },
+  custom: {},
+};
+
+// ตัวอย่าง Widget ในหน้าแก้ Flow: สลับข้อมูลแบบเดียวกับหน้านักเรียน (หน้านักเรียนได้จากเซิร์ฟเวอร์ที่ไม่มีเฉลย)
+function previewData(type: string, config: Record<string, unknown>): Record<string, unknown> {
+  if (type === "order") return { items: [...((config.items as string[]) ?? [])].reverse() };
+  if (type === "match") {
+    const pairs = (config.pairs as [string, string][]) ?? [];
+    return { lefts: pairs.map((p) => p[0]), rights: pairs.map((p) => p[1]).reverse() };
+  }
+  if (type === "blank") return { parts: String(config.text ?? "").split("___") };
+  return config;
+}
+
+function WidgetEditor({
+  step,
+  catalog,
+  set,
+  saved,
+  writing,
+  onWrite,
+}: {
+  step: FlowStepSpec;
+  catalog: FlowCatalog;
+  set: (patch: Partial<FlowStepSpec>) => void;
+  saved: boolean;
+  writing: boolean;
+  onWrite: () => void;
+}) {
+  const type = step.widget ?? "order";
+  const info = catalog.widgets.find((w) => w.key === type);
+  const [text, setText] = useState(() => JSON.stringify(step.config ?? {}, null, 2));
+  const [bad, setBad] = useState(false);
+  const html = String(step.config?.html ?? "");
+  return (
+    <>
+      <Field label="ชนิด Widget">
+        <select
+          className="input"
+          value={type}
+          onChange={(e) => {
+            const config = WIDGET_EXAMPLES[e.target.value] ?? {};
+            set({ widget: e.target.value, config });
+            setText(JSON.stringify(config, null, 2));
+            setBad(false);
+          }}
+        >
+          {catalog.widgets.map((w) => (
+            <option key={w.key} value={w.key}>
+              {w.label}
+              {w.graded ? "" : " (ไม่นับคะแนน)"}
+            </option>
+          ))}
+        </select>
+      </Field>
+      <p className="xsmall muted">{info?.about}</p>
+      <Field label="หัวข้อที่นักเรียนเห็น">
+        <input className="input" value={step.title ?? ""} maxLength={60} onChange={(e) => set({ title: e.target.value })} />
+      </Field>
+      <Field label="คำสั่งถึงนักเรียน">
+        <input className="input" value={step.prompt ?? ""} maxLength={300} onChange={(e) => set({ prompt: e.target.value })} />
+      </Field>
+      {type === "custom" ? (
+        <>
+          <Field label="ให้ AI เขียน Widget แบบไหน" hint="บรรยายหน้าตา สิ่งที่นักเรียนทำ และสิ่งที่ Widget บอกนักเรียน AI เขียนเป็นหน้าเว็บที่รันแยกจากระบบ ไม่มีเน็ต">
+            <textarea className="input" rows={4} value={step.goal ?? ""} maxLength={800} onChange={(e) => set({ goal: e.target.value })} />
+          </Field>
+          <Button size="sm" icon={<Wand2 size={14} />} loading={writing} disabled={!saved || !step.goal} onClick={onWrite} style={{ alignSelf: "flex-start" }}>
+            {html ? "ให้ AI เขียน Widget ใหม่" : "ให้ AI เขียน Widget"}
+          </Button>
+          {!saved && <span className="xsmall muted">บันทึก Flow ก่อน แล้วจึงให้ AI เขียน Widget</span>}
+          {html ? <CustomFrame html={html} /> : <p className="xsmall muted">ยังไม่มีหน้าเว็บ นักเรียนจะข้ามขั้นนี้ไปจนกว่า AI จะเขียนเสร็จ</p>}
+        </>
+      ) : (
+        <>
+          <Field label="ข้อมูลของ Widget (JSON)" hint={info?.config}>
+            <textarea
+              className={`input mono ${bad ? "is-wrong" : ""}`}
+              rows={6}
+              value={text}
+              onChange={(e) => {
+                setText(e.target.value);
+                try {
+                  set({ config: JSON.parse(e.target.value) });
+                  setBad(false);
+                } catch {
+                  setBad(true);
+                }
+              }}
+            />
+          </Field>
+          {bad && <span className="xsmall warning-text">JSON ยังไม่ถูกรูปแบบ</span>}
+          <div className="gem-item">
+            <span className="xsmall muted">ตัวอย่างที่นักเรียนเห็น (ระบบสลับลำดับให้)</span>
+            <FlowWidget
+              key={`${type}-${JSON.stringify(step.config)}`}
+              preview
+              widget={{ type, title: step.title ?? "", prompt: step.prompt ?? "", graded: true, tries: 0, data: previewData(type, step.config ?? {}) }}
+              onSubmit={async () => null}
+            />
+          </div>
+        </>
+      )}
+    </>
+  );
 }
 
 function AddStep({ catalog, taken, onAdd }: { catalog: FlowCatalog; taken: string[]; onAdd: (s: FlowStepSpec) => void }) {
@@ -366,6 +488,9 @@ function StepEditor({
   described,
   update,
   onRemove,
+  saved,
+  writing,
+  onWrite,
 }: {
   spec: FlowSpec;
   step: FlowStepSpec;
@@ -373,6 +498,9 @@ function StepEditor({
   described?: FlowEdgeSpec[];
   update: (change: (spec: FlowSpec) => void) => void;
   onRemove: () => void;
+  saved: boolean;
+  writing: boolean;
+  onWrite: () => void;
 }) {
   const kind = catalog.kinds.find((k) => k.key === step.kind);
   const set = (patch: Partial<FlowStepSpec>) =>
@@ -529,6 +657,7 @@ function StepEditor({
           )}
         </>
       )}
+      {step.kind === "widget" && <WidgetEditor step={step} catalog={catalog} set={set} saved={saved} writing={writing} onWrite={onWrite} />}
       {step.kind === "end" && (
         <>
           <Field label="ผลของการจบ">

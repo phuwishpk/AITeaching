@@ -31,6 +31,10 @@ class Revisit(BaseModel):
     concept: str | None = None
 
 
+class WidgetAnswer(BaseModel):
+    response: dict = {}
+
+
 @router.get("/sets")
 def list_sets(auth: dict = Depends(student)):
     result = []
@@ -116,6 +120,12 @@ async def walkthrough_done(set_id: str, auth: dict = Depends(student)):
 async def reflect(set_id: str, body: Chat, auth: dict = Depends(student)):
     """ขั้น "อธิบายความคิด" ของ Flow ที่ครูออกแบบใน Gem"""
     return await services.reflect(auth["code"], set_id, body.message)
+
+
+@router.post("/sets/{set_id}/widget")
+async def widget(set_id: str, body: WidgetAnswer, auth: dict = Depends(student)):
+    """ขั้น Widget ของ Flow ที่ครูออกแบบใน Gem"""
+    return await services.widget(auth["code"], set_id, body.response)
 
 
 @router.post("/sets/{set_id}/choose")

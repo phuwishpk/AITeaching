@@ -81,6 +81,25 @@ async def redesign(gem_id: str, actor: str) -> dict:
     return _store(gem, "AI", "AI ออกแบบ Flow การสอนจากคำสั่ง")
 
 
+async def write_widget(gem_id: str, step_id: str, actor: str) -> dict:
+    """ครูกดให้ AI เขียนหน้าเว็บของ Widget custom ใหม่ (ตามคำบรรยายที่บันทึกไว้)"""
+    gem = manage.get(gem_id)
+    flow = gem.get("flow") or {}
+    step = next((s for s in (flow.get("spec") or {}).get("steps", []) if s["id"] == step_id), None)
+    if not step or step["kind"] != "widget" or step["widget"] != "custom":
+        raise manage.GemError("ขั้นนี้ไม่ใช่ Widget ที่ AI เขียนเอง (บันทึก Flow ก่อนแล้วลองใหม่)")
+    try:
+        html = await flowspec.write_widget(gem, step, (gem.get("knowledge") or {}).get("memory"))
+    except builder.BuildError as error:
+        raise manage.GemError(str(error)) from error
+    gem = manage.get(gem_id)
+    step = next(s for s in gem["flow"]["spec"]["steps"] if s["id"] == step_id)
+    step["config"] = {"html": html}
+    gem["flow"]["warnings"] = [w for w in gem["flow"].get("warnings") or [] if step.get("label", "") not in w]
+    gem["flow"]["reviewed"] = False
+    return _store(gem, actor, f"AI เขียน Widget \"{step.get('label', step_id)}\"")
+
+
 def _store(gem: dict, actor: str, note: str) -> dict:
     db.save_gem(gem)
     versions.record(gem, actor, note)
