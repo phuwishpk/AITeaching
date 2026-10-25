@@ -636,8 +636,9 @@ def test_teacher_keywords_in_the_prompt_are_required(monkeypatch):
 
     instructions = ('ให้เติมคำว่า "คูณและหารทำจาก ___ ไป ___"\n'
                     'การตอบแชต: เรียกตัวเองว่า "พี่" ถ้านักเรียนพิมพ์ "เฉลย", “บอกคำตอบ” ให้ถามกลับว่าขั้นแรกทำอะไร\n'
-                    "keyword: ขอตัวอย่าง, ยกตัวอย่าง หรือ มีตัวอย่างไหม")
+                    "keyword: ขอตัวอย่าง, ยกตัวอย่าง หรือ มีตัวอย่างไหม → พาไปดูตัวอย่าง")
     assert flowspec.teacher_keywords(instructions) == ["เฉลย", "บอกคำตอบ", "ขอตัวอย่าง", "ยกตัวอย่าง", "มีตัวอย่างไหม"]
+    assert flowspec.teacher_keywords("keyword: ไม่เข้าใจ ให้พาไปอ่านบทเรียน") == ["ไม่เข้าใจ"]
 
     def flow(keywords):
         return {"start": "w", "steps": [{"id": "w", "kind": "item", "pick": "main"}, {"id": "e", "kind": "end"}],

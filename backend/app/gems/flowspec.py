@@ -576,7 +576,9 @@ def teacher_keywords(instructions: str) -> list[str]:
     for line in (instructions or "").splitlines():
         listed = LISTED.search(line)
         if listed:
-            found += [w for w in re.split(r"\s*(?:,|，|/|หรือ)\s*", QUOTED.sub(r"\1", listed.group(1))) if w.strip()]
+            # รายการจบที่ลูกศรหรือคำว่า "ให้" (ส่วนหลังเป็นสิ่งที่ครูอยากให้ทำ ไม่ใช่คำที่นักเรียนพิมพ์)
+            words = re.split(r"\s*(?:→|->|=>|⇒)\s*|\s+ให้", QUOTED.sub(r"\1", listed.group(1)))[0]
+            found += [w for w in re.split(r"\s*(?:,|，|/|หรือ)\s*", words) if w.strip()]
         elif KEYWORD_LINE.search(line):
             # เอาเฉพาะคำหลัง "พิมพ์" (คำในเครื่องหมายคำพูดก่อนหน้านั้นมักเป็นบุคลิกหรือเนื้อหา)
             found += QUOTED.findall(line[KEYWORD_LINE.search(line).start():])
