@@ -358,10 +358,11 @@ def validate(raw: dict, bugs: list[str] | None = None) -> dict:
 OVERLAP = "เส้นชนกัน: "
 
 
-def overlaps(steps: dict, out: dict[str, list[dict]]) -> list[str]:
+def clashes(steps: dict, out: dict[str, list[dict]]) -> list[tuple[dict, dict, dict]]:
     """เส้นตอบถูกสองเส้นจากขั้นเดียวกันที่เป็นจริงพร้อมกันได้ (ใช้ตัวแปรคนละตัว) engine ไปตามเส้นแรกเท่านั้น
-    แนวทางของครูที่อยู่บนเส้นหลังจึงหายไปเงียบ ๆ เช่น "ถูกหลังใช้คำใบ้ → ข้อคู่ขนาน" ถูกข้ามเพราะ "ครบ 2 ข้อ → อธิบาย" มาก่อน"""
-    notes = []
+    แนวทางของครูที่อยู่บนเส้นหลังจึงหายไปเงียบ ๆ เช่น "ถูกหลังใช้คำใบ้ → ข้อคู่ขนาน" ถูกข้ามเพราะ "ครบ 2 ข้อ → อธิบาย" มาก่อน
+    คืน (ขั้น, เส้นแรก, เส้นที่ถูกข้าม) เส้นไปขั้นจบมาก่อนได้ ไม่นับว่าชน"""
+    found = []
     for sid, edges in out.items():
         wins = []
         for edge in edges:
@@ -375,10 +376,33 @@ def overlaps(steps: dict, out: dict[str, list[dict]]) -> list[str]:
         for i, (first, a) in enumerate(wins):
             for later, b in wins[i + 1:]:
                 if a and b and not a <= b and not b <= a:
-                    name = lambda e: e["label"] or e["when"]
-                    notes.append(f"{OVERLAP}ขั้น \"{steps[sid]['label']}\" ถ้า \"{name(first)}\" และ \"{name(later)}\" "
-                                 f"เป็นจริงพร้อมกัน ระบบไปตาม \"{name(first)}\" อย่างเดียว \"{name(later)}\" จะถูกข้าม")
-    return notes
+                    found.append((steps[sid], first, later))
+    return found
+
+
+def _edge_name(edge: dict) -> str:
+    return edge["label"] or edge["when"]
+
+
+def overlaps(steps: dict, out: dict[str, list[dict]]) -> list[str]:
+    return [f"{OVERLAP}ขั้น \"{step['label']}\" ถ้า \"{_edge_name(first)}\" และ \"{_edge_name(later)}\" "
+            f"เป็นจริงพร้อมกัน ระบบไปตาม \"{_edge_name(first)}\" อย่างเดียว \"{_edge_name(later)}\" จะถูกข้าม"
+            for step, first, later in clashes(steps, out)]
+
+
+def _without_correct(when: str) -> str:
+    return re.sub(r"\bcorrect\s+and\s+|\s+and\s+correct\b", "", when)
+
+
+def clash_fixes(flow_spec: dict) -> list[str]:
+    """วิธีแก้เส้นชนกันทีละคู่ สำหรับให้ AI แก้ Flow หนึ่งรอบ"""
+    steps = {s["id"]: s for s in flow_spec["steps"]}
+    out = {sid: [e for e in flow_spec["edges"] if e["from"] == sid] for sid in steps}
+    return [f"เส้นจาก {step['id']} \"{later['when']}\" (ไป {later['to']}) ถูกข้ามเมื่อ \"{first['when']}\" (ไป {first['to']}) "
+            f"เป็นจริงด้วย แก้โดยไม่ตัดแนวทางใด: เพิ่มเส้นออกจาก {first['to']} ไป {later['to']} ด้วยเงื่อนไข "
+            f"\"{_without_correct(later['when'])}\" (ไว้ก่อนเส้นอื่นของ {first['to']}) "
+            f"ตัวแปรอย่าง hint_level ยังเป็นของข้อล่าสุดหลังขั้น {first['to']} แก้เฉพาะเส้นเหล่านี้ ส่วนอื่นของ Flow ให้คงเดิมทุกตัวอักษร"
+            for step, first, later in clashes(steps, out)]
 
 
 def _reachable(start: str, out: dict[str, list[dict]]) -> set[str]:
@@ -598,7 +622,8 @@ def design_prompt(gem: dict, errors: list[str] | None = None, previous: dict | N
         "ตัวเลขในขั้นและในเงื่อนไขให้เอามาจากคำสั่งของครู ถ้าครูไม่ได้บอกให้ใช้ค่าของแม่แบบ\n\n"
         "สิ่งที่ระบบล็อกไว้ ไม่ต้องใส่ใน Flow: " + " · ".join(l["title"] for l in LOCKED) + "\n\n"
         "ออกแบบ Flow เฉพาะของบทเรียนนี้เสมอ ไม่ลอกแม่แบบ: อ่านคำสั่งและสิ่งที่จดจากเอกสาร แล้วแปลงทุกแนวทางเป็นขั้นและเส้น "
-        "เพิ่ม ตัด หรือสลับขั้นได้อิสระ ถ้าแนวทางของครูต้องการสิ่งที่ชนิดขั้นอื่นทำไม่ได้ ให้ใช้ขั้น activity และบรรยายใน goal\n"
+        "เพิ่ม ตัด หรือสลับขั้นได้อิสระ ถ้าแนวทางของครูต้องการสิ่งที่ชนิดขั้นอื่นทำไม่ได้: สิ่งที่นักเรียนต้องลงมือกด ลาก "
+        "เล่นเกม หรือโต้ตอบบนหน้าจอ ให้ใช้ widget (ในคลังก่อน ไม่มีจึงใช้ custom) ส่วนเนื้อหาให้อ่านหรือพิมพ์ตอบ ให้ใช้ activity\n"
         "สิ่งที่ระบบทำให้เองแล้ว ไม่ต้องสร้างขั้นแยก: ข้อความคำใบ้ของแต่ละระดับถูกเลือกตามรหัสข้อผิดพลาดของคำตอบล่าสุดอัตโนมัติ "
         "(ตารางคำใบ้ของครูต่อรหัส) จึงใช้ขั้น hint ระดับละหนึ่งขั้นร่วมกันทุกรหัส แยกเส้นด้วย bug หรือ bug_type "
         "เฉพาะเมื่อระดับคำใบ้หรือทางต่อไปต่างกัน เช่น Slip ที่ครูให้แค่สะกิด = bug_type == \"slip\" ไปคำใบ้ระดับ 1 เสมอ "
@@ -753,14 +778,14 @@ async def design(gem: dict, memory: dict | None = None, bugs: list[dict] | None 
         raw = raw if isinstance(raw, dict) else {}
         checked = validate(raw, bug_ids)
         if not checked["errors"]:
-            clashes = [w for w in checked["warnings"] if w.startswith(OVERLAP)]
-            if clashes and passed is None:
+            clashing = [w for w in checked["warnings"] if w.startswith(OVERLAP)]
+            if clashing and passed is None:
                 # แนวทางของครูที่จะหายเพราะเส้นชนกัน: ให้ AI แก้หนึ่งรอบ
                 passed = checked
-                errors = [c.removeprefix(OVERLAP) + " ต้องทำได้ทั้งสองแนวทาง" for c in clashes]
+                errors = clash_fixes(checked["spec"])
                 previous = raw
                 continue
-            if passed is not None and len(clashes) >= len([w for w in passed["warnings"] if w.startswith(OVERLAP)]):
+            if passed is not None and len(clashing) >= len([w for w in passed["warnings"] if w.startswith(OVERLAP)]):
                 checked = passed
             notes = await write_widgets(gem, checked["spec"], memory, items)
             warnings = [w for w in checked["warnings"] if not w.startswith("Widget \"")] + notes
