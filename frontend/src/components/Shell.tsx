@@ -4,12 +4,11 @@ import { LogOut, Monitor, Moon, Sun } from "lucide-react";
 import { useTheme, type ThemeMode } from "../lib/hooks";
 import { Button } from "./ui";
 
-export function BrandMark({ size = 16 }: { size?: number }) {
+// โลโก้เป็นตัวอักษร AT (Adaptive Tutor) บนพื้นชมพู ตรงกับไอคอนบนแท็บเบราว์เซอร์ใน index.html
+export function BrandMark() {
   return (
     <span className="brand-mark" aria-hidden>
-      <svg width={size} height={size} viewBox="0 0 24 24" fill="none">
-        <path d="M4 17l5-10 4 7 2.2-3.4L20 17" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round" />
-      </svg>
+      AT
     </span>
   );
 }

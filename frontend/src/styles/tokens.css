@@ -20,6 +20,8 @@
   --text-3: #7a8392;
 
   --accent: #0f6e6a;
+  /* สีของโลโก้ AT (ชมพู) ตัวอักษรสีขาวอ่านได้ทั้งธีมสว่างและมืด */
+  --brand-pink: #c2255c;
   --accent-hover: #0c5d5a;
   --accent-soft: #e4f2f0;
   --accent-ink: #0b4f4c;
