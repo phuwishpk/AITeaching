@@ -302,6 +302,7 @@ export interface GemFlowDetail {
   // คำที่ครูเขียนไว้ใน prompt ให้จับในแชต
   teacher_keywords: string[];
   table: FlowTable[];
+  audit: { guideline: string; ok: boolean; evidence: string; fix: string }[];
 }
 
 // ระบบจำลองว่านักเรียนแต่ละแบบจะไปขั้นไหน (gems/simulate.py)

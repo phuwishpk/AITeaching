@@ -123,6 +123,26 @@ export default function GemFlowPage() {
         </div>
       </header>
 
+      {!!detail.audit?.length && !dirty && (
+        <Card>
+          <CardHead
+            title={`AI ตรวจแนวทางกับการจำลอง: ผ่าน ${detail.audit.filter((c) => c.ok).length}/${detail.audit.length}`}
+            sub="ตอนออกแบบ AI อีกรอบไล่แนวทางของครูทีละข้อกับตารางในแท็บจำลอง ข้อที่ไม่ผ่านให้ครูตรวจหรือแก้เอง"
+          />
+          <ul className="card-body flow-locked" style={{ paddingTop: 0 }}>
+            {detail.audit.map((c, i) => (
+              <li key={i}>
+                {c.ok ? <CircleCheck size={14} /> : <CircleAlert size={14} color="var(--warning)" />}
+                <span className="stack" style={{ gap: 1 }}>
+                  <span className="small">{c.guideline}</span>
+                  <span className="xsmall muted">{c.ok ? c.evidence : c.fix || c.evidence}</span>
+                </span>
+              </li>
+            ))}
+          </ul>
+        </Card>
+      )}
+
       {!!draft?.guidelines?.length && (
         <Card>
           <CardHead title="แนวทางของครูที่ AI นำมาออกแบบ" sub="ทุกขั้นมาจากคำสั่งหรือเอกสารของครู กดชื่อขั้นเพื่อดูในผัง" />

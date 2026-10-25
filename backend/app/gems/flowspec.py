@@ -930,6 +930,45 @@ def prune_unreachable(raw: dict) -> dict:
     return spec
 
 
+def _checked(raw: dict, bug_ids, keywords: list[str]) -> tuple[dict | None, list[str]]:
+    """ตรวจ Flow ที่ AI ส่งมา ถ้าเหลือแค่ขั้นที่ไม่มีทางเข้า (เช่น ขั้นพักซ้ำกับการพักเพราะเครียดของระบบ) ตัดทิ้งแล้วตรวจใหม่"""
+    checked = validate(raw, bug_ids)
+    problems = design_problems(checked, keywords)
+    if problems and all("ไปไม่ถึงจากขั้นแรก" in p for p in problems):
+        pruned = validate(prune_unreachable(raw), bug_ids)
+        if not design_problems(pruned, keywords):
+            pruned["warnings"].append("ระบบตัดขั้นที่ไม่มีทางเข้าออก (AI สร้างไว้แต่ไม่มีเส้นไปถึง)")
+            return pruned, []
+    return (checked if not problems else None), problems
+
+
+AUDIT = ("คุณตรวจ Flow การสอนที่ออกแบบจากคำสั่งของครู ตารางด้านล่างระบบจำลองจากเงื่อนไขจริงว่านักเรียนแต่ละแบบจะไปขั้นไหน "
+         "(กรณีทั่วไปบอกไว้หัวตาราง) ไล่แนวทางในคำสั่งของครูทีละข้อ หาแถวที่แสดงว่าแนวทางนั้นเกิดจริงและถูกต้อง "
+         "แนวทางที่ระบบทำเองอยู่แล้ว (ล็อกไว้ เช่น จับการเดา พักเมื่อเครียด แจ้งเตือนความปลอดภัย ตัวเลขของทั้งบทเรียน) ให้ถือว่าผ่าน\n"
+         "ตอบเป็น JSON: {\"checks\": [{\"guideline\": \"แนวทางของครูสั้น ๆ\", \"ok\": true หรือ false, "
+         "\"evidence\": \"แถวในตารางที่ใช้ตัดสิน\", \"fix\": \"ถ้าไม่ผ่าน ต้องแก้เส้นหรือขั้นไหนอย่างไร\"}]}")
+
+
+async def audit_flow(gem: dict, flow_spec: dict) -> list[dict]:
+    """ให้ AI ตรวจทีละแนวทางของครูกับตารางจำลอง (การตรวจง่ายกว่าการออกแบบใหม่ทั้งหมด) เรียกไม่สำเร็จ = ไม่มีผลตรวจ"""
+    from . import builder
+
+    user = (f"{AUDIT}\n\nคำสั่งของครู:\n\"\"\"\n{gem.get('instructions', '')}\n\"\"\"\n\n"
+            f"ขั้นใน Flow: " + ", ".join(f"{s['id']} ({KINDS[s['kind']]['label']}: {s['label']})" for s in flow_spec["steps"])
+            + f"\nหลังพักเพราะเครียดไปขั้น: {flow_spec.get('after_stress') or 'กลับขั้นเดิม'}\n\n{simulate.table_text(flow_spec)}")
+    try:
+        raw = await builder.ask_json("flow_check", user, 8000, thinking="high", retry=False)
+    except builder.BuildError:
+        return []
+    checks = raw.get("checks") if isinstance(raw, dict) else None
+    out = []
+    for c in checks if isinstance(checks, list) else []:
+        if isinstance(c, dict) and _text(c.get("guideline"), 200):
+            out.append({"guideline": _text(c.get("guideline"), 200), "ok": c.get("ok") is not False,
+                        "evidence": _text(c.get("evidence"), 300), "fix": _text(c.get("fix"), 300)})
+    return out[:30]
+
+
 def design_problems(checked: dict, keywords: list[str]) -> list[str]:
     """สิ่งที่ AI ต้องแก้ก่อนใช้ Flow: ข้อผิดพลาดของตัวตรวจ คำของครูที่หาย คำขอให้เล่นที่ไม่ได้เป็น Widget
     เส้นที่ไม่มีวันถูกใช้ และขั้นที่ไปไม่ถึง (ครูแก้เองยังบันทึกได้ แค่ขึ้นคำเตือน)"""
@@ -957,39 +996,37 @@ async def design(gem: dict, memory: dict | None = None, bugs: list[dict] | None 
     errors, previous = None, None
     bug_ids = [b["id"] for b in bugs] if bugs else None
     keywords = teacher_keywords(gem.get("instructions", ""))
-    best, reviewing, attempts = None, False, 0
-    while attempts < 4:
-        attempts += 1
+    best = None
+    for attempt in range(3):
+        best = None
         # ออกแบบ Flow ต้องไล่แนวทางของครูทีละข้อ จึงให้โมเดลคิดเต็มที่ (โทเคนที่ใช้คิดนับรวมใน max_tokens)
         raw = await builder.ask_json("flow", design_prompt(gem, errors, previous, memory, bugs), 32000, thinking="high")
-        raw = raw if isinstance(raw, dict) else {}
-        checked = validate(raw, bug_ids)
-        problems = design_problems(checked, keywords)
-        if problems and all("ไปไม่ถึงจากขั้นแรก" in p for p in problems):
-            # เหลือแค่ขั้นที่ไม่มีทางเข้า (เช่น ขั้นพักที่ AI สร้างซ้ำกับการพักเพราะเครียดของระบบ): ตัดทิ้งแล้วตรวจใหม่
-            pruned = prune_unreachable(raw)
-            checked = validate(pruned, bug_ids)
-            problems = design_problems(checked, keywords)
-            if not problems:
-                raw = pruned
-                checked["warnings"].append("ระบบตัดขั้นที่ไม่มีทางเข้าออก (AI สร้างไว้แต่ไม่มีเส้นไปถึง)")
-        if reviewing:
-            # รอบตรวจกับแนวทางของครู: ใช้ผลใหม่ถ้ายังผ่านกฎ ไม่อย่างนั้นใช้แบบก่อนตรวจ
-            if not problems:
-                best = checked
-            break
+        best, problems = _checked(raw if isinstance(raw, dict) else {}, bug_ids, keywords)
         if not problems:
-            # ผ่านกฎแล้ว: ให้ AI ดูตารางว่า Flow จะพานักเรียนไปไหนในแต่ละกรณี เทียบกับแนวทางของครูหนึ่งรอบ
-            best, reviewing = checked, True
-            errors, previous = [REVIEW + simulate.table_text(checked["spec"])], raw
-            continue
-        errors, previous = problems, raw
-        if attempts >= 3:
+            previous = raw
             break
+        errors, previous = problems, raw
     if best is not None:
+        # ตรวจทีละแนวทางของครูกับตารางจำลอง ถ้ามีข้อไม่ผ่านให้แก้เฉพาะข้อนั้นหนึ่งรอบ แล้วใช้แบบที่ไม่ผ่านน้อยกว่า
+        audit = await audit_flow(gem, best["spec"])
+        failing = [c for c in audit if not c["ok"]]
+        if failing:
+            fixes = [f"แนวทาง \"{c['guideline']}\" ยังไม่ตรง: {c['fix'] or c['evidence']}" for c in failing]
+            raw = await builder.ask_json("flow", design_prompt(gem, fixes + [REVIEW + simulate.table_text(best["spec"])],
+                                                              previous, memory, bugs), 32000, thinking="high")
+            fixed, problems = _checked(raw if isinstance(raw, dict) else {}, bug_ids, keywords)
+            if not problems:
+                again = await audit_flow(gem, fixed["spec"])
+                if sum(not c["ok"] for c in again) <= len(failing):
+                    best, audit = fixed, again
         notes = await write_widgets(gem, best["spec"], memory, items)
         warnings = [w for w in best["warnings"] if not w.startswith("Widget \"")] + notes
-        return record(best["spec"], "ai", warnings, reviewed=False)
+        warnings += [f"AI ตรวจแล้วแนวทาง \"{c['guideline'][:80]}\" อาจยังไม่ตรง: {c['fix'] or c['evidence']}"
+                     for c in audit if not c["ok"]]
+        flow = record(best["spec"], "ai", warnings, reviewed=False)
+        if audit:
+            flow["audit"] = audit
+        return flow
     # ผังมาตรฐานเป็นแค่แม่แบบอ้างอิง ไม่ใช้แทน Flow ของ Gem: ออกแบบไม่ผ่านก็แจ้งให้ออกแบบใหม่
     raise builder.BuildError("AI ออกแบบ Flow ที่ตรวจผ่านไม่ได้ 3 รอบ (" + "; ".join(errors or [])[:300] + ") "
                              "กดให้ AI ออกแบบใหม่ในแท็บ Flow หรือเขียนคำสั่งให้ชัดขึ้น")

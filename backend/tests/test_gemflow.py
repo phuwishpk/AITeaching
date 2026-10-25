@@ -430,7 +430,7 @@ def test_design_writes_html_for_widgets_the_library_lacks(monkeypatch):
                           {"from": "w", "to": "w", "when": ""}]}
     asked = []
 
-    async def fake_ask(step, user, max_tokens=12000, thinking="minimal"):
+    async def fake_ask(step, user, max_tokens=12000, thinking="minimal", retry=True):
         asked.append(step)
         if step == "flow":
             return designed
@@ -441,7 +441,7 @@ def test_design_writes_html_for_widgets_the_library_lacks(monkeypatch):
     monkeypatch.setattr(builder, "ask_json", fake_ask)
     flow = asyncio.run(flowspec.design({"name": "PEMDAS", "instructions": "มีเกมลูกโป่ง"}))
     html = flow["spec"]["steps"][0]["config"]["html"]
-    assert asked == ["flow", "flow", "widget"] and "ยิงลูกโป่ง" in html and "x.example" not in html, "ออกแบบ ตรวจกับแนวทาง แล้วเขียน Widget"
+    assert asked == ["flow", "flow_check", "widget"] and "ยิงลูกโป่ง" in html and "x.example" not in html, "ออกแบบ ตรวจกับแนวทาง แล้วเขียน Widget"
     assert not any("ยังไม่มีหน้าเว็บ" in w for w in flow["warnings"])
 
 
@@ -648,13 +648,13 @@ def test_teacher_keywords_in_the_prompt_are_required(monkeypatch):
     designs = [flow(["เฉลย"]), flow(["เฉลย", "บอก คำตอบ", "ขอตัวอย่าง", "ยกตัวอย่าง", "มีตัวอย่างไหม", "ขอคำตอบหน่อย"])]
     prompts = []
 
-    async def fake_ask(step, user, max_tokens=12000, thinking="minimal"):
+    async def fake_ask(step, user, max_tokens=12000, thinking="minimal", retry=True):
         prompts.append(user)
         return designs[min(len(prompts), len(designs)) - 1]
 
     monkeypatch.setattr(builder, "ask_json", fake_ask)
     result = asyncio.run(flowspec.design({"name": "PEMDAS", "instructions": instructions}))
-    assert len(prompts) == 3 and '"บอกคำตอบ"' in prompts[0], "บอก AI ทุกคำของครูตั้งแต่รอบแรก (รอบที่ 3 คือรอบตรวจกับแนวทาง)"
+    assert len(prompts) == 3 and '"บอกคำตอบ"' in prompts[0], "บอก AI ทุกคำของครูตั้งแต่รอบแรก (รอบที่ 3 คือการตรวจทีละแนวทาง)"
     assert "บอกคำตอบ" in prompts[1] and "ยังไม่อยู่" in prompts[1], "รอบแรกทำคำหาย ต้องออกแบบใหม่"
     assert not flowspec.missing_keywords(result["spec"], flowspec.teacher_keywords(instructions))
 
@@ -692,7 +692,7 @@ def test_play_requests_must_be_interactive_and_chat_targets_are_reachable(monkey
     designs = [flow("break"), flow("widget")]
     asked = []
 
-    async def fake_ask(step, user, max_tokens=12000, thinking="minimal"):
+    async def fake_ask(step, user, max_tokens=12000, thinking="minimal", retry=True):
         asked.append(step)
         if step == "widget":
             return {"html": "<p>มินิเกมจับเวลา</p><button>เสร็จแล้ว</button>"}
@@ -700,7 +700,7 @@ def test_play_requests_must_be_interactive_and_chat_targets_are_reachable(monkey
 
     monkeypatch.setattr(builder, "ask_json", fake_ask)
     result = asyncio.run(flowspec.design({"name": "เศษส่วน", "instructions": "ถ้าเด็กบอกว่าเบื่อ ให้มีมินิเกมคั่น"}))
-    assert asked.count("flow") == 3 and next(s for s in result["spec"]["steps"] if s["id"] == "minigame")["kind"] == "widget"
+    assert asked.count("flow") == 2 and next(s for s in result["spec"]["steps"] if s["id"] == "minigame")["kind"] == "widget"
 
 
 def test_after_stress_and_missing_prerequisite_match_the_standard_map(subject):
@@ -774,7 +774,7 @@ def test_unreachable_extra_steps_are_pruned_not_fatal(monkeypatch):
                           {"from": "walk", "to": "back", "when": ""}, {"from": "rest", "to": "back", "when": ""}],
                 "guidelines": [{"text": "เครียดแล้วพักและดูตัวอย่าง", "steps": ["rest", "walk"]}]}
 
-    async def fake_ask(step, user, max_tokens=12000, thinking="minimal"):
+    async def fake_ask(step, user, max_tokens=12000, thinking="minimal", retry=True):
         return designed
 
     monkeypatch.setattr(builder, "ask_json", fake_ask)

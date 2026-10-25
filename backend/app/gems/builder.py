@@ -247,10 +247,11 @@ RETRY_DELAYS = (5.0, 15.0)
 GEMINI_BACKUPS = providers.GEMINI_BACKUPS
 
 
-async def ask_json(step: str, user: str, max_tokens: int = 12000, thinking: str = "minimal") -> dict | list:
+async def ask_json(step: str, user: str, max_tokens: int = 12000, thinking: str = "minimal",
+                   retry: bool = True) -> dict | list:
     frames = {"role": SYSTEM, "task": user[:8000]}
     problem = "เรียก AI ไม่สำเร็จ"
-    for attempt in range(len(RETRY_DELAYS) + 1):
+    for attempt in range(len(RETRY_DELAYS) + 1 if retry else 1):
         if attempt:
             await asyncio.sleep(RETRY_DELAYS[attempt - 1])
         result, errors = await service._call(SYSTEM, user, max_tokens=max_tokens, json_mode=True, timeout=300.0,

@@ -54,6 +54,8 @@ def detail(gem: dict) -> dict:
         "outdated": "instructions_key" in flow and builder.flow_needs_design(gem),
         # คำที่ครูเขียนไว้ใน prompt ให้จับในแชต หน้า Flow ทำเครื่องหมายว่าคำไหนมาจากครู
         "teacher_keywords": flowspec.teacher_keywords(gem.get("instructions", "")),
+        # ผลที่ AI ตรวจทีละแนวทางของครูกับตารางจำลองตอนออกแบบ (ครูแก้เองแล้วผลนี้หายไป)
+        "audit": flow.get("audit") or [],
         # ระบบจำลองว่านักเรียนแต่ละแบบจะไปขั้นไหน ให้ครูเทียบกับคำสั่งของตัวเอง
         "table": simulate.table(checked["spec"]) if checked and checked["spec"] else [],
     }
