@@ -19,6 +19,9 @@ export interface GemMeta {
   alert_situations: AlertSituation[];
   alert_defaults: Record<string, AlertRule>;
   flow: FlowCatalog;
+  // คู่มือคำที่ใช้เขียนคำสั่ง: ตัวอย่างที่ครูพิมพ์ และระบบทำอะไร (ไม่บังคับ AI ตีความตามบริบท)
+  guide: { title: string; items: { say: string; does: string }[] }[];
+  guide_note: string;
 }
 
 export interface GemTools {

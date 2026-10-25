@@ -9,7 +9,7 @@ from pydantic import BaseModel
 
 from .. import db, seed, services, settings_store, users
 from ..gems import alerts as gem_alerts
-from ..gems import builder, design, flows, flowspec, items, manage, versions
+from ..gems import builder, design, flows, flowspec, guide, items, manage, versions
 from ..engine import core as engine
 from ..tutor import rag, reader, service
 from .deps import require
@@ -94,7 +94,9 @@ def list_gems(auth: dict = Depends(viewer)):
 def gem_meta(auth: dict = Depends(viewer)):
     """ตัวเลือกของฟอร์มสร้าง Gem: สถานการณ์แจ้งเตือนพร้อมค่าเริ่มต้น ไอคอน และสี"""
     return {"alert_situations": gem_alerts.catalog({}, chat=False), "alert_defaults": gem_alerts.defaults(),
-            "icons": manage.ICONS, "colors": manage.COLORS, "flow": flowspec.catalog()}
+            "icons": manage.ICONS, "colors": manage.COLORS, "flow": flowspec.catalog(),
+            # คู่มือคำที่ใช้เขียนคำสั่ง (ไม่บังคับ AI ตีความตามบริบท สิ่งที่ไม่มี AI สร้างใหม่)
+            "guide": guide.guide(), "guide_note": guide.ADDON_NOTE}
 
 
 @router.get("/{gem_id}")

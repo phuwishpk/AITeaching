@@ -2,6 +2,7 @@ import { useEffect, useRef, useState, type ReactNode } from "react";
 import { useNavigate, useParams } from "react-router";
 import {
   ArrowLeft,
+  BookOpen,
   Check,
   CircleAlert,
   FileText,
@@ -251,7 +252,7 @@ export default function GemEditor() {
             />
           </GemField>
 
-          <Instructions value={form.instructions} onChange={(v) => set("instructions", v)} form={form} locked={gem?.locked_constraints} />
+          <Instructions value={form.instructions} onChange={(v) => set("instructions", v)} form={form} locked={gem?.locked_constraints} meta={meta} />
 
           <GemField label="ไอคอนและสี">
             <div className="gem-pickers">
@@ -363,7 +364,19 @@ function GemField({ label, info, children }: { label: string; info?: string; chi
 }
 
 // ช่องคำสั่ง: ย้อนกลับและทำซ้ำได้หลังให้ AI ช่วยเขียน เหมือนปุ่มไม้กายสิทธิ์ของ Gemini
-function Instructions({ value, onChange, form, locked }: { value: string; onChange: (v: string) => void; form: Form; locked?: string }) {
+function Instructions({
+  value,
+  onChange,
+  form,
+  locked,
+  meta,
+}: {
+  value: string;
+  onChange: (v: string) => void;
+  form: Form;
+  locked?: string;
+  meta: GemMeta | null;
+}) {
   const toast = useToast();
   const [past, setPast] = useState<string[]>([]);
   const [future, setFuture] = useState<string[]>([]);
@@ -427,6 +440,33 @@ function Instructions({ value, onChange, form, locked }: { value: string; onChan
         คำที่นักเรียนอาจพิมพ์ในแชต ใส่ในเครื่องหมายคำพูดหลังคำว่า "พิมพ์" หรือเขียน <span className="mono">keyword: คำ, คำ</span> ระบบจะจับทุกคำตามที่เขียน
         และบอกในแท็บ Flow ว่าแต่ละคำพาไปทำอะไร
       </p>
+      {meta?.guide && (
+        <details className="gem-locked gem-guide">
+          <summary>
+            <BookOpen size={14} />
+            คู่มือคำที่ใช้เขียนคำสั่ง (กด + เพื่อเพิ่มลงคำสั่ง)
+          </summary>
+          <p className="xsmall muted">{meta.guide_note}</p>
+          {meta.guide.map((group) => (
+            <div key={group.title} className="stack stack-sm">
+              <span className="small strong">{group.title}</span>
+              <ul className="gem-guide-list">
+                {group.items.map((item) => (
+                  <li key={item.say}>
+                    <button type="button" className="icon-btn" onClick={() => onChange(value.trim() ? `${value.trimEnd()}\n${item.say}` : item.say)} aria-label={`เพิ่ม ${item.say}`}>
+                      <Plus size={14} />
+                    </button>
+                    <span className="stack" style={{ gap: 0 }}>
+                      <span className="small">{item.say}</span>
+                      <span className="xsmall muted">{item.does}</span>
+                    </span>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          ))}
+        </details>
+      )}
       {locked && (
         <details className="gem-locked">
           <summary>

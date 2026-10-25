@@ -657,3 +657,16 @@ def test_teacher_keywords_in_the_prompt_are_required(monkeypatch):
     assert len(prompts) == 2 and '"บอกคำตอบ"' in prompts[0], "บอก AI ทุกคำของครูตั้งแต่รอบแรก"
     assert "บอกคำตอบ" in prompts[1] and "ยังไม่อยู่" in prompts[1], "รอบแรกทำคำหาย ต้องออกแบบใหม่"
     assert not flowspec.missing_keywords(result["spec"], flowspec.teacher_keywords(instructions))
+
+
+def test_prompt_guide_matches_what_the_engine_runs():
+    """คู่มือคำในคำสั่ง: ตัวเลขทุกตัวที่ Flow ตั้งได้อยู่ในคู่มือ ตัวอย่าง keyword ในคู่มือระบบดึงได้จริง"""
+    from app.gems import guide
+
+    groups = guide.guide()
+    numbers = next(g for g in groups if g["title"] == "ตัวเลขของทั้งบทเรียน")
+    assert len(numbers["items"]) == len(flowspec.PARAM_RANGES)
+    chat = next(g for g in groups if g["title"].startswith("แชต"))
+    said = "\n".join(i["say"] for i in chat["items"])
+    assert {"เฉลย", "บอกคำตอบ", "ขอตัวอย่าง", "ยกตัวอย่าง"} <= set(flowspec.teacher_keywords(said))
+    assert "สร้างใหม่" in guide.ADDON_NOTE and "ตีความตามบริบท" in flowspec.design_prompt({"name": "x", "instructions": ""})

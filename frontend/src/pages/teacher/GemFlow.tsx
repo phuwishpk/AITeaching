@@ -131,6 +131,15 @@ export default function GemFlowPage() {
                 <CircleCheck size={14} />
                 <span className="small">
                   {g.text}
+                  {g.steps.some((sid) => {
+                    const s = draft.steps.find((x) => x.id === sid);
+                    return s && (s.kind === "activity" || (s.kind === "widget" && s.widget === "custom") || s.reason?.startsWith("สร้างใหม่"));
+                  }) && (
+                    <>
+                      {" "}
+                      <Badge tone="accent">สร้างใหม่</Badge>
+                    </>
+                  )}
                   {" → "}
                   {g.steps.map((sid) => (
                     <button key={sid} type="button" className="link-button" onClick={() => {
