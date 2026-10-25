@@ -229,3 +229,38 @@ def test_walkthrough_that_solves_an_unsolved_item_is_hidden(subject):
     assert engine.student_view(state, ctx)["lesson"]["walkthrough"] is None
     state["done_items"].append(target["id"])
     assert engine.student_view(state, ctx)["lesson"]["walkthrough"] is not None, "ทำข้อนั้นถูกแล้ว แสดงตัวอย่างได้"
+
+
+def test_flow_branches_on_bug_codes_and_runs_ai_activities(subject):
+    from app.engine import gemflow
+
+    item = next(it for it in subject["items"] if it["kind"] == "main" and it.get("bugs"))
+    bug = item["bugs"][0]
+    flow = {
+        "start": "w",
+        "steps": [{"id": "w", "kind": "item", "pick": "main"},
+                  {"id": "trap", "kind": "hint", "level": 3},
+                  {"id": "sort", "kind": "activity", "title": "เรียงขั้นตอน", "goal": "ให้นักเรียนเรียงขั้นตอนการแก้โจทย์แบบนี้",
+                   "response": "text", "rubric": "เรียงขั้นถูก"},
+                  {"id": "e", "kind": "end"}],
+        "edges": [{"from": "w", "to": "trap", "when": f'wrong and bug == "{bug["tag"]}"'},
+                  {"from": "w", "to": "sort", "when": "wrong"},
+                  {"from": "w", "to": "e", "when": ""},
+                  {"from": "trap", "to": "w", "when": ""},
+                  {"from": "sort", "to": "e", "when": "judge_pass"},
+                  {"from": "sort", "to": "w", "when": ""}],
+    }
+    content = gem_content(subject, flow)
+    state, ctx = start(content)
+    engine.serve(state, ctx, item, "main")
+    state["flow"]["item_step"] = "w"
+    engine.submit(state, at(ctx, 1030), str(bug["answer"]))
+    assert state["item"]["hint_level"] == 3, "คำตอบผิดตรงรหัสในตาราง ไปเส้นของรหัสนั้น"
+    fx = engine.submit(state, at(ctx, 1060), demo.other_wrong(content.item(item["id"]), 3))
+    assert state["position"] == F.ACTIVITY and fx.activity == {"step": "sort"}
+    assert engine.student_view(state, ctx)["activity"]["status"] == "pending"
+    assert gemflow.set_activity(state, "sort", "เรียงขั้นตอนต่อไปนี้", "ขั้นไหนมาก่อน")
+    view = engine.student_view(state, ctx)["activity"]
+    assert view["text"] == "เรียงขั้นตอนต่อไปนี้" and view["response"] == "text"
+    engine.reflect(state, at(ctx, 1100), "ลบก่อนแล้วหาร", {"pass": True, "score": 90})
+    assert state["position"] == F.DONE

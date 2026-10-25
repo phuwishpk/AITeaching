@@ -32,6 +32,8 @@ VARS: dict[str, tuple[str, str]] = {
     "visits": ("เข้าขั้นนี้มาแล้วกี่ครั้งใน Session นี้", "int"),
     "judge_pass": ("AI ประเมินว่าคำอธิบายผ่านเกณฑ์ของครู", "bool"),
     "judge_score": ("คะแนนคำอธิบายที่ AI ประเมิน (0–100)", "num"),
+    "bug": ("รหัสข้อผิดพลาดของคำตอบผิดล่าสุด", "text"),
+    "bug_type": ("ชนิดข้อผิดพลาดล่าสุด (misconception หรือ slip)", "text"),
 }
 
 OPS = {ast.Eq: "==", ast.NotEq: "!=", ast.Lt: "<", ast.LtE: "<=", ast.Gt: ">", ast.GtE: ">="}
@@ -71,8 +73,8 @@ def _check(node: ast.AST, text: str):
         if node.id not in VARS and node.id not in ("True", "False"):
             raise ConditionError(f"ไม่รู้จักตัวแปร \"{node.id}\" ในเงื่อนไข \"{text}\"")
     elif isinstance(node, ast.Constant):
-        if not isinstance(node.value, (int, float, bool)):
-            raise ConditionError(f"เงื่อนไข \"{text}\" ใช้ได้แค่ตัวเลขและ true/false")
+        if not isinstance(node.value, (int, float, bool, str)) or (isinstance(node.value, str) and len(node.value) > 40):
+            raise ConditionError(f"เงื่อนไข \"{text}\" ใช้ได้แค่ตัวเลข true/false และข้อความสั้น ๆ ในเครื่องหมายคำพูด")
     elif isinstance(node, ast.UnaryOp) and isinstance(node.op, ast.USub) and isinstance(node.operand, ast.Constant):
         pass
     else:
@@ -109,6 +111,11 @@ def _value(node: ast.AST, values: dict):
 
 
 def _compare(op: str, left, right) -> bool:
+    if isinstance(left, str) != isinstance(right, str):
+        # ข้อความเทียบกับตัวเลขไม่ได้ (เช่น bug > 2) ถือว่าเป็นเท็จ ไม่ใช่ error ตอนนักเรียนเรียน
+        return op == "!="
+    if isinstance(left, str) and op not in ("==", "!="):
+        return False
     return {"==": left == right, "!=": left != right, "<": left < right, "<=": left <= right,
             ">": left > right, ">=": left >= right}[op]
 
@@ -139,4 +146,6 @@ def _say(node: ast.AST) -> str:
         return VARS[node.id][0] if node.id in VARS else node.id
     if isinstance(node, ast.UnaryOp):
         return f"-{_say(node.operand)}"
+    if isinstance(node.value, str):
+        return f"\"{node.value}\""
     return "จริง" if node.value is True else "เท็จ" if node.value is False else f"{node.value:g}"

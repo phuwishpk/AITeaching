@@ -29,6 +29,10 @@ KINDS = {
     "teacher": {"label": "หยุดรอครู", "lane": "human", "wait": True,
                 "about": "หยุดกิจกรรมและแจ้งครู ไปต่อเมื่อครูกดปล่อยในหน้าครู (Human-in-the-Loop)"},
     "check": {"label": "ด่านตัดสินใจ", "lane": "wrong", "wait": False, "about": "ไม่ทำอะไร ใช้แยกทางด้วยเงื่อนไขบนเส้น"},
+    "activity": {"label": "กิจกรรมที่ AI สร้าง", "lane": "help", "wait": True,
+                 "about": "ขั้นที่คลังขั้นไม่มี: บรรยายใน goal ว่าต้องการกิจกรรมแบบไหน (เช่น ให้เรียงลำดับขั้น PEMDAS "
+                          "อธิบายด้วยตัวอย่างใหม่ ตั้งคำถามชวนสังเกต) AI สร้างเนื้อหาจริงตอนนักเรียนมาถึงจากเอกสารของครู "
+                          "นักเรียนอ่านแล้วไปต่อ หรือพิมพ์ตอบให้ AI ประเมินตาม rubric"},
     "end": {"label": "จบ", "lane": "correct", "wait": True, "about": "จบชุดคำถาม (สำเร็จ หรือหยุดไว้ก่อน)"},
 }
 
@@ -189,6 +193,11 @@ def normalize(raw: dict) -> tuple[dict, list[str]]:
             step["text"] = _text(s.get("text"), 200) or step["label"]
         elif kind == "teacher":
             step["text"] = _text(s.get("text"), 200) or step["label"]
+        elif kind == "activity":
+            step["title"] = _text(s.get("title"), 60) or step["label"]
+            step["goal"] = _text(s.get("goal"), 800) or step["label"]
+            step["response"] = "text" if s.get("response") == "text" else "none"
+            step["rubric"] = _text(s.get("rubric"), 600)
         elif kind == "end":
             step["result"] = "stopped" if s.get("result") == "stopped" else "completed"
             step["text"] = _text(s.get("text"), 200)
@@ -232,8 +241,8 @@ def _clamp_step(step: dict, key: str, default: float, notes: list[str], label: s
     return number
 
 
-def validate(raw: dict, tools: dict | None = None) -> dict:
-    """คืน {"spec", "errors", "warnings"} ถ้ามี errors ห้ามบันทึก Flow นี้"""
+def validate(raw: dict, tools: dict | None = None, bugs: list[str] | None = None) -> dict:
+    """คืน {"spec", "errors", "warnings"} ถ้ามี errors ห้ามบันทึก Flow นี้ bugs = รหัสใน Bug Library ของคลัง (ถ้ารู้)"""
     try:
         spec, warnings = normalize(raw)
     except FlowError as error:
@@ -255,17 +264,23 @@ def validate(raw: dict, tools: dict | None = None) -> dict:
             errors.append(str(error))
             continue
         edge["text"] = conditions.describe(edge["when"])
+        if bugs is not None:
+            for code in re.findall(r"bug\s*[!=]=\s*[\"']([^\"']+)[\"']", edge["when"]):
+                if code not in bugs:
+                    warnings.append(f"เส้น \"{edge['label'] or edge['id']}\" อ้างรหัส {code} ที่ไม่มีใน Bug Library ของคลังโจทย์")
         kind = steps[edge["from"]]["kind"]
         answer_vars = used & {"correct", "wrong", "misconception", "slip", "first_try", "rt", "rt_ratio", "slow"}
         if answer_vars and kind not in ("item", "hint", "check", "notify"):
             warnings.append(f"เส้นจาก \"{steps[edge['from']]['label']}\" ใช้ผลการตอบ ({', '.join(sorted(answer_vars))}) "
                             "แต่ขั้นนี้ไม่ได้รับคำตอบ ค่าจะเป็นของคำตอบล่าสุด")
-        if used & {"judge_pass", "judge_score"} and kind != "reflect":
+        if used & {"judge_pass", "judge_score"} and kind not in ("reflect", "activity"):
             warnings.append(f"เส้นจาก \"{steps[edge['from']]['label']}\" ใช้ผลการประเมินคำอธิบาย แต่ไม่ใช่ขั้นอธิบายความคิด")
         out[edge["from"]].append(edge)
     for sid, step in steps.items():
         if step["kind"] != "end" and not out[sid]:
             errors.append(f"ขั้น \"{step['label']}\" ไม่มีเส้นออก นักเรียนจะติดอยู่ที่ขั้นนี้")
+        if step["kind"] == "activity" and step.get("response") == "text" and not step.get("rubric"):
+            warnings.append(f"ขั้น \"{step['label']}\" ให้นักเรียนพิมพ์ตอบแต่ยังไม่มีเกณฑ์ประเมิน AI จะประเมินตามเป้าหมายของกิจกรรม")
         if step["kind"] == "reflect" and step.get("judge") and not step.get("rubric"):
             warnings.append(f"ขั้น \"{step['label']}\" ให้ AI ประเมินแต่ยังไม่มีเกณฑ์ของครู")
         catch_all = [i for i, e in enumerate(out[sid]) if not (e["when"] or "").strip() or e["when"].strip() in conditions.ALWAYS]
@@ -341,7 +356,7 @@ def _instant_loop(steps: dict, out: dict[str, list[dict]]) -> list[str] | None:
 
 def _coverage(step: dict, edges: list[dict]) -> list[str]:
     """ลองค่าตัวอย่างของคำตอบถูกและผิด ถ้าไม่มีเส้นไหนรับ engine จะใช้ทางเริ่มต้น (บอกครูไว้)"""
-    base = {k: 0 for k in conditions.VARS}
+    base = {k: ("" if v[1] == "text" else 0) for k, v in conditions.VARS.items()}
     base.update(mastery=0.5, concept_mastery=0.5, visits=1, judge_pass=None, judge_score=None)
     # ตอนตัดสินเส้นหลังตอบถูก ข้อนี้นับเป็นข้อที่ทำถูกแล้ว (items_done, solved_here, streak รวมข้อนี้)
     cases = [("ตอบถูก", {**base, "correct": True, "first_try": True, "items_done": 1, "solved_here": 1, "streak": 1})]
@@ -432,6 +447,8 @@ def describe_step(step: dict) -> str:
         return f"พัก {step['seconds']:g} วินาที"
     if kind in ("notify", "teacher"):
         return step.get("text") or ""
+    if kind == "activity":
+        return step.get("goal", "") + (" · นักเรียนพิมพ์ตอบ AI ประเมินตามเกณฑ์" if step.get("response") == "text" else "")
     if kind == "end":
         return "จบชุด (สำเร็จ)" if step.get("result") == "completed" else "หยุดไว้ก่อน บันทึกความคืบหน้า"
     return KINDS[kind]["about"]
@@ -448,7 +465,8 @@ STANDARD = {"mode": "standard"}
 
 # ---------------------------------------------------------------- prompt ให้ AI ออกแบบ Flow
 
-def design_prompt(gem: dict, errors: list[str] | None = None, previous: dict | None = None) -> str:
+def design_prompt(gem: dict, errors: list[str] | None = None, previous: dict | None = None,
+                  memory: dict | None = None, bugs: list[dict] | None = None) -> str:
     tools = gem.get("tools") or {}
     on = [label for key, label in TOOL_KINDS.items() if tools.get(key, True)]
     off = [label for key, label in TOOL_KINDS.items() if not tools.get(key, True)]
@@ -461,30 +479,46 @@ def design_prompt(gem: dict, errors: list[str] | None = None, previous: dict | N
         "คุณออกแบบ Flow การสอนของติวเตอร์ภาษาไทยจากคำสั่งของครู Flow คือกราฟของขั้นที่ engine รันได้จริง\n\n"
         f"ชื่อ Gem: {gem.get('name', '')}\nคำอธิบาย: {gem.get('description', '')}\n"
         f"คำสั่งของครู:\n\"\"\"\n{gem.get('instructions', '')}\n\"\"\"\n"
-        f"เครื่องมือที่ครูเปิด: {', '.join(on) or '-'} · ที่ครูปิด (ห้ามใช้): {', '.join(off) or '-'}\n\n"
+        + (f"สิ่งที่ AI จดจากเอกสารของครู (แนวทางการสอน ข้อผิดพลาด โจทย์ของครู):\n{json.dumps(memory, ensure_ascii=False)[:12000]}\n"
+           if memory else "")
+        + ("Bug Library ของคลังโจทย์ (ใช้รหัสเหล่านี้ในเงื่อนไข bug == \"รหัส\"):\n"
+           + "\n".join(f"- {b['id']} ({b['type']}): {b['name']}" for b in bugs) + "\n" if bugs else "")
+        + f"เครื่องมือที่ครูเปิด: {', '.join(on) or '-'} · ที่ครูปิด (ห้ามใช้): {', '.join(off) or '-'}\n\n"
         f"ชนิดขั้นที่ใช้ได้:\n{kinds}\n"
         f"ขั้น item มี pick (วิธีเลือกโจทย์):\n{picks}\n"
         "ขั้น item มี hint_button (true/false), hint มี level (1, 2, 3 หรือ \"auto\") และ delay (วินาที 0–60), "
         "lesson มี title, text (เนื้อหาสั้น ๆ ไม่เกิน 5 บรรทัด ห้ามมีคำตอบของโจทย์) และ walkthrough (true = แสดงตัวอย่างทีละขั้นของมโนทัศน์), "
         "reflect มี question, judge (true เฉพาะเมื่อครูสั่งให้ประเมินคำอธิบาย) และ rubric (เกณฑ์ของครู), "
         "break มี seconds (15–300) และ text, notify มี level (urgent/normal/silent) และ text, teacher มี text, "
-        "end มี result (completed/stopped) และ text\n\n"
+        "end มี result (completed/stopped) และ text, "
+        "activity มี title, goal (บรรยายให้ชัดว่า AI ต้องสร้างกิจกรรมอะไร อิงเอกสารของครู), response (\"none\" หรือ \"text\") "
+        "และ rubric (เกณฑ์ประเมินเมื่อ response เป็น text)\n\n"
         "กติกาของขั้นทำโจทย์: กลับมาที่ขั้น item เดิมขณะที่ข้อยังไม่ถูก = ทำข้อเดิมต่อ (ใช้หลังให้คำใบ้) "
         "ถ้าข้อถูกแล้วหรือมาจากขั้น item อื่น = ได้ข้อใหม่ตาม pick "
         "หลังทบทวนพื้นฐาน (pick prerequisite) ขั้น item ถัดไปจะให้ข้อที่พักไว้ก่อนเสมอ\n\n"
-        "เงื่อนไขบนเส้น (when) เขียนแบบ Python ใช้ได้แค่ and, or, not, ==, !=, <, <=, >, >=, ตัวเลข และตัวแปรเหล่านี้:\n"
+        "เงื่อนไขบนเส้น (when) เขียนแบบ Python ใช้ได้แค่ and, or, not, ==, !=, <, <=, >, >=, ตัวเลข ข้อความในเครื่องหมายคำพูด "
+        "และตัวแปรเหล่านี้ (แยกทางตามข้อผิดพลาดได้ เช่น wrong and bug == \"BUG-M01\" หรือ bug_type == \"slip\"):\n"
         f"{variables}\n"
         "เส้นออกจากขั้นเดียวกันเรียงตามลำดับ เส้นแรกที่เป็นจริงชนะ ให้เส้นสุดท้ายเป็น \"\" (ทุกกรณีที่เหลือ) เสมอ\n\n"
         f"ตัวเลขของทั้ง Flow (params) ใส่เฉพาะที่คำสั่งของครูพูดถึง ต้องอยู่ในช่วง:\n{params}\n"
         "ตัวเลขในขั้นและในเงื่อนไขให้เอามาจากคำสั่งของครู ถ้าครูไม่ได้บอกให้ใช้ค่าของแม่แบบ\n\n"
         "สิ่งที่ระบบล็อกไว้ ไม่ต้องใส่ใน Flow: " + " · ".join(l["title"] for l in LOCKED) + "\n\n"
-        "ถ้าคำสั่งของครูไม่ได้บอกลำดับการสอน เงื่อนไข หรือตัวเลขที่ต่างจากแม่แบบมาตรฐาน ให้ตอบแค่ "
-        "{\"use_standard\": true, \"summary\": \"เหตุผลสั้น ๆ\"} ระบบจะใช้ผังมาตรฐานของระบบ "
-        "ถ้าบอก ให้ออกแบบตามที่ครูสั่ง เพิ่มขั้นใหม่ ตัดขั้น หรือเปลี่ยนเงื่อนไขได้อิสระ "
-        "แต่ทุกขั้นต้องมีทางออก และต้องไปถึงขั้น end ได้\n"
-        f"แม่แบบมาตรฐาน:\n{json.dumps(standard_template(), ensure_ascii=False)}\n\n"
-        "ตอบเป็น JSON รูปเดียวกับแม่แบบเท่านั้น: summary (สรุป Flow เป็นภาษาคนให้ครูอ่าน 1–2 ประโยค ว่าต่างจากแม่แบบตรงไหน "
-        "และอ้างถึงคำสั่งข้อไหนของครู), start, params, steps, edges ป้าย (label) ของขั้นและเส้นสั้นไม่เกิน 4 คำ ภาษาไทย"
+        "ออกแบบ Flow เฉพาะของบทเรียนนี้เสมอ ไม่ลอกแม่แบบ: อ่านคำสั่งและสิ่งที่จดจากเอกสาร แล้วแปลงทุกแนวทางเป็นขั้นและเส้น "
+        "เพิ่ม ตัด หรือสลับขั้นได้อิสระ ถ้าแนวทางของครูต้องการสิ่งที่ชนิดขั้นอื่นทำไม่ได้ ให้ใช้ขั้น activity และบรรยายใน goal\n"
+        "สิ่งที่ระบบทำให้เองแล้ว ไม่ต้องสร้างขั้นแยก: ข้อความคำใบ้ของแต่ละระดับถูกเลือกตามรหัสข้อผิดพลาดของคำตอบล่าสุดอัตโนมัติ "
+        "(ตารางคำใบ้ของครูต่อรหัส) จึงใช้ขั้น hint ระดับละหนึ่งขั้นร่วมกันทุกรหัส แยกเส้นด้วย bug หรือ bug_type "
+        "เฉพาะเมื่อระดับคำใบ้หรือทางต่อไปต่างกัน เช่น Slip ที่ครูให้แค่สะกิด = bug_type == \"slip\" ไปคำใบ้ระดับ 1 เสมอ "
+        "Misconception ที่ไล่ทีละระดับ = error_count 1, 2, 3 ไปคำใบ้ระดับ 1, 2, 3\n"
+        "ขั้นตอนการออกแบบ: (1) ไล่แนวทางเฉพาะทุกข้อจากคำสั่งของครู สิ่งที่จดจากเอกสาร และตารางข้อผิดพลาด "
+        "(เช่น ระดับคำใบ้ของแต่ละรหัส Slip ให้แค่สะกิด ลำดับขั้นวิธีทำ กิจกรรมที่ครูอยากให้ทำ) "
+        "(2) ทำให้ทุกข้อเป็นขั้นหรือเส้นจริงใน Flow ห้ามตกหล่น (3) เติมส่วนที่ครูไม่ได้บอก\n"
+        "ส่วนที่ครูไม่ได้บอก ให้ใช้แนวทางของแม่แบบ: คำตอบผิดที่ไม่ตรงรหัสใดก็ต้องได้คำใบ้ตามครั้งที่ผิด ผ่านด้วยคำใบ้ทำข้อคู่ขนาน "
+        "ติดหล่ม (ผิดหลายครั้งหรือ impasse สูง) ไปทบทวนพื้นฐาน ทบทวนแล้วยังติดแจ้งหรือรอครู "
+        "และเกณฑ์จบ correct and mastery >= 0.8 and items_done >= 3 and (mains_left == 0 or challenge_done) "
+        "ทุกขั้นต้องมีทางออก ห้ามมีเส้นผิดที่วนกลับขั้นเดิมโดยไม่มีคำใบ้ และต้องไปถึงขั้น end ได้\n"
+        f"ตัวอย่างรูปแบบ JSON (แม่แบบมาตรฐาน ใช้ดูรูปแบบเท่านั้น):\n{json.dumps(standard_template(), ensure_ascii=False)}\n\n"
+        "ตอบเป็น JSON รูปเดียวกับแม่แบบเท่านั้น: summary (สรุปให้ครูอ่าน 2–4 ประโยค: แนวทางเฉพาะแต่ละข้อของครูกลายเป็นขั้นหรือเส้นไหน), "
+        "start, params, steps, edges ป้าย (label) ของขั้นและเส้นสั้นไม่เกิน 4 คำ ภาษาไทย"
     )
     if errors and previous:
         text += ("\n\nFlow ที่คุณส่งมารอบก่อนตรวจไม่ผ่าน แก้ข้อผิดพลาดเหล่านี้แล้วส่งใหม่ทั้งหมด:\n- " + "\n- ".join(errors)
@@ -498,18 +532,18 @@ def standard_record(summary: str = "", warnings: list[str] | None = None) -> dic
             "updated_at": time.time()}
 
 
-async def design(gem: dict) -> dict:
-    """ให้ AI ออกแบบ Flow จากคำสั่งของครู ตรวจผ่านแล้วคืน gem["flow"]
-    คำสั่งไม่ได้บอกลำดับการสอน หรือแก้สองรอบแล้วยังตรวจไม่ผ่าน ใช้ผังมาตรฐานของระบบ"""
+async def design(gem: dict, memory: dict | None = None, bugs: list[dict] | None = None) -> dict:
+    """ให้ AI ออกแบบ Flow เฉพาะของ Gem จากคำสั่งของครูและสิ่งที่จดจากเอกสาร ตรวจผ่านแล้วคืน gem["flow"]
+    แก้สองรอบแล้วยังตรวจไม่ผ่าน ใช้ผังมาตรฐานของระบบ (บอกครูในคำเตือน)"""
     from . import builder  # builder import ไฟล์นี้ตอนสร้างคลังโจทย์
 
     errors, previous = None, None
+    bug_ids = [b["id"] for b in bugs] if bugs else None
     for _ in range(2):
-        raw = await builder.ask_json("flow", design_prompt(gem, errors, previous), 8000)
+        # ออกแบบ Flow ต้องไล่แนวทางของครูทีละข้อ จึงให้โมเดลคิดเต็มที่ (โทเคนที่ใช้คิดนับรวมใน max_tokens)
+        raw = await builder.ask_json("flow", design_prompt(gem, errors, previous, memory, bugs), 32000, thinking="high")
         raw = raw if isinstance(raw, dict) else {}
-        if raw.get("use_standard"):
-            return standard_record(_text(raw.get("summary"), 400) or "คำสั่งของครูไม่ได้กำหนดลำดับการสอนพิเศษ จึงใช้ผังมาตรฐาน")
-        checked = validate(raw, gem.get("tools"))
+        checked = validate(raw, gem.get("tools"), bug_ids)
         if not checked["errors"]:
             return record(checked["spec"], "ai", checked["warnings"], reviewed=False)
         errors, previous = checked["errors"], raw

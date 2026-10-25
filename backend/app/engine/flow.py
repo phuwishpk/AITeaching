@@ -29,6 +29,8 @@ REVIEW = "TEACHER_REVIEW"
 # Flow ที่ AI ออกแบบใน Gem (ADR-0004): หน้าบทเรียนย่อ และหน้าให้นักเรียนอธิบายความคิด
 LESSON = "FLOW_LESSON"
 REFLECT = "FLOW_REFLECT"
+# ขั้นที่คลังขั้นไม่มี: AI สร้างกิจกรรมตามคำบรรยายตอนนักเรียนมาถึง
+ACTIVITY = "FLOW_ACTIVITY"
 
 HINT_POSITIONS = {1: HINT_L1, 2: HINT_L2, 3: HINT_L3}
 ANSWER_POSITIONS = {ANSWERING, HINT_L1, HINT_L2, HINT_L3, ISO, REMEDIAL}
@@ -57,6 +59,7 @@ POSITION_LABELS = {
     OUTAGE: "AI ขัดข้อง",
     LESSON: "บทเรียนย่อ",
     REFLECT: "อธิบายความคิด",
+    ACTIVITY: "กิจกรรมที่ AI สร้าง",
 }
 
 # สถานะเป็นภาษาคนสำหรับหน้าครู (ไม่มีศัพท์เทคนิค)
@@ -82,6 +85,7 @@ TEACHER_TEXT = {
     OUTAGE: "AI ขัดข้อง หยุดชั่วคราว",
     LESSON: "กำลังอ่านบทเรียนย่อ",
     REFLECT: "กำลังเขียนอธิบายความคิด",
+    ACTIVITY: "กำลังทำกิจกรรมที่ AI สร้าง",
 }
 
 # kind: position = ที่นักเรียนอยู่ได้, gate = ด่านตัดสินใจ, step = ขั้นประมวลผล, event = เหตุการณ์

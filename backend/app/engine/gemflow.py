@@ -121,6 +121,8 @@ def values(state: dict, ctx: C.Ctx, step_id: str) -> dict:
         "mains_left": len([m for m in mains if m["id"] not in state["main_done"]]),
         "challenge_done": bool(state["challenge_correct"]),
         "visits": flow["visits"].get(step_id, 0),
+        "bug": last.get("bug") or "",
+        "bug_type": last.get("bug_type") or "",
     }
 
 
@@ -210,6 +212,11 @@ def enter(state: dict, ctx: C.Ctx, fx: C.Fx, step_id: str, edges: list[str], not
         if leaked:
             notes.append(f"Answer-Leak Guard ซ่อนเนื้อหาของบทเรียนย่อ เพราะมีคำตอบของข้อ {leaked}")
         go(state, ctx, fx, F.LESSON, edges, notes + [f"แสดงบทเรียนย่อ \"{label(step)}\""])
+    elif kind == "activity":
+        # เนื้อหาสร้างโดย AI ตามคำบรรยายของขั้น (services ทำหลังบันทึก) ระหว่างรอหน้าจอขึ้นว่ากำลังเตรียม
+        flow["activity"] = {"step": step_id, "status": "pending", "text": None, "question": None}
+        fx.activity = {"step": step_id}
+        go(state, ctx, fx, F.ACTIVITY, edges, notes + [f"AI สร้างกิจกรรม \"{label(step)}\""])
     elif kind == "reflect":
         go(state, ctx, fx, F.REFLECT, edges, notes + ["ให้นักเรียนอธิบายความคิด" + (" แล้วให้ AI ประเมินตามเกณฑ์ของครู" if step.get("judge") else "")])
     elif kind == "break":
@@ -454,7 +461,9 @@ def submit(state: dict, ctx: C.Ctx, raw) -> C.Fx:
         fx.trace("misconception", it["id"], {"tag": diag["tag"]}, now)
     elif diag["class"] == "unclassified" and not diag["tag"]:
         fx.tag_requests.append({"item_id": it["id"], "answer": data["raw"]})
+    tag = ctx.content.tag(diag["tag"])
     flow["last"] = {"wrong": True, "misconception": diag["class"] == "misconception", "slip": diag["class"] == "slip",
+                    "bug": diag["tag"] or "", "bug_type": (tag or {}).get("type", ""),
                     "rt": round(rt, 2), "rt_ratio": round(rt / expected, 3), "slow": rt > expected}
     fx.result = {"kind": "wrong", "message": C._wrong_message(diag), "diagnosis": diag["class"]}
     notes.append(f"ตอบข้อ {it['id']} ผิดครั้งที่ {item['error_count']}"
@@ -548,11 +557,12 @@ def back_to_item(state: dict, ctx: C.Ctx, fx: C.Fx, edges: list[str], note: str)
 def lesson_done(state: dict, ctx: C.Ctx) -> C.Fx:
     fx = C.Fx()
     resolve_timers(state, ctx, fx)
-    if state["position"] != F.LESSON:
+    if state["position"] not in (F.LESSON, F.ACTIVITY):
         fx.result = {"kind": "blocked", "message": C.BLOCK_MESSAGES.get(state["position"], "")}
         return fx
     step = flow_step(state, ctx)
-    fx.trace("lesson_done", step["id"] if step else None, {"label": label(step)}, ctx.now)
+    fx.trace("lesson_done" if state["position"] == F.LESSON else "activity_done", step["id"] if step else None,
+             {"label": label(step)}, ctx.now)
     fs(state)["last"] = {}
     if step is None:
         back_to_item(state, ctx, fx, [], "อ่านบทเรียนย่อจบแล้ว")
@@ -566,15 +576,15 @@ def reflect(state: dict, ctx: C.Ctx, text: str, verdict: dict | None) -> C.Fx:
     """นักเรียนส่งคำอธิบาย verdict มาจาก AI (ถ้าขั้นนี้ให้ประเมิน) และถูกบันทึกเป็นร่องรอยให้ครูตรวจ"""
     fx = C.Fx()
     resolve_timers(state, ctx, fx)
-    if state["position"] != F.REFLECT:
+    if state["position"] not in (F.REFLECT, F.ACTIVITY):
         fx.result = {"kind": "blocked", "message": C.BLOCK_MESSAGES.get(state["position"], "")}
         return fx
     step = flow_step(state, ctx)
     verdict = verdict or {}
-    fx.trace("reflect", step["id"], {"question": step.get("question"), "text": text, "judge": verdict}, ctx.now)
+    fx.trace("reflect", step["id"], {"question": question_of(state, step), "text": text, "judge": verdict}, ctx.now)
     fs(state)["last"] = {"judge_pass": verdict.get("pass"), "judge_score": verdict.get("score")}
-    notes = ["นักเรียนส่งคำอธิบาย"]
-    if step.get("judge"):
+    notes = ["นักเรียนส่งคำตอบของกิจกรรม" if step["kind"] == "activity" else "นักเรียนส่งคำอธิบาย"]
+    if judged(step):
         notes.append(f"AI ประเมิน: {'ผ่าน' if verdict.get('pass') else 'ยังไม่ผ่าน' if verdict.get('pass') is False else 'ประเมินไม่ได้'}"
                      + (f" ({verdict['score']})" if verdict.get("score") is not None else ""))
     follow(state, ctx, fx, step["id"], [], notes)
@@ -582,6 +592,26 @@ def reflect(state: dict, ctx: C.Ctx, text: str, verdict: dict | None) -> C.Fx:
     if fx.result.get("kind") == "ok":
         fx.result["message"] = "ขอบคุณที่อธิบายนะ"
     return fx
+
+
+def judged(step: dict | None) -> bool:
+    """ขั้นที่ให้ AI ประเมินคำตอบที่นักเรียนพิมพ์: อธิบายความคิดที่ครูเปิดประเมิน หรือกิจกรรมที่ให้พิมพ์ตอบ"""
+    return bool(step) and (bool(step.get("judge")) or (step["kind"] == "activity" and step.get("response") == "text"))
+
+
+def question_of(state: dict, step: dict | None) -> str:
+    if step and step["kind"] == "activity":
+        return (fs(state).get("activity") or {}).get("question") or step.get("goal", "")
+    return (step or {}).get("question", "")
+
+
+def set_activity(state: dict, step_id: str, text: str, question: str | None, status: str = "ready") -> bool:
+    """services ใส่เนื้อหาที่ AI สร้างแล้ว คืน False ถ้านักเรียนออกจากขั้นนั้นไปแล้ว"""
+    activity = fs(state).get("activity") or {}
+    if state["position"] != F.ACTIVITY or activity.get("step") != step_id:
+        return False
+    activity.update(text=text, question=question or None, status=status)
+    return True
 
 
 def stress(state: dict, ctx: C.Ctx, source: str) -> C.Fx:
@@ -715,6 +745,11 @@ def student_extras(state: dict, ctx: C.Ctx) -> dict:
         extras["lesson"] = {"title": step.get("title") or label(step), "text": text, "walkthrough": walk}
     if state["position"] == F.REFLECT and step:
         extras["reflect"] = {"question": step.get("question") or "อธิบายว่าคิดอย่างไร"}
+    if state["position"] == F.ACTIVITY and step:
+        activity = fs(state).get("activity") or {}
+        extras["activity"] = {"title": step.get("title") or label(step), "status": activity.get("status", "pending"),
+                              "text": activity.get("text"), "question": activity.get("question"),
+                              "response": step.get("response", "none")}
     if state["position"] == F.CB and (fs(state).get("pending") or {}).get("kind") == "break" and step:
         extras["break_text"] = step.get("text")
     return extras

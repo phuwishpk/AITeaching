@@ -22,6 +22,7 @@ interface PreviewView {
   walkthrough: { title: string; problem: string; steps: string[] } | null;
   lesson?: { title: string; text: string; walkthrough: { title: string; problem: string; steps: string[] } | null };
   reflect?: { question: string };
+  activity?: { title: string; status: string; text: string | null; question: string | null; response: "none" | "text" };
   break_text?: string | null;
   error_count: number;
   ended: boolean;
@@ -72,7 +73,8 @@ export function PreviewTry({ gem }: { gem: GemDetail }) {
 
   // คำใบ้จาก AI เขียนเสร็จทีหลัง และตัวจับเวลา (หน่วง ล็อก พัก) หมดเอง ดึงสถานะใหม่จนกว่าจะนิ่ง
   const view = data?.view;
-  const waiting = !!view && (view.hints.some((h) => h.status === "pending") || view.timers.delay > 0 || view.timers.lock > 0 || view.timers.break > 0);
+  const waiting = !!view && (view.hints.some((h) => h.status === "pending") || view.timers.delay > 0 || view.timers.lock > 0 || view.timers.break > 0
+    || (view.position === "FLOW_ACTIVITY" && view.activity?.status === "pending"));
   useEffect(() => {
     if (!waiting) return;
     const id = setInterval(() => api<PreviewResponse>("teacher", path).then(setData).catch(() => {}), 2000);
@@ -148,6 +150,23 @@ export function PreviewTry({ gem }: { gem: GemDetail }) {
           <Button size="sm" variant="primary" disabled={busy} onClick={() => call("/lesson-done")} style={{ alignSelf: "flex-start" }}>
             อ่านจบแล้ว ไปต่อ
           </Button>
+        </div>
+      ) : view.position === "FLOW_ACTIVITY" ? (
+        <div className="gem-item">
+          <span className="small strong">{view.activity?.title}</span>
+          {!view.activity || view.activity.status === "pending" ? (
+            <span className="small muted">AI กำลังสร้างกิจกรรม…</span>
+          ) : (
+            <span className="small lesson-text">{view.activity.text}</span>
+          )}
+          {view.activity?.status !== "pending" &&
+            (view.activity?.response === "text" ? (
+              <TryReflect question={view.activity?.question || "ตอบสั้น ๆ"} busy={busy} onSend={async (text) => setMessage((await call("/reflect", { answer: text }))?.result?.message ?? null)} />
+            ) : (
+              <Button size="sm" variant="primary" disabled={busy} onClick={() => call("/lesson-done")} style={{ alignSelf: "flex-start" }}>
+                ทำเสร็จแล้ว ไปต่อ
+              </Button>
+            ))}
         </div>
       ) : view.position === "FLOW_REFLECT" ? (
         <TryReflect question={view.reflect?.question ?? ""} busy={busy} onSend={async (text) => setMessage((await call("/reflect", { answer: text }))?.result?.message ?? null)} />

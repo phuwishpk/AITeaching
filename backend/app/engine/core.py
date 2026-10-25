@@ -37,11 +37,13 @@ STUDENT_LABELS = {
     F.OUTAGE: "AI ขัดข้องชั่วคราว",
     F.LESSON: "บทเรียนย่อ",
     F.REFLECT: "อธิบายความคิดของเรา",
+    F.ACTIVITY: "กิจกรรม",
 }
 
 BLOCK_MESSAGES = {
     F.LESSON: "อ่านบทเรียนย่อให้จบก่อนนะ",
     F.REFLECT: "เขียนอธิบายความคิดก่อนนะ",
+    F.ACTIVITY: "ทำกิจกรรมนี้ให้เสร็จก่อนนะ",
     F.LIVE: "กำลังเตรียมโจทย์ใหม่ให้ รอสักครู่นะ",
     F.OUTAGE: "AI ขัดข้องชั่วคราว ระบบกำลังลองใหม่",
     F.LOCK: "ระบบพักปุ่มตอบไว้สักครู่ ลองอ่านโจทย์อีกครั้งนะ",
@@ -148,6 +150,8 @@ class Fx:
         self.result: dict = {}
         # คำขอให้ services สร้างโจทย์สด (Live Generation) หลังบันทึกเหตุการณ์นี้
         self.generate: dict | None = None
+        # คำขอให้ services ให้ AI สร้างเนื้อหาของขั้น "กิจกรรม" ใน Flow ของ Gem
+        self.activity: dict | None = None
 
     def trace(self, action: str, target: str | None, data: dict | None = None, ts: float = 0.0):
         self.traces.append({"action": action, "target": target, "data": data or {}, "ts": ts})

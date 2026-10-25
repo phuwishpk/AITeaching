@@ -268,6 +268,37 @@ async def fill_hint(code: str, set_id: str, content: Content, it: dict, level: i
     await hub.to_staff({"type": "ai_log", "code": code, "log_id": result["log_id"]})
 
 
+async def fill_activity(code: str, set_id: str, step_id: str):
+    """เนื้อหาของขั้น "กิจกรรม" ใน Flow ของ Gem: AI สร้างตามเป้าหมาย ไม่สำเร็จใช้ข้อความสำรองและแจ้งครู"""
+    state = db.load_state(code, set_id)
+    if not state:
+        return
+    content = content_for(state["subject_id"], set_id)
+    step = content.steps.get(step_id) or {}
+    item_state = state.get("item")
+    it = content.item(item_state["id"]) if item_state else None
+    result = None
+    if ai_enabled_for(code):
+        result = await tutor.make_activity(content.subject, step, it, content.concept_name(it["concept"]) if it else "",
+                                           _student_vars(state), content.tag((item_state or {}).get("last_tag")), code)
+        # เอกสารของครูอาจมีโจทย์ในคลังพร้อมเฉลย ตรวจซ้ำกับข้อที่นักเรียนยังทำไม่ได้
+        if result and gemflow.leaked_item(f"{result['text']} {result['question']}",
+                                          [i for i in content.items.values() if i["id"] not in state["done_items"]],
+                                          it["id"] if it else None):
+            result = None
+        if result is None:
+            await raise_alert(code, set_id, "ai_outage", f"AI สร้างกิจกรรม \"{step.get('label', step_id)}\" ไม่สำเร็จ ใช้กิจกรรมสำรอง")
+    asks = step.get("response") == "text"
+    text = result["text"] if result else (
+        f"{step.get('title') or step.get('label', '')}: ลองทบทวนวิธีคิดของข้อที่เพิ่งทำทีละขั้น ว่าแต่ละขั้นทำเพราะอะไร")
+    question = result["question"] if result else ("สรุปสั้น ๆ ว่าข้อนี้ต้องคิดอย่างไร" if asks else "")
+    async with lock(code):
+        state = db.load_state(code, set_id)
+        if state and gemflow.set_activity(state, step_id, text, question, "ready" if result else "fallback"):
+            db.save_state(state)
+            await hub.to_student(code, {"type": "state", "view": engine.student_view(state, make_ctx(content))})
+
+
 async def suggest_tags(code: str, content: Content, requests: list[dict]):
     for request in requests:
         it = content.item(request["item_id"])
@@ -309,6 +340,8 @@ async def run_event(code: str, set_id: str, action, *args) -> tuple[dict, Conten
         asyncio.create_task(job)
     if fx.generate:
         asyncio.create_task(live_generate(code, set_id, state["subject_id"], fx.generate))
+    if fx.activity:
+        asyncio.create_task(fill_activity(code, set_id, fx.activity["step"]))
     if fx.tag_requests and use_ai:
         asyncio.create_task(suggest_tags(code, content, fx.tag_requests))
     return state, content, ctx, fx
@@ -392,7 +425,7 @@ async def chat(code: str, set_id: str, message: str) -> dict:
                 "view": engine.student_view(state, ctx)}
 
     paused = db.load_state(code, set_id)
-    if paused and paused["position"] not in F.CAN_ANSWER | {F.LESSON, F.REFLECT}:
+    if paused and paused["position"] not in F.CAN_ANSWER | {F.LESSON, F.REFLECT, F.ACTIVITY}:
         # ระบบหยุดรอครูหรือนักเรียนกำลังพัก: ข้อความส่งถึงครูโดยตรง AI ไม่ตอบ
         content = content_for(paused["subject_id"], set_id)
         return {"reply": None, "to_teacher": True, "view": engine.student_view(paused, make_ctx(content))}
@@ -465,10 +498,13 @@ async def reflect(code: str, set_id: str, text: str) -> dict:
     bill_to_gem_owner(content.subject)
     step = gemflow.flow_step(state, make_ctx(content)) if content.spec else None
     verdict = None
-    if step and step.get("judge") and state["position"] == F.REFLECT:
+    if gemflow.judged(step) and state["position"] in (F.REFLECT, F.ACTIVITY):
         it = content.item(state["item"]["id"]) if state.get("item") else None
+        # กิจกรรม: คำถามมาจากที่ AI สร้าง เกณฑ์มาจาก rubric หรือเป้าหมายของกิจกรรม
+        judging = {**step, "question": gemflow.question_of(state, step),
+                   "rubric": step.get("rubric") or (f"ตอบได้ตามเป้าหมายของกิจกรรม: {step.get('goal')}" if step.get("goal") else "")}
         if ai_enabled_for(code):
-            verdict = await tutor.judge_reflection(content.subject, it, step, scrubbed, code)
+            verdict = await tutor.judge_reflection(content.subject, it, judging, scrubbed, code)
         else:
             verdict = {"pass": None, "score": None, "reason": "AI ปิดอยู่ ครูตรวจคำอธิบายเอง"}
         if verdict.get("error"):

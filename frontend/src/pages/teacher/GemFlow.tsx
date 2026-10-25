@@ -320,6 +320,8 @@ function defaultsFor(kind: string, id: string): FlowStepSpec {
       return { ...base, text: "" };
     case "end":
       return { ...base, result: "completed", text: "" };
+    case "activity":
+      return { ...base, title: "", goal: "", response: "none", rubric: "" };
     default:
       return base;
   }
@@ -492,6 +494,27 @@ function StepEditor({
           <Field label="ข้อความถึงครู">
             <input className="input" value={step.text ?? ""} maxLength={200} onChange={(e) => set({ text: e.target.value })} />
           </Field>
+        </>
+      )}
+      {step.kind === "activity" && (
+        <>
+          <Field label="หัวข้อที่นักเรียนเห็น">
+            <input className="input" value={step.title ?? ""} maxLength={60} onChange={(e) => set({ title: e.target.value })} />
+          </Field>
+          <Field label="ให้ AI สร้างกิจกรรมอะไร" hint="AI สร้างเนื้อหาจริงตอนนักเรียนมาถึงขั้นนี้ อิงเอกสารของครู และไม่เฉลยข้อที่กำลังทำ">
+            <textarea className="input" rows={4} value={step.goal ?? ""} maxLength={800} onChange={(e) => set({ goal: e.target.value })} />
+          </Field>
+          <Field label="นักเรียนต้องตอบไหม">
+            <select className="input" value={step.response ?? "none"} onChange={(e) => set({ response: e.target.value })}>
+              <option value="none">อ่านแล้วไปต่อ</option>
+              <option value="text">พิมพ์ตอบ ให้ AI ประเมินตามเกณฑ์</option>
+            </select>
+          </Field>
+          {step.response === "text" && (
+            <Field label="เกณฑ์ประเมิน">
+              <textarea className="input" rows={3} value={step.rubric ?? ""} maxLength={600} onChange={(e) => set({ rubric: e.target.value })} />
+            </Field>
+          )}
         </>
       )}
       {step.kind === "end" && (

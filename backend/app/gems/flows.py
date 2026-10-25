@@ -9,13 +9,23 @@ from .. import db
 from . import builder, flowspec, manage, versions
 
 
+def _subject(gem: dict) -> dict | None:
+    return db.get_subject(gem.get("subject_id") or "")
+
+
 def _items(gem: dict) -> list[dict]:
-    subject = db.get_subject(gem.get("subject_id") or "")
+    subject = _subject(gem)
     return subject["items"] if subject else []
 
 
+def _bugs(gem: dict) -> list[dict] | None:
+    subject = _subject(gem)
+    return subject.get("bug_tags", []) if subject else None
+
+
 def _validate(gem: dict, raw: dict) -> dict:
-    checked = flowspec.validate(raw, gem.get("tools"))
+    bugs = _bugs(gem)
+    checked = flowspec.validate(raw, gem.get("tools"), [b["id"] for b in bugs] if bugs is not None else None)
     if checked["spec"] and not checked["errors"]:
         checked["warnings"] += flowspec.leak_warnings(checked["spec"], _items(gem))
     return checked
@@ -69,7 +79,7 @@ def approve(gem_id: str, actor: str) -> dict:
 
 async def redesign(gem_id: str, actor: str) -> dict:
     gem = manage.get(gem_id)
-    flow = await flowspec.design(gem)
+    flow = await flowspec.design(gem, (gem.get("knowledge") or {}).get("memory"), _bugs(gem))
     flow["instructions_key"] = builder.instructions_key(gem)
     gem = manage.get(gem_id)
     gem["flow"] = flow

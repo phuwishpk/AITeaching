@@ -128,6 +128,13 @@ def agent_act(state: dict, content, persona_key: str, rng: random.Random, t: flo
         ctx.now = t
         engine.resolve_timers(state, ctx, fxs[0])
         return fxs, t
+    if position == F.ACTIVITY:
+        t += rng.uniform(20, 50)
+        ctx.now = t
+        step = (state.get("flow") or {}).get("step")
+        answer = (content.steps.get(step) or {}).get("response") == "text"
+        fxs.append(engine.reflect(state, ctx, "ลองทำตามกิจกรรมแล้ว", None) if answer else engine.walkthrough_done(state, ctx))
+        return fxs, t
     if position == F.REFLECT:
         t += rng.uniform(20, 50)
         ctx.now = t

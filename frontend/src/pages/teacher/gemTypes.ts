@@ -181,6 +181,8 @@ export interface FlowStepSpec {
   rubric?: string;
   seconds?: number;
   result?: string;
+  goal?: string;
+  response?: string;
 }
 
 export interface FlowEdgeSpec {

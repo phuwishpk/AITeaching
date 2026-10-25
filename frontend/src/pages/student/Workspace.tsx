@@ -55,6 +55,7 @@ interface View {
   // Flow ที่ครูออกแบบใน Gem: หน้าบทเรียนย่อ หน้าอธิบายความคิด และข้อความของขั้นพัก
   lesson?: { title: string; text: string; walkthrough: { title: string; problem: string; steps: string[] } | null };
   reflect?: { question: string };
+  activity?: { title: string; status: "pending" | "ready" | "fallback"; text: string | null; question: string | null; response: "none" | "text" };
   break_text?: string | null;
   remedial: { concept_name: string; round: number } | null;
   ended: boolean;
@@ -300,7 +301,7 @@ function Room({ code, onLogout }: { code: string; onLogout: () => void }) {
           </div>
           <aside className="stack">
             {/* หน้าบทเรียนย่อและอธิบายความคิดของ Flow ใน Gem: ซ่อนคำใบ้ของข้อเดิม ลดสิ่งรบกวน (Extraneous Load) */}
-            {!["FLOW_LESSON", "FLOW_REFLECT"].includes(view.position) && <HintPanel
+            {!["FLOW_LESSON", "FLOW_REFLECT", "FLOW_ACTIVITY"].includes(view.position) && <HintPanel
               view={view}
               socratic={socratic}
               onHint={async () => {
@@ -317,7 +318,7 @@ function Room({ code, onLogout }: { code: string; onLogout: () => void }) {
               <TutorChat
                 messages={chat}
                 starters={view.gem?.starter_prompts ?? []}
-                toTeacher={!answering && !["FLOW_LESSON", "FLOW_REFLECT"].includes(view.position)}
+                toTeacher={!answering && !["FLOW_LESSON", "FLOW_REFLECT", "FLOW_ACTIVITY"].includes(view.position)}
                 teacherIn={teacherIn}
                 onSend={async (message) => {
                   setChat((list) => [...list, { from: "me", text: message }]);
@@ -616,6 +617,8 @@ function StateScreen({
           </Button>
         </article>
       );
+    case "FLOW_ACTIVITY":
+      return <ActivityCard view={view} act={act} onTimer={onTimer} />;
     case "FLOW_REFLECT":
       return <ReflectCard question={view.reflect?.question ?? "อธิบายว่าเราคิดอย่างไร"} onSend={(text) => act("reflect", { message: text })} />;
     case "IDLE_PAUSE":
@@ -950,6 +953,48 @@ export function ReflectCard({ question, onSend }: { question: string; onSend: (t
       />
       <Button variant="primary" size="lg" disabled={!text.trim()} loading={sending} onClick={send}>
         ส่งคำอธิบาย
+      </Button>
+    </article>
+  );
+}
+
+// ขั้น "กิจกรรม" ของ Flow ที่ครูออกแบบ: AI สร้างเนื้อหาตอนมาถึง ระหว่างรอดึงสถานะใหม่จนกว่าจะพร้อม
+function ActivityCard({ view, act, onTimer }: { view: View; act: (path: string, body?: unknown) => Promise<unknown>; onTimer: () => void }) {
+  const activity = view.activity;
+  const pending = !activity || activity.status === "pending";
+  useEffect(() => {
+    if (!pending) return;
+    const id = setInterval(onTimer, 2500);
+    return () => clearInterval(id);
+  }, [pending, onTimer]);
+  if (pending) {
+    return (
+      <article className="card state-card fade-in" role="status">
+        <LoaderCircle size={30} className="spin" color="var(--accent)" />
+        <h2 className="title-lg">{activity?.title ?? "กิจกรรม"}</h2>
+        <p className="muted prose">ครูผู้ช่วยกำลังเตรียมกิจกรรมให้ รอสักครู่นะ</p>
+      </article>
+    );
+  }
+  if (activity.response === "text") {
+    return (
+      <div className="stack">
+        <article className="card state-card state-left fade-in">
+          <p className="eyebrow">กิจกรรม</p>
+          <h2 className="title-lg">{activity.title}</h2>
+          <p className="prose lesson-text">{activity.text}</p>
+        </article>
+        <ReflectCard question={activity.question || "ตอบสั้น ๆ ด้วยคำของเราเอง"} onSend={(text) => act("reflect", { message: text })} />
+      </div>
+    );
+  }
+  return (
+    <article className="card state-card state-left fade-in">
+      <p className="eyebrow">กิจกรรม</p>
+      <h2 className="title-lg">{activity.title}</h2>
+      <p className="prose lesson-text">{activity.text}</p>
+      <Button variant="primary" size="lg" onClick={() => act("walkthrough-done")}>
+        ทำเสร็จแล้ว ไปต่อ
       </Button>
     </article>
   );

@@ -36,7 +36,7 @@ async def _call(system: str, user: str, **options) -> tuple[providers.LLMResult 
             continue
         try:
             if provider == "claude":
-                claude_options = {k: v for k, v in options.items() if k != "backup_models"}
+                claude_options = {k: v for k, v in options.items() if k not in ("backup_models", "thinking", "attachments")}
                 return await providers.call_claude(key, ai["claude_model"], system, user, **claude_options), errors
             if provider == "gemini":
                 gemini_options = {"backup_models": providers.GEMINI_BACKUPS, **options}
@@ -199,6 +199,46 @@ async def suggest_tag(subject: dict, item: dict, answer: str, code: str | None) 
     if tag_id not in valid:
         return None
     return {"tag": tag_id, "reason": match_reason.group(1).strip() if match_reason else ""}
+
+
+async def make_activity(subject: dict, step: dict, item: dict | None, concept_name: str, student: dict,
+                        tag: dict | None, code: str | None) -> dict | None:
+    """ขั้น "กิจกรรม" ใน Flow ของ Gem: AI สร้างเนื้อหาตามเป้าหมายที่บรรยายไว้ อิงเอกสารของครู ห้ามเฉลยข้อที่กำลังทำ
+    คืน None ถ้าเรียก AI ไม่สำเร็จหรือ Answer-Leak Guard บล็อก (services ใช้ข้อความสำรองแทน)"""
+    asks = step.get("response") == "text"
+    context = (
+        f"นักเรียนระดับ {subject.get('grade', '')} เรื่อง{concept_name}\n"
+        + (f"โจทย์ที่เพิ่งทำ: {item['prompt']} {item.get('math') or ''}\n" if item else "")
+        + f"ตอบผิดในข้อนี้ {student.get('error_count', 0)} ครั้ง"
+        + (f" ข้อผิดพลาดที่พบ: {tag['name']} ({tag.get('description', '')})" if tag else "")
+    )
+    task = (
+        f"สร้างกิจกรรมสั้น ๆ ให้นักเรียนคนนี้ตามเป้าหมายของครู: {step.get('goal', '')}\n"
+        "ใช้เนื้อหาและวิธีคิดจากเอกสารของครู ภาษาเข้าใจง่าย ไม่เกิน 8 บรรทัด ห้ามบอกคำตอบของโจทย์ที่นักเรียนกำลังทำ "
+        "ถ้ายกตัวอย่างให้ใช้ตัวเลขอื่น\n"
+        + ("ปิดท้ายด้วยคำถามหนึ่งข้อให้นักเรียนพิมพ์ตอบ\n" if asks else "ไม่ต้องให้นักเรียนตอบ ให้อ่านแล้วไปต่อ\n")
+        + "ตอบเป็น JSON: {\"text\": \"เนื้อหากิจกรรม\", \"question\": \"คำถามให้นักเรียนตอบ หรือ \\\"\\\" ถ้าไม่ต้องตอบ\"}"
+    )
+    built = {"frames": {"role": prompt.role_frame(subject), "context": context, "task": task,
+                        "constraints": prompt.constraints_frame()}}
+    built["system"] = f"{built['frames']['role']}\n\n{built['frames']['constraints']}"
+    built["user"] = f"{context}\n\n{task}"
+    built = _with_memory(built, knowledge_memory(subject))
+    result, errors = await _call(built["system"], built["user"], max_tokens=1500, json_mode=True)
+    if result is None:
+        _log(code, "activity", built["frames"], None, None, "", None, errors)
+        return None
+    match = re.search(r"\{.*\}", result.text, re.S)
+    try:
+        data = json.loads(match.group(0)) if match else {}
+    except json.JSONDecodeError:
+        data = {}
+    text, question = _clean(str(data.get("text") or "")), _clean(str(data.get("question") or ""))
+    checked = guard.check(f"{text}\n{question}", item) if item else guard.GuardResult(False)
+    log_id = _log(code, "activity", built["frames"], None, result, text if not checked.blocked else "", checked.to_dict(), errors)
+    if not text or checked.blocked:
+        return None
+    return {"text": text, "question": question if asks else "", "log_id": log_id}
 
 
 async def judge_reflection(subject: dict, item: dict | None, step: dict, answer: str, code: str | None) -> dict:

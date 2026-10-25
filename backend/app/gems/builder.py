@@ -247,14 +247,14 @@ RETRY_DELAYS = (5.0, 15.0)
 GEMINI_BACKUPS = providers.GEMINI_BACKUPS
 
 
-async def ask_json(step: str, user: str, max_tokens: int = 12000) -> dict | list:
+async def ask_json(step: str, user: str, max_tokens: int = 12000, thinking: str = "minimal") -> dict | list:
     frames = {"role": SYSTEM, "task": user[:8000]}
     problem = "เรียก AI ไม่สำเร็จ"
     for attempt in range(len(RETRY_DELAYS) + 1):
         if attempt:
             await asyncio.sleep(RETRY_DELAYS[attempt - 1])
         result, errors = await service._call(SYSTEM, user, max_tokens=max_tokens, json_mode=True, timeout=300.0,
-                                             backup_models=GEMINI_BACKUPS)
+                                             backup_models=GEMINI_BACKUPS, thinking=thinking)
         service._log(None, f"gem_{step}", frames, None, result, result.text[:4000] if result else "", None, errors)
         if result is None:
             problem = "; ".join(errors) or problem
@@ -708,7 +708,8 @@ async def build(gem_id: str) -> None:
             if "flow" in parts:
                 return parts["flow"]
             try:
-                parts["flow"] = await flowspec.design(gem)
+                # ออกแบบจากคำสั่ง สิ่งที่จดจากเอกสาร และ Bug Library ของคลังนี้ (แยกทางตามข้อผิดพลาดได้)
+                parts["flow"] = await flowspec.design(gem, reading.get("memory"), plan["bug_tags"] + GENERIC_SLIPS)
             except BuildError as error:
                 _progress(gem, "flow", "done")
                 return flowspec.standard_record("", [f"AI ออกแบบ Flow ไม่สำเร็จ ({error}) จึงใช้ผังมาตรฐานของระบบ"])
