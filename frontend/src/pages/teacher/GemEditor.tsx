@@ -18,7 +18,7 @@ import {
   Workflow,
   X,
 } from "lucide-react";
-import { api } from "../../lib/api";
+import { api, getAuth } from "../../lib/api";
 import { useLoad, useNow } from "../../lib/hooks";
 import { mmss } from "../../lib/format";
 import GemIcon, { GEM_COLORS, GEM_ICONS } from "../../components/GemIcon";
@@ -194,10 +194,22 @@ export default function GemEditor() {
   };
 
 
+  // มีผู้ใช้หลายคน: แก้ไขได้เฉพาะเจ้าของ Gem (server ตรวจซ้ำอีกชั้น)
+  const notMine = !!gem?.owner_name && gem.owner_name !== getAuth("teacher")?.code;
+
   if (loading) return <Spinner />;
 
   return (
     <div className="gem-editor">
+      {notMine && (
+        <div className="callout callout-info gem-owner-note">
+          <Lock size={16} />
+          <span className="small">
+            Gem นี้เป็นของ {gem?.owner_name} ดู ลองเรียน และติดตามนักเรียนได้ตามปกติ ส่วนการแก้ไข สร้างคลังใหม่ และลบทำได้เฉพาะเจ้าของ
+            เพราะ AI ของ Gem นี้ใช้ API key ของเจ้าของ
+          </span>
+        </div>
+      )}
       <header className="gem-editor-head">
         <Button variant="ghost" size="sm" className="btn-icon" icon={<ArrowLeft size={18} />} onClick={() => navigate("/teacher/gems")} aria-label="กลับไปรายการ Gem" />
         <GemIcon icon={form.icon} color={form.color} size={36} />
@@ -208,7 +220,7 @@ export default function GemEditor() {
           </span>
         )}
         {gem && <Badge tone={STATUS_TEXT[gem.build.status].tone}>{STATUS_TEXT[gem.build.status].label}</Badge>}
-        <Button variant="primary" loading={saving} disabled={!form.name.trim() || building} onClick={save}>
+        <Button variant="primary" loading={saving} disabled={!form.name.trim() || building || notMine} onClick={save}>
           บันทึก
         </Button>
       </header>

@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { useNavigate } from "react-router";
 import { FileText, Plus, Trash2 } from "lucide-react";
-import { api } from "../../lib/api";
+import { api, getAuth } from "../../lib/api";
 import { useLoad, useNow } from "../../lib/hooks";
 import { ago } from "../../lib/format";
 import GemIcon from "../../components/GemIcon";
@@ -16,6 +16,8 @@ export default function GemList() {
   const gems = useLoad(() => api<GemSummary[]>("teacher", "/api/gems"));
   const [removing, setRemoving] = useState<GemSummary | null>(null);
   const now = useNow(30000);
+  // มีผู้ใช้หลายคน: ลบได้เฉพาะ Gem ของตัวเอง (ชื่อที่แสดงของผู้ใช้ที่ล็อกอินเก็บไว้ตอนเข้าระบบ)
+  const me = getAuth("teacher")?.code;
 
   const remove = async () => {
     if (!removing) return;
@@ -55,6 +57,7 @@ export default function GemList() {
                 <span className="stack" style={{ gap: 4, minWidth: 0 }}>
                   <span className="subtitle gem-card-name">{gem.name}</span>
                   <span className="small muted gem-card-text">{gem.description || "ยังไม่มีคำอธิบาย"}</span>
+                  {gem.owner_name && <span className="xsmall faint">ของ {gem.owner_name}</span>}
                 </span>
               </button>
               <div className="gem-card-foot">
@@ -69,7 +72,6 @@ export default function GemList() {
                     )}
                   </span>
                 )}
-                {gem.owner_name && <span className="xsmall faint">ของ {gem.owner_name}</span>}
                 {gem.files > 0 && (
                   <span className="xsmall faint row row-sm">
                     <FileText size={12} />
@@ -79,7 +81,9 @@ export default function GemList() {
                 <span className="xsmall faint grow" style={{ textAlign: "right" }}>
                   {ago(gem.updated_at, now, true)}
                 </span>
-                <Button variant="ghost" size="sm" icon={<Trash2 size={15} />} onClick={() => setRemoving(gem)} aria-label={`ลบ ${gem.name}`} />
+                {(!gem.owner_name || gem.owner_name === me) && (
+                  <Button variant="ghost" size="sm" icon={<Trash2 size={15} />} onClick={() => setRemoving(gem)} aria-label={`ลบ ${gem.name}`} />
+                )}
               </div>
             </article>
           );

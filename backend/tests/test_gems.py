@@ -819,3 +819,19 @@ def test_several_staff_share_one_system_but_not_api_keys(monkeypatch):
     services.bill_to_gem_owner({"gem": {"id": gem["id"]}})
     asyncio.run(service.chat_reply({"id": "x", "name": "คณิต", "gem": {"id": gem["id"]}}, None, "", {}, "ช่วยหน่อย", None, [], "", "S-1"))
     assert seen == ["AIza-alice-1111"]
+
+
+def test_only_the_gem_owner_can_change_or_rebuild_it():
+    from app import users
+
+    alice, bob = users.add("alice", "ครูอลิซ"), users.add("bob", "ครูบ็อบ")
+    client = TestClient(app)
+    login = lambda name, pw: {"Authorization": "Bearer " + client.post(
+        "/api/auth/staff", json={"role": "teacher", "username": name, "password": pw}).json()["token"]}
+    a, b = login("alice", alice), login("bob", bob)
+    gem = client.post("/api/gems", headers=a, json={"name": "ของอลิซ"}).json()
+    assert client.put(f"/api/gems/{gem['id']}", headers=b, json={"name": "แก้"}).status_code == 403
+    assert client.post(f"/api/gems/{gem['id']}/build", headers=b).status_code == 403
+    assert client.delete(f"/api/gems/{gem['id']}", headers=b).status_code == 403
+    assert client.get(f"/api/gems/{gem['id']}", headers=b).status_code == 200
+    assert client.put(f"/api/gems/{gem['id']}", headers=a, json={"name": "แก้โดยเจ้าของ"}).status_code == 200

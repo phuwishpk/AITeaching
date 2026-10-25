@@ -7,7 +7,7 @@ import time
 from fastapi import APIRouter, Depends, File, HTTPException, UploadFile
 from pydantic import BaseModel
 
-from .. import db, seed, services, settings_store
+from .. import db, seed, services, settings_store, users
 from ..gems import alerts as gem_alerts
 from ..gems import builder, design, flows, flowspec, items, manage, versions
 from ..engine import core as engine
@@ -17,6 +17,16 @@ from .deps import require
 router = APIRouter(prefix="/api/gems", tags=["gems"])
 teacher = require("teacher")
 viewer = require("teacher", "admin")
+
+
+async def owner(gem_id: str, auth: dict = Depends(teacher)) -> dict:
+    """แก้ สร้างใหม่ หรือลบ Gem ได้เฉพาะเจ้าของ (มีผู้ใช้หลายคน) เพราะงาน AI ของ Gem คิดกับ API key ของเจ้าของ
+    คนอื่นดู ลองเรียน และติดตามนักเรียนของ Gem นี้ได้ตามปกติ"""
+    gem = db.get_gem(gem_id)
+    if gem and gem.get("owner") and users.exist() and auth.get("code") != gem["owner"]:
+        raise HTTPException(403, f"Gem นี้เป็นของ {users.owner_name(gem['owner']) or gem['owner']} แก้ไขได้เฉพาะเจ้าของ "
+                                 "ดูและลองเรียนได้ตามปกติ")
+    return auth
 
 
 class GemBody(BaseModel):
@@ -114,7 +124,7 @@ def create_gem(body: GemBody, auth: dict = Depends(teacher)):
 
 
 @router.put("/{gem_id}")
-def update_gem(gem_id: str, body: GemBody, auth: dict = Depends(teacher)):
+def update_gem(gem_id: str, body: GemBody, auth: dict = Depends(owner)):
     _load(gem_id)
     try:
         return manage.detail(manage.update(gem_id, _fields(body), auth["role"]))
@@ -123,14 +133,14 @@ def update_gem(gem_id: str, body: GemBody, auth: dict = Depends(teacher)):
 
 
 @router.delete("/{gem_id}")
-def delete_gem(gem_id: str, auth: dict = Depends(teacher)):
+def delete_gem(gem_id: str, auth: dict = Depends(owner)):
     _load(gem_id)
     manage.delete(gem_id)
     return {"ok": True}
 
 
 @router.post("/{gem_id}/build")
-async def build_gem(gem_id: str, auth: dict = Depends(teacher)):
+async def build_gem(gem_id: str, auth: dict = Depends(owner)):
     """เริ่มสร้าง Item Bank รุ่นใหม่เป็นงานเบื้องหลัง หน้าเว็บดึงสถานะจาก GET /api/gems/{id}"""
     _load(gem_id)
     if builder.is_running(gem_id):
@@ -183,7 +193,7 @@ def gem_files(gem_id: str, auth: dict = Depends(viewer)):
 
 
 @router.post("/{gem_id}/files")
-async def upload_file(gem_id: str, file: UploadFile = File(...), auth: dict = Depends(teacher)):
+async def upload_file(gem_id: str, file: UploadFile = File(...), auth: dict = Depends(owner)):
     _load(gem_id)
     data = await file.read()
     if len(data) > 15 * 1024 * 1024:
@@ -198,7 +208,7 @@ async def upload_file(gem_id: str, file: UploadFile = File(...), auth: dict = De
 
 
 @router.delete("/{gem_id}/files/{doc_id}")
-def delete_file(gem_id: str, doc_id: int, auth: dict = Depends(teacher)):
+def delete_file(gem_id: str, doc_id: int, auth: dict = Depends(owner)):
     _load(gem_id)
     db.execute("DELETE FROM documents WHERE id = ? AND subject_id = ?", (doc_id, gem_id))
     seed.rebuild_index(gem_id)
@@ -227,25 +237,25 @@ def check_flow(gem_id: str, body: FlowBody, auth: dict = Depends(teacher)):
 
 
 @router.put("/{gem_id}/flow")
-def save_flow(gem_id: str, body: FlowBody, auth: dict = Depends(teacher)):
+def save_flow(gem_id: str, body: FlowBody, auth: dict = Depends(owner)):
     _load(gem_id)
     return _flow(lambda: flows.save(gem_id, body.spec, auth["role"]))
 
 
 @router.post("/{gem_id}/flow/approve")
-def approve_flow(gem_id: str, auth: dict = Depends(teacher)):
+def approve_flow(gem_id: str, auth: dict = Depends(owner)):
     _load(gem_id)
     return _flow(lambda: flows.approve(gem_id, auth["role"]))
 
 
 @router.post("/{gem_id}/flow/standard")
-def standard_flow(gem_id: str, auth: dict = Depends(teacher)):
+def standard_flow(gem_id: str, auth: dict = Depends(owner)):
     _load(gem_id)
     return _flow(lambda: flows.use_standard(gem_id, auth["role"]))
 
 
 @router.post("/{gem_id}/flow/design")
-async def redesign_flow(gem_id: str, auth: dict = Depends(teacher)):
+async def redesign_flow(gem_id: str, auth: dict = Depends(owner)):
     """ให้ AI ออกแบบ Flow ใหม่จากคำสั่งปัจจุบันของครู (ใช้เวลาราว 20–60 วินาที)"""
     _load(gem_id)
     reason = manage.can_build()
@@ -258,7 +268,7 @@ async def redesign_flow(gem_id: str, auth: dict = Depends(teacher)):
 
 
 @router.post("/{gem_id}/items/{item_id}/flag")
-def resolve_flag(gem_id: str, item_id: str, body: FlagBody, auth: dict = Depends(teacher)):
+def resolve_flag(gem_id: str, item_id: str, body: FlagBody, auth: dict = Depends(owner)):
     """ครูยืนยันเฉลยของ Flagged Item (keep = true) หรือลบข้อนั้นออกจากคลัง (keep = false)"""
     _load(gem_id)
     try:
@@ -276,7 +286,7 @@ def gem_versions(gem_id: str, auth: dict = Depends(viewer)):
 
 
 @router.post("/{gem_id}/versions/{n}/restore")
-def restore_version(gem_id: str, n: int, auth: dict = Depends(teacher)):
+def restore_version(gem_id: str, n: int, auth: dict = Depends(owner)):
     _load(gem_id)
     try:
         return manage.detail(manage.restore(gem_id, n, auth["role"]))
@@ -386,38 +396,38 @@ def bank_items(gem_id: str, auth: dict = Depends(teacher)):
 
 
 @router.post("/{gem_id}/items")
-def add_item(gem_id: str, body: dict, auth: dict = Depends(teacher)):
+def add_item(gem_id: str, body: dict, auth: dict = Depends(owner)):
     _load(gem_id)
     return _items(lambda: items.save(gem_id, None, body))
 
 
 @router.put("/{gem_id}/items/{item_id}")
-def edit_item(gem_id: str, item_id: str, body: dict, auth: dict = Depends(teacher)):
+def edit_item(gem_id: str, item_id: str, body: dict, auth: dict = Depends(owner)):
     _load(gem_id)
     return _items(lambda: items.save(gem_id, item_id, body))
 
 
 @router.delete("/{gem_id}/items/{item_id}")
-def delete_item(gem_id: str, item_id: str, auth: dict = Depends(teacher)):
+def delete_item(gem_id: str, item_id: str, auth: dict = Depends(owner)):
     _load(gem_id)
     return _items(lambda: items.remove(gem_id, item_id))
 
 
 @router.post("/{gem_id}/items/{item_id}/approve")
-def approve_item(gem_id: str, item_id: str, auth: dict = Depends(teacher)):
+def approve_item(gem_id: str, item_id: str, auth: dict = Depends(owner)):
     _load(gem_id)
     return _items(lambda: items.approve(gem_id, item_id))
 
 
 @router.post("/{gem_id}/items/{item_id}/use-suggested")
-def use_suggested_answer(gem_id: str, item_id: str, auth: dict = Depends(teacher)):
+def use_suggested_answer(gem_id: str, item_id: str, auth: dict = Depends(owner)):
     """ข้อที่ติดธงเพราะเฉลยไม่ตรงกับ sympy: ครูกดใช้คำตอบที่ sympy คำนวณได้"""
     _load(gem_id)
     return _items(lambda: items.use_suggested(gem_id, item_id))
 
 
 @router.post("/{gem_id}/generate")
-async def generate_items(gem_id: str, body: GenerateBody, auth: dict = Depends(teacher)):
+async def generate_items(gem_id: str, body: GenerateBody, auth: dict = Depends(owner)):
     """ให้ AI สร้างโจทย์เพิ่ม ข้อใหม่รอครูอนุมัติก่อนถึงนักเรียน"""
     _load(gem_id)
     reason = manage.can_build()

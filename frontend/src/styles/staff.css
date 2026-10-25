@@ -4221,3 +4221,7 @@ button.route-node:hover {
   flex-direction: column;
   gap: 3px;
 }
+
+.gem-owner-note {
+  margin: 12px 24px 0;
+}
