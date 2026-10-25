@@ -35,3 +35,5 @@ dist/
 
 # ค่าของ Cloudflare Tunnel บนเซิร์ฟเวอร์ (มี credentials)
 deploy/cloudflared/
+deploy/gateway/nginx.conf
+deploy/gateway/docker-compose.yml

@@ -1,0 +1,32 @@
+<!doctype html>
+<html lang="th">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Adaptive Tutor</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='8' fill='%23c2255c'/%3E%3Ctext x='16' y='21.5' text-anchor='middle' font-family='Arial,Helvetica,sans-serif' font-size='15' font-weight='700' fill='white'%3EAT%3C/text%3E%3C/svg%3E">
+<style>
+  :root { --bg: #f3f4f6; --card: #fff; --text: #1f2430; --muted: #5d6475; --border: #d9dce3; --accent: #0f6e6a; --pink: #c2255c; }
+  @media (prefers-color-scheme: dark) { :root { --bg: #14171c; --card: #1d2128; --text: #e8eaee; --muted: #a3a9b6; --border: #343a45; --accent: #4fb3ac; } }
+  * { box-sizing: border-box; }
+  body { margin: 0; min-height: 100vh; display: grid; place-items: center; padding: 16px; background: var(--bg); color: var(--text);
+         font-family: "IBM Plex Sans Thai", "Noto Sans Thai", Tahoma, sans-serif; }
+  .card { width: 100%; max-width: 420px; background: var(--card); border: 1px solid var(--border); border-radius: 16px; padding: 28px; }
+  .brand { display: flex; align-items: center; gap: 10px; font-weight: 700; margin-bottom: 18px; }
+  .mark { width: 30px; height: 30px; border-radius: 8px; background: var(--pink); color: #fff; display: grid; place-items: center; font-size: 13px; }
+  h1 { font-size: 22px; margin: 0 0 6px; }
+  p { color: var(--muted); font-size: 14px; line-height: 1.6; margin: 0 0 18px; }
+  input { width: 100%; padding: 12px 14px; font-size: 18px; border: 1px solid var(--border); border-radius: 10px; background: var(--card); color: var(--text); }
+  button { width: 100%; margin-top: 12px; padding: 12px; font-size: 16px; font-weight: 600; border: 0; border-radius: 10px; background: var(--accent); color: #fff; cursor: pointer; }
+</style>
+</head>
+<body>
+  <form class="card" onsubmit="event.preventDefault(); var c = document.getElementById('code').value.trim(); if (c) location.href = '/a/' + encodeURIComponent(c);">
+    <div class="brand"><span class="mark">AT</span>Adaptive Tutor</div>
+    <h1>ใส่รหัสบัญชี</h1>
+    <p>รหัสบัญชีได้จากครูประจำวิชา ใส่ครั้งเดียว ครั้งต่อไปเข้าลิงก์นี้ได้เลย ถ้าครูส่งลิงก์ที่ลงท้ายด้วย /a/รหัส มา กดลิงก์นั้นได้เลย</p>
+    <input id="code" autocomplete="off" autocapitalize="off" spellcheck="false" aria-label="รหัสบัญชี" autofocus>
+    <button type="submit">เข้าใช้งาน</button>
+  </form>
+</body>
+</html>
