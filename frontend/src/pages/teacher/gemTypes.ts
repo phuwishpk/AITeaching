@@ -221,7 +221,7 @@ export interface GemFlowDetail {
   summary: string;
   spec: FlowSpec | null;
   map: FlowMapData | null;
-  template: FlowSpec;
+  reference_map: FlowMapData;
   outdated: boolean;
 }
 

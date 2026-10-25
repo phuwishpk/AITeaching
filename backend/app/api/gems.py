@@ -248,12 +248,6 @@ def approve_flow(gem_id: str, auth: dict = Depends(owner)):
     return _flow(lambda: flows.approve(gem_id, auth["role"]))
 
 
-@router.post("/{gem_id}/flow/standard")
-def standard_flow(gem_id: str, auth: dict = Depends(owner)):
-    _load(gem_id)
-    return _flow(lambda: flows.use_standard(gem_id, auth["role"]))
-
-
 @router.post("/{gem_id}/flow/design")
 async def redesign_flow(gem_id: str, auth: dict = Depends(owner)):
     """ให้ AI ออกแบบ Flow ใหม่จากคำสั่งปัจจุบันของครู (ใช้เวลาราว 20–60 วินาที)"""

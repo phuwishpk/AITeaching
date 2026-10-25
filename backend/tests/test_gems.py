@@ -7,7 +7,8 @@ from fastapi.testclient import TestClient
 
 from app import db, services
 from app.api.deps import issue_token
-from app.gems import builder, manage, verify
+from app.gems import builder, flowspec, manage, verify
+from app.gems import design as design_module
 from app.main import app
 from app.tutor import prompt, providers, service
 
@@ -51,8 +52,8 @@ def fake_llm(monkeypatch, resolve_wrong: set[int] = frozenset()):
 
     async def fake_call(system, user, **options):
         calls.append(options)
-        if "ออกแบบ Flow การสอน" in user:  # ครูไม่ได้กำหนดลำดับการสอน: ใช้ผังมาตรฐาน
-            payload = {"use_standard": True, "summary": "ใช้ผังมาตรฐาน"}
+        if "ออกแบบ Flow การสอน" in user:  # AI ออกแบบ Flow จากคำสั่ง (ในเทสต์ใช้โครงของแม่แบบอ้างอิง)
+            payload = flowspec.standard_template()
         elif "ออกแบบโครงของบทเรียน" in user:
             payload = PLAN
         elif "ชุดที่ 1" in user:
@@ -310,12 +311,15 @@ def test_preview_uses_a_test_student_hidden_from_the_class(monkeypatch):
     fake_llm(monkeypatch)
     gem = manage.create({"name": "พรีวิว"}, "teacher")
     asyncio.run(builder.build(gem["id"]))
+    gem = manage.get(gem["id"])
     client = TestClient(app)
     teacher = {"Authorization": f"Bearer {issue_token('teacher')}"}
     started = client.post(f"/api/gems/{gem['id']}/preview/start", headers=teacher).json()
     code = started["code"]
     assert code.startswith("TEST-") and started["view"]["item"]
-    wrong = client.post(f"/api/gems/{gem['id']}/preview/answer", headers=teacher, json={"answer": "999"}).json()
+    from app import demo
+    item = services.content_for(gem["subject_id"], gem["set_id"]).item(started["view"]["item"]["id"])
+    wrong = client.post(f"/api/gems/{gem['id']}/preview/answer", headers=teacher, json={"answer": demo.other_wrong(item)}).json()
     # ตอบทันทีหลังโจทย์ขึ้น engine จริงจับเป็น Rapid Guess เหมือนนักเรียนจริง
     assert wrong["view"]["position"] == "RAPID_GUESS_LOCK"
     assert client.get(f"/api/gems/{gem['id']}/preview", headers=teacher).json()["view"]["position"]
@@ -423,11 +427,15 @@ def test_admin_sees_the_flow_the_teacher_designed(monkeypatch):
     client = TestClient(app)
     admin = {"Authorization": f"Bearer {issue_token('admin')}"}
     design = client.get(f"/api/gems/{gem['id']}/design", headers=admin).json()
-    assert {"HINT_L1", "DELIBERATE_DELAY", "WALKTHROUGH"} <= set(design["flow"]["disabled"])
-    assert "ISOMORPHIC_TEST" not in design["flow"]["disabled"]
-    assert design["flow"]["alerts"]["CIRCUIT_BREAKER"][0]["mode"] == "pause"
-    assert "CHOOSING_PATH" not in design["flow"]["alerts"]  # ครูปิดสถานการณ์นี้
-    assert design["flow"]["alerts"]["SAFETY_STOP"][0]["mode"] == "pause"
+    # Admin เห็น Flow ที่ AI ออกแบบจาก prompt ของ Gem นี้ ไม่ใช่ผังตายตัว
+    assert design["flow"]["custom"] and design["flow"]["nodes"]
+    # แม่แบบอ้างอิง (Gem ที่ยังไม่มี Flow): ผังตัดกล่องของเครื่องมือที่ครูปิด และติดป้ายแจ้งเตือนตาม Alert Rule
+    reference = design_module.flow_marks({**manage.get(gem["id"]), "flow": None})
+    assert {"HINT_L1", "DELIBERATE_DELAY", "WALKTHROUGH"} <= set(reference["disabled"])
+    assert "ISOMORPHIC_TEST" not in reference["disabled"]
+    assert reference["alerts"]["CIRCUIT_BREAKER"][0]["mode"] == "pause"
+    assert "CHOOSING_PATH" not in reference["alerts"]  # ครูปิดสถานการณ์นี้
+    assert reference["alerts"]["SAFETY_STOP"][0]["mode"] == "pause"
     assert "สอนแบบเกม" in design["frames"]["role"] and "ห้ามบอกคำตอบสุดท้าย" in design["frames"]["constraints"]
     assert design["bank"]["stats"]["main"] == 4 and design["versions"]
 
@@ -615,10 +623,10 @@ def test_teacher_reviews_and_edits_the_flow(monkeypatch):
     assert versions.history(gem["id"])[0]["note"] == "ครูแก้ Flow การสอน"
     # Flow ที่ครูแก้เองไม่ถูกออกแบบทับตอนสร้างคลังใหม่
     assert not builder.flow_needs_design(manage.get(gem["id"]))
-    standard = client.post(f"/api/gems/{gem['id']}/flow/standard", headers=teacher).json()
-    assert standard["mode"] == "standard"
+    # ผังมาตรฐานเป็นแค่แม่แบบอ้างอิง เลือกใช้แทน Flow ของ Gem ไม่ได้
+    assert client.post(f"/api/gems/{gem['id']}/flow/standard", headers=teacher).status_code in (404, 405)
     subject = db.get_subject(manage.get(gem["id"])["subject_id"])
-    assert subject["gem"]["flow"]["mode"] == "standard"
+    assert subject["gem"]["flow"]["mode"] == "custom"
     # Admin ดูได้ แก้ไม่ได้
     admin = {"Authorization": f"Bearer {issue_token('admin')}"}
     assert client.put(f"/api/gems/{gem['id']}/flow", headers=admin, json={"spec": edited}).status_code == 403
@@ -835,3 +843,25 @@ def test_only_the_gem_owner_can_change_or_rebuild_it():
     assert client.delete(f"/api/gems/{gem['id']}", headers=b).status_code == 403
     assert client.get(f"/api/gems/{gem['id']}", headers=b).status_code == 200
     assert client.put(f"/api/gems/{gem['id']}", headers=a, json={"name": "แก้โดยเจ้าของ"}).status_code == 200
+
+
+def test_gem_without_a_designed_flow_is_not_offered_to_students(monkeypatch):
+    fake_llm(monkeypatch)
+    real = service._call
+
+    async def no_flow(system, user, **options):
+        if "ออกแบบ Flow การสอน" in user:
+            return providers.LLMResult("{}", "gemini", "fake", 1, 1, 1), []
+        return await real(system, user, **options)
+
+    monkeypatch.setattr(service, "_call", no_flow)
+    gem = manage.create({"name": "ยังไม่มี Flow"}, "teacher")
+    asyncio.run(builder.build(gem["id"]))
+    gem = manage.get(gem["id"])
+    assert gem["build"]["status"] == "ready" and (gem.get("flow") or {}).get("mode") != "custom"
+    assert any("ออกแบบ Flow การสอนไม่สำเร็จ" in w for w in gem["build"]["warnings"])
+    db.execute("INSERT INTO students (code, kind, persona, created_at) VALUES ('S-60', 'real', NULL, 0)")
+    client = TestClient(app)
+    headers = {"Authorization": f"Bearer {issue_token('student', 'S-60')}"}
+    assert gem["set_id"] not in [s["id"] for s in client.get("/api/student/sets", headers=headers).json()]
+    assert client.post(f"/api/student/sets/{gem['set_id']}/start", headers=headers, json={}).status_code == 404

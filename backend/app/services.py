@@ -312,6 +312,13 @@ async def suggest_tags(code: str, content: Content, requests: list[dict]):
         await hub.to_staff({"type": "suggested_tag", "id": cursor.lastrowid, "code": code})
 
 
+def has_flow(subject: dict) -> bool:
+    """Gem เรียนได้เมื่อมี Flow ที่ออกแบบจาก prompt ของครู (ผังมาตรฐานเป็นแค่แม่แบบอ้างอิง ไม่ใช้แทน)
+    ชุดคำถามที่ไม่ใช่ Gem ใช้ engine เดิม"""
+    gem = subject.get("gem")
+    return not gem or (gem.get("flow") or {}).get("mode") == "custom"
+
+
 def bill_to_gem_owner(subject: dict | None) -> None:
     """งาน AI ระหว่างนักเรียนเรียน (คำใบ้ แชต ประเมินคำอธิบาย สร้างโจทย์สด) คิดกับ API key ของเจ้าของ Gem"""
     gem_id = ((subject or {}).get("gem") or {}).get("id")
@@ -351,6 +358,8 @@ async def run_event(code: str, set_id: str, action, *args) -> tuple[dict, Conten
 
 async def start(code: str, set_id: str, restart: bool = False) -> dict:
     subject, qs = find_set(set_id)
+    if not has_flow(subject):
+        raise NotFound("บทเรียนนี้ยังไม่มี Flow การสอน ครูต้องให้ AI ออกแบบ Flow จากคำสั่งก่อน")
     bill_to_gem_owner(subject)
     content = content_for(subject["id"], set_id)
     fx = Fx()

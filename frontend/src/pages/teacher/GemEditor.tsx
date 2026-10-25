@@ -860,13 +860,13 @@ function FlowTab({ gem }: { gem: GemDetail }) {
             {f.reviewed ? <Badge tone="success">ครูตรวจแล้ว</Badge> : <Badge tone="warning">ยังไม่ได้ตรวจ</Badge>}
           </>
         ) : (
-          <Badge>ผังมาตรฐานของระบบ</Badge>
+          <Badge tone="warning">ยังไม่มี Flow</Badge>
         )}
       </span>
       <p className="small">
         {f.summary ||
-          (f.mode === "standard"
-            ? "คำสั่งของ Gem ไม่ได้กำหนดลำดับการสอนพิเศษ จึงใช้ผังมาตรฐาน: คำใบ้ทีละระดับ ข้อคู่ขนาน ทบทวนพื้นฐาน และส่งต่อครู"
+          (f.mode !== "custom"
+            ? "ยังไม่มี Flow ที่ออกแบบจากคำสั่ง นักเรียนจึงยังเริ่มเรียน Gem นี้ไม่ได้ กดตรวจและปรับ Flow แล้วให้ AI ออกแบบจากคำสั่ง"
             : "")}
       </p>
       {f.outdated && <p className="small callout callout-warning">คำสั่งเปลี่ยนหลังออกแบบ Flow นี้ ให้ AI ออกแบบใหม่ได้ในหน้า Flow</p>}

@@ -44,7 +44,8 @@ def detail(gem: dict) -> dict:
         "summary": (spec or {}).get("summary") or flow.get("summary") or "",
         "spec": checked["spec"] if checked else None,
         "map": flowspec.map_view(checked["spec"]) if checked and checked["spec"] else None,
-        "template": flowspec.standard_template(),
+        # แม่แบบอ้างอิง ครูเปิดดูเป็นแนวทางเขียนคำสั่ง ไม่ใช้เป็น Flow ของ Gem
+        "reference_map": flowspec.map_view(flowspec.validate(flowspec.standard_template())["spec"]),
         "outdated": "instructions_key" in flow and builder.flow_needs_design(gem),
     }
 
@@ -61,12 +62,6 @@ def save(gem_id: str, raw: dict, actor: str) -> dict:
         raise manage.GemError("Flow นี้ยังบันทึกไม่ได้: " + " · ".join(checked["errors"]))
     gem["flow"] = flowspec.record(checked["spec"], "teacher", checked["warnings"], reviewed=True)
     return _store(gem, actor, "ครูแก้ Flow การสอน")
-
-
-def use_standard(gem_id: str, actor: str) -> dict:
-    gem = manage.get(gem_id)
-    gem["flow"] = {**flowspec.STANDARD, "source": "teacher"}
-    return _store(gem, actor, "ครูเลือกใช้ผังมาตรฐานของระบบ")
 
 
 def approve(gem_id: str, actor: str) -> dict:

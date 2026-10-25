@@ -1,10 +1,10 @@
 import { useEffect, useMemo, useState } from "react";
 import { useNavigate, useParams } from "react-router";
-import { ArrowDown, ArrowLeft, ArrowUp, CircleAlert, CircleCheck, Lock, Plus, RotateCcw, Save, Sparkles, Trash2, Wand2 } from "lucide-react";
+import { ArrowDown, ArrowLeft, ArrowUp, CircleAlert, CircleCheck, Lock, Plus, Save, Sparkles, Trash2, Wand2 } from "lucide-react";
 import { api } from "../../lib/api";
 import { useLoad } from "../../lib/hooks";
 import SpecFlowMap, { KIND_TEXT } from "../../components/SpecFlowMap";
-import { Badge, Button, Card, CardHead, Field, Modal, Spinner, Tabs, useToast } from "../../components/ui";
+import { Badge, Button, Card, CardHead, Field, Spinner, Tabs, useToast } from "../../components/ui";
 import {
   FLOW_SOURCE,
   type FlowCatalog,
@@ -33,8 +33,9 @@ export default function GemFlowPage() {
   const [check, setCheck] = useState<FlowCheck | null>(null);
   const [selected, setSelected] = useState<string | null>(null);
   const [side, setSide] = useState<Side>("step");
-  const [busy, setBusy] = useState<"" | "save" | "design" | "standard" | "approve">("");
-  const [confirmStandard, setConfirmStandard] = useState(false);
+  const [busy, setBusy] = useState<"" | "save" | "design" | "approve">("");
+  // ผังมาตรฐานเป็นแค่แม่แบบอ้างอิง เปิดดูได้ ไม่ใช้เป็น Flow ของ Gem
+  const [showReference, setShowReference] = useState(false);
 
   // เริ่มแก้จาก Flow ที่บันทึกไว้ทุกครั้งที่โหลดใหม่
   useEffect(() => {
@@ -81,10 +82,6 @@ export default function GemFlowPage() {
   const design = () =>
     run("design", () => api<GemFlowDetail>("teacher", `/api/gems/${gemId}/flow/design`, { method: "POST" }), "AI ออกแบบ Flow จากคำสั่งแล้ว ตรวจก่อนกดยืนยันนะ");
   const approve = () => run("approve", () => api<GemFlowDetail>("teacher", `/api/gems/${gemId}/flow/approve`, { method: "POST" }), "ยืนยันว่าตรวจ Flow แล้ว");
-  const useStandard = () => {
-    setConfirmStandard(false);
-    run("standard", () => api<GemFlowDetail>("teacher", `/api/gems/${gemId}/flow/standard`, { method: "POST" }), "กลับไปใช้ผังมาตรฐานของระบบแล้ว");
-  };
 
   const update = (change: (spec: FlowSpec) => void) =>
     setDraft((current) => {
@@ -115,7 +112,7 @@ export default function GemFlowPage() {
               {detail.reviewed ? <Badge tone="success">ครูตรวจแล้ว</Badge> : <Badge tone="warning">ยังไม่ได้ตรวจ</Badge>}
             </>
           ) : (
-            <Badge>ผังมาตรฐานของระบบ</Badge>
+            <Badge tone="warning">ยังไม่มี Flow</Badge>
           )}
         </div>
       </header>
@@ -159,16 +156,9 @@ export default function GemFlowPage() {
         <Button variant={detail.mode === "custom" ? "soft" : "primary"} icon={<Wand2 size={16} />} loading={busy === "design"} disabled={!!busy} onClick={design}>
           {busy === "design" ? "AI กำลังออกแบบ (ราว 20–60 วินาที)" : "ให้ AI ออกแบบใหม่จากคำสั่ง"}
         </Button>
-        {!draft && (
-          <Button icon={<Plus size={16} />} disabled={!!busy} onClick={() => setDraft(structuredClone(detail.template))}>
-            แก้เองจากแม่แบบมาตรฐาน
-          </Button>
-        )}
-        {detail.mode === "custom" && (
-          <Button variant="ghost" icon={<RotateCcw size={16} />} disabled={!!busy} onClick={() => setConfirmStandard(true)}>
-            ใช้ผังมาตรฐานของระบบ
-          </Button>
-        )}
+        <Button variant="ghost" disabled={!!busy} onClick={() => setShowReference(!showReference)}>
+          {showReference ? "ซ่อนแม่แบบอ้างอิง" : "ดูแม่แบบอ้างอิง"}
+        </Button>
         <span className="grow" />
         {dirty && (
           <>
@@ -187,13 +177,22 @@ export default function GemFlowPage() {
         )}
       </div>
 
+      {showReference && (
+        <Card>
+          <CardHead title="แม่แบบอ้างอิง (ไม่ใช้เป็น Flow ของ Gem)" sub="ผังมาตรฐานของหัวข้อที่ 3 ที่ Stress Test และหน้ากฎ R-01–R-55 อธิบายไว้ ดูเป็นแนวทางเขียนคำสั่งเท่านั้น" />
+          <div className="card-body">
+            <SpecFlowMap nodes={detail.reference_map.nodes} edges={detail.reference_map.edges} compact />
+          </div>
+        </Card>
+      )}
+
       {!draft ? (
         <Card>
-          <CardHead title="Gem นี้ใช้ผังมาตรฐานของระบบ" sub="ผังมาตรฐานของหัวข้อที่ 3 ที่ Stress Test และหน้ากฎ R-01–R-55 อธิบายไว้" />
+          <CardHead title="Gem นี้ยังไม่มี Flow การสอน" sub="นักเรียนยังเริ่มเรียน Gem นี้ไม่ได้จนกว่าจะมี Flow ที่ออกแบบจากคำสั่งของครู" />
           <div className="card-body stack">
             <p className="small">
-              ตอบผิดได้คำใบ้ทีละระดับหลังหน่วงเวลา ผ่านด้วยคำใบ้ต้องทำข้อคู่ขนานที่ไม่มีคำใบ้ ติดหล่มไปทบทวนพื้นฐาน ซ่อมเสริมครบ 2 รอบแจ้งครู
-              ถ้าอยากให้สอนต่างจากนี้ เขียนลำดับการสอนในคำสั่งของ Gem (เช่น "ผิด 2 ครั้งให้ดูตัวอย่างก่อน" หรือ "ทุกข้อที่ถูกให้อธิบายวิธีคิด") แล้วกดให้ AI ออกแบบ
+              กด "ให้ AI ออกแบบใหม่จากคำสั่ง" AI จะอ่านคำสั่งและเอกสารของ Gem แล้วออกแบบทุกขั้นจากสิ่งที่ครูเขียน ถ้าออกแบบไม่ผ่าน
+              ลองเขียนลำดับการสอนในคำสั่งให้ชัดขึ้น เช่น "ผิด 2 ครั้งให้ดูตัวอย่างก่อน" หรือ "ทุกข้อที่ถูกให้อธิบายวิธีคิด"
             </p>
             {detail.warnings.map((w) => (
               <div key={w} className="callout callout-warning">
@@ -303,21 +302,6 @@ export default function GemFlowPage() {
         </div>
       )}
 
-      <Modal
-        open={confirmStandard}
-        onClose={() => setConfirmStandard(false)}
-        title="ใช้ผังมาตรฐานของระบบ"
-        footer={
-          <>
-            <Button onClick={() => setConfirmStandard(false)}>ยกเลิก</Button>
-            <Button variant="primary" onClick={useStandard}>
-              ใช้ผังมาตรฐาน
-            </Button>
-          </>
-        }
-      >
-        <p className="small">Flow ที่ออกแบบไว้ยังอยู่ในประวัติเวอร์ชัน ย้อนกลับได้ นักเรียนที่เริ่มรอบใหม่จะเรียนตาม ผังมาตรฐาน</p>
-      </Modal>
     </div>
   );
 }

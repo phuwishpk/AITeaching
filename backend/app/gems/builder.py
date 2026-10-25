@@ -704,15 +704,15 @@ async def build(gem_id: str) -> None:
         half = max(1, sizes["main"] // 2)
 
         async def design_flow():
-            # ออกแบบ Flow ไม่สำเร็จไม่ทำให้การสร้างคลังล้ม ใช้ผังมาตรฐาน และไม่เก็บผลที่ล้มไว้ในร่าง
+            # ออกแบบ Flow ไม่สำเร็จไม่ทำให้การสร้างคลังล้ม และไม่เก็บผลที่ล้มไว้ในร่าง
             if "flow" in parts:
                 return parts["flow"]
             try:
-                # ออกแบบจากคำสั่ง สิ่งที่จดจากเอกสาร และ Bug Library ของคลังนี้ (แยกทางตามข้อผิดพลาดได้)
                 parts["flow"] = await flowspec.design(gem, reading.get("memory"), plan["bug_tags"] + GENERIC_SLIPS)
             except BuildError as error:
-                _progress(gem, "flow", "done")
-                return flowspec.standard_record("", [f"AI ออกแบบ Flow ไม่สำเร็จ ({error}) จึงใช้ผังมาตรฐานของระบบ"])
+                # ออกแบบไม่สำเร็จ: คลังโจทย์ยังสร้างต่อได้ Flow เดิม (ถ้ามี) ยังใช้อยู่ ครูกดออกแบบใหม่ในแท็บ Flow
+                _progress(gem, "flow", "error")
+                return {"error": str(error)}
             _progress(gem, "flow", "done")
             return parts["flow"]
 
@@ -731,8 +731,10 @@ async def build(gem_id: str) -> None:
             raise failed
         _progress(gem, "items", "done")
         _progress(gem, "extras", "done")
-        flow = None
-        if redesign:
+        flow, flow_error = None, None
+        if redesign and results[3].get("error"):
+            flow_error = results[3]["error"]
+        elif redesign:
             flow = {**results[3], "instructions_key": instructions_key(gem)}
             gem["flow"] = flow
         _progress(gem, "flow", "done")
@@ -779,6 +781,8 @@ async def build(gem_id: str) -> None:
             gem["build"]["warnings"].insert(1, f"โจทย์หลักและโจทย์ท้าทาย {cited}/{len(mains)} ข้อระบุส่วนของเอกสารที่ใช้สร้าง")
             if reading.get("files") and not reading.get("memory"):
                 gem["build"]["warnings"].insert(1, "AI จดสิ่งที่จำจากเอกสารไม่สำเร็จ สร้างจากต้นฉบับโดยตรงแทน")
+        if flow_error:
+            gem["build"]["warnings"].insert(0, f"ออกแบบ Flow การสอนไม่สำเร็จ: {flow_error}")
         if flow and flow.get("mode") == "custom":
             gem["build"]["warnings"].append("AI ออกแบบ Flow การสอนจากคำสั่งแล้ว ตรวจและปรับได้ในแท็บ Flow")
         elif (gem.get("flow") or {}).get("source") == "teacher":
@@ -878,6 +882,8 @@ def instructions_key(gem: dict) -> str:
 def flow_needs_design(gem: dict) -> bool:
     """ออกแบบ Flow ใหม่เมื่อคำสั่งหรือเครื่องมือเปลี่ยน แต่ไม่ทับ Flow ที่ครูแก้หรือเลือกเอง"""
     flow = gem.get("flow") or {}
+    if flow.get("mode") != "custom":
+        return True  # ยังไม่มี Flow ที่ออกแบบจาก prompt (ผังมาตรฐานเป็นแค่แม่แบบอ้างอิง)
     if flow.get("source") == "teacher":
         return False
     return flow.get("instructions_key") != instructions_key(gem)

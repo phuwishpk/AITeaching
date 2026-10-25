@@ -39,6 +39,8 @@ def list_sets(auth: dict = Depends(student)):
         for qs in subject.get("question_sets", []):
             if not qs.get("published") or not check_set(gem_builder.usable(subject), qs["id"])["ok"]:
                 continue
+            if not services.has_flow(subject):
+                continue  # Gem ที่ยังไม่มี Flow ที่ออกแบบจาก prompt ไม่แสดงให้นักเรียน
             state = states.get(qs["id"])
             status = "new"
             if state:

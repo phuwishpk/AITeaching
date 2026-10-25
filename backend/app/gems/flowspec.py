@@ -487,6 +487,8 @@ def record(flow_spec: dict, source: str, warnings: list[str], reviewed: bool) ->
             "updated_at": time.time()}
 
 
+# Gem ที่ยังไม่มี Flow ที่ออกแบบจาก prompt (นักเรียนยังเริ่มเรียนไม่ได้) ผังมาตรฐานเป็นแค่แม่แบบอ้างอิง
+# ของหัวข้อ 3–6 และ Stress Test ไม่ใช้เป็น Flow ของ Gem
 STANDARD = {"mode": "standard"}
 
 
@@ -587,12 +589,6 @@ FORMAT_EXAMPLE = {
 }
 
 
-def standard_record(summary: str = "", warnings: list[str] | None = None) -> dict:
-    """ใช้ผังมาตรฐานของระบบ (engine/core.py) ที่ Stress Test และหน้ากฎอธิบายไว้"""
-    return {**STANDARD, "source": "ai", "summary": summary, "warnings": warnings or [], "reviewed": False,
-            "updated_at": time.time()}
-
-
 async def design(gem: dict, memory: dict | None = None, bugs: list[dict] | None = None) -> dict:
     """ให้ AI ออกแบบ Flow เฉพาะของ Gem จากคำสั่งของครูและสิ่งที่จดจากเอกสาร ตรวจผ่านแล้วคืน gem["flow"]
     แก้สองรอบแล้วยังตรวจไม่ผ่าน ใช้ผังมาตรฐานของระบบ (บอกครูในคำเตือน)"""
@@ -608,5 +604,6 @@ async def design(gem: dict, memory: dict | None = None, bugs: list[dict] | None 
         if not checked["errors"]:
             return record(checked["spec"], "ai", checked["warnings"], reviewed=False)
         errors, previous = checked["errors"], raw
-    return standard_record("", ["AI ออกแบบ Flow ที่ตรวจผ่านไม่ได้ 3 รอบ (" + "; ".join(errors or [])[:300] + ") จึงใช้ผังมาตรฐานของระบบ "
-                                "กดให้ AI ออกแบบใหม่ในแท็บ Flow ได้"])
+    # ผังมาตรฐานเป็นแค่แม่แบบอ้างอิง ไม่ใช้แทน Flow ของ Gem: ออกแบบไม่ผ่านก็แจ้งให้ออกแบบใหม่
+    raise builder.BuildError("AI ออกแบบ Flow ที่ตรวจผ่านไม่ได้ 3 รอบ (" + "; ".join(errors or [])[:300] + ") "
+                             "กดให้ AI ออกแบบใหม่ในแท็บ Flow หรือเขียนคำสั่งให้ชัดขึ้น")

@@ -120,6 +120,11 @@ export default function AdminGems() {
                 <li className="strong">กดกล่องเพื่อดูรายละเอียด</li>
               </ul>
             </div>
+            {!d.flow.custom && (
+              <p className="small callout callout-warning">
+                Gem นี้ยังไม่มี Flow ที่ออกแบบจากคำสั่ง นักเรียนยังเรียนไม่ได้ ผังด้านล่างเป็นแม่แบบอ้างอิงเท่านั้น
+              </p>
+            )}
             <GemFlowMap
               flow={d.flow}
               allNodes={flow.nodes}
