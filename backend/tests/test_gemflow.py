@@ -792,3 +792,14 @@ def test_finishing_on_a_wrong_answer_is_caught_by_simulation():
     assert flowspec.ending_on_wrong(flowspec.validate(flow)["spec"])
     flow["edges"][0]["when"] = "correct and ((mains_left == 0 and mastery >= 0.8) or challenge_done)"
     assert not flowspec.ending_on_wrong(flowspec.validate(flow)["spec"])
+
+
+def test_after_stress_inside_params_is_accepted():
+    """จาก Gemini จริง: AI ใส่ after_stress ไว้ใน params ระบบเคยทิ้งไปเงียบ ๆ"""
+    flow = {"start": "w", "params": {"after_stress": "walk"},
+            "steps": [{"id": "w", "kind": "item", "pick": "main"}, {"id": "walk", "kind": "lesson", "walkthrough": True},
+                      {"id": "e", "kind": "end"}],
+            "edges": [{"from": "w", "to": "e", "when": "correct"}, {"from": "w", "to": "w", "when": ""},
+                      {"from": "walk", "to": "back", "when": ""}]}
+    spec = flowspec.validate(flow)["spec"]
+    assert spec["after_stress"] == "walk" and "after_stress" not in spec["params"]

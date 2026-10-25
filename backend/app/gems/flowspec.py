@@ -275,8 +275,10 @@ def normalize(raw: dict) -> tuple[dict, list[str]]:
     if chat:
         spec["chat"] = chat
     # ขั้นที่ไปหลังพักเพราะเครียดหรือท้อ (Circuit Breaker) ไม่ใส่ = กลับขั้นเดิม
-    if raw.get("after_stress"):
-        spec["after_stress"] = renamed.get(str(raw["after_stress"]), _slug(raw["after_stress"], ""))
+    # AI บางครั้งใส่ไว้ใน params (เจอจาก Gemini จริง) รับได้ทั้งสองที่
+    after = raw.get("after_stress") or (raw.get("params") if isinstance(raw.get("params"), dict) else {}).get("after_stress")
+    if after:
+        spec["after_stress"] = renamed.get(str(after), _slug(after, ""))
     return spec, notes
 
 
@@ -792,7 +794,7 @@ FORMAT_EXAMPLE = {
         {"text": "ทำครบทุกข้อแล้วจบ", "steps": ["done"]},
     ],
     "summary": "ครูสั่งให้ทำโจทย์ทีละข้อ ผิดให้ดูตัวอย่างก่อนลองใหม่ ทำครบทุกข้อแล้วจบ",
-    "start": "work", "params": {},
+    "start": "work", "params": {}, "after_stress": None,
     "steps": [
         {"id": "work", "kind": "item", "label": "ทำโจทย์", "pick": "main", "hint_button": False,
          "reason": "ทำโจทย์ทีละข้อตามลำดับ"},
