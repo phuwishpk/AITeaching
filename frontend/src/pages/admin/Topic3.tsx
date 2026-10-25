@@ -4,7 +4,7 @@ import { ArrowRight, MousePointerClick, SlidersHorizontal } from "lucide-react";
 import { api } from "../../lib/api";
 import { useLoad, useNow } from "../../lib/hooks";
 import { ago, clock, PATH_LABELS } from "../../lib/format";
-import FlowMap from "../../components/FlowMap";
+import FlowMap, { type FlowEdge, type FlowNode } from "../../components/FlowMap";
 import PrincipleCard from "../../components/PrincipleCard";
 import { BarList } from "../../components/charts";
 import { Badge, Card, CardHead, Empty, Spinner } from "../../components/ui";
@@ -12,6 +12,7 @@ import { TopicHeader, useAdmin } from "./AdminApp";
 import { useStudentPicker } from "./Topic2";
 import { CodePicker, Section, TopicLink } from "./shared";
 import NodeInspector from "./NodeInspector";
+import { HiddenNote, type GemFlow } from "./gemFlow";
 import LaneInspector from "./LaneInspector";
 import AnswerSheet from "../../components/AnswerSheet";
 import { Button } from "../../components/ui";
@@ -53,7 +54,14 @@ export default function Topic3() {
   const openNode = (id: string) => {
     setLane(null);
     setInspect(id);
-    setParams({ node: id }, { replace: true });
+    setParams(
+      (prev) => {
+        const next = new URLSearchParams(prev);
+        next.set("node", id);
+        return next;
+      },
+      { replace: true },
+    );
   };
   const openLane = (id: string) => {
     setInspect(null);
@@ -65,7 +73,23 @@ export default function Topic3() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  const positions = useMemo(() => (flow?.positions ?? []).filter((p) => kinds.includes(p.kind)), [flow?.positions, kinds]);
+  // ผังไม่ตายตัว: วาดผังของ Gem ที่เลือก (ค่าเริ่มต้นคือ Gem ที่ใช้สาธิต) และนักเรียนของ Gem นั้น
+  const gems = useLoad(() => api<{ id: string; name: string; status: string }[]>("admin", "/api/gems"));
+  const demoGem = useLoad(() => api<{ gem_id: string | null }>("admin", "/api/admin/demo-gem"));
+  const gemId = params.get("gem") ?? demoGem.data?.gem_id ?? gems.data?.[0]?.id ?? null;
+  const gemFlow = useLoad(
+    () =>
+      gemId
+        ? api<{ flow: GemFlow; students: string[] }>("admin", `/api/gems/${gemId}/design`).then((d) => ({ ...d.flow, students: d.students }))
+        : Promise.resolve(null),
+    [gemId, liveVersion > 0 ? Math.floor(liveVersion / 50) : 0],
+  );
+  const shownNodes: FlowNode[] = gemFlow.data?.nodes ?? flow?.nodes ?? [];
+  const shownEdges: FlowEdge[] = gemFlow.data?.edges ?? flow?.edges ?? [];
+  const positions = useMemo(
+    () => (flow?.positions ?? []).filter((p) => kinds.includes(p.kind) && (!gemFlow.data || gemFlow.data.students.includes(p.code))),
+    [flow?.positions, kinds, gemFlow.data],
+  );
   const selected = flow?.positions.find((p) => p.code === code);
   const atNode = positions.filter((p) => p.position === node);
   const card = flow?.cards[node];
@@ -80,6 +104,21 @@ export default function Topic3() {
         lead="ผังนี้คือตรรกะจริงที่ engine ใช้ตัดสินทุกคำตอบ ชิปบนกล่องคือนักเรียนที่อยู่ตรงนั้นตอนนี้ เส้นสีเข้มคือเส้นทางล่าสุดของนักเรียนที่เลือก"
       >
         <div className="row">
+          <label className="row row-sm small">
+            <span className="muted">ผังของ Gem</span>
+            <select
+              className="select"
+              value={gemId ?? ""}
+              onChange={(e) => setParams({ gem: e.target.value }, { replace: true })}
+              aria-label="เลือก Gem ที่จะดูผัง"
+            >
+              {(gems.data ?? []).map((g) => (
+                <option key={g.id} value={g.id}>
+                  {g.name}
+                </option>
+              ))}
+            </select>
+          </label>
           <TopicLink to="activity">ดูทีละการกระทำ</TopicLink>
           <CodePicker codes={students} value={code} onChange={setCode} label="ติดตาม" />
         </div>
@@ -90,7 +129,7 @@ export default function Topic3() {
           <div className="row row-sm" role="group" aria-label="แสดงนักเรียนกลุ่ม">
             {KINDS.map((k) => {
               const on = kinds.includes(k.id);
-              const count = (flow.positions ?? []).filter((p) => p.kind === k.id).length;
+              const count = (flow.positions ?? []).filter((p) => p.kind === k.id && (!gemFlow.data || gemFlow.data.students.includes(p.code))).length;
               return (
                 <button
                   key={k.id}
@@ -135,14 +174,15 @@ export default function Topic3() {
               >
                 <span className="lane-dot" style={{ background: l.color }} />
                 {l.name}
-                <span className="xsmall faint">{l.count}</span>
+                <span className="xsmall faint">{shownNodes.filter((n) => n.lane === l.id).length}</span>
               </button>
             ))}
           </div>
         </div>
         <FlowMap
-          nodes={flow.nodes}
-          edges={flow.edges}
+          nodes={shownNodes}
+          edges={shownEdges}
+          marks={gemFlow.data?.alerts}
           positions={positions}
           selectedNode={node}
           selectedStudent={code}
@@ -150,6 +190,11 @@ export default function Topic3() {
           onSelectNode={openNode}
           onSelectStudent={setCode}
         />
+        {gemFlow.data && (
+          <div className="flow-foot">
+            <HiddenNote disabled={gemFlow.data.disabled} allNodes={flow.nodes} />
+          </div>
+        )}
       </Card>
 
       <div className="grid grid-2 t3-grid">

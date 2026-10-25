@@ -79,6 +79,16 @@ def get_gem(gem_id: str, auth: dict = Depends(viewer)):
     return manage.detail(_load(gem_id))
 
 
+@router.get("/flow-of-set/{set_id}")
+def flow_of_set(set_id: str, auth: dict = Depends(viewer)):
+    """ผังของ Gem ที่ชุดคำถามนี้เป็นของ (ทุกรุ่นของคลัง) ใช้วาดเส้นทางของนักเรียนในหน้ากิจกรรมสด"""
+    subject = next((s for s in db.list_subjects() if any(q["id"] == set_id for q in s.get("question_sets", []))), None)
+    gem = db.get_gem((subject or {}).get("gem", {}).get("id", "")) if subject else None
+    if gem is None:
+        raise HTTPException(404, "ชุดคำถามนี้ไม่ใช่ Gem")
+    return {"gem_id": gem["id"], "name": gem["name"], **design.flow_marks(gem)}
+
+
 @router.get("/{gem_id}/design")
 def gem_design(gem_id: str, auth: dict = Depends(viewer)):
     """Flow ที่ครูออกแบบ (หน้า Admin): ผังตามเครื่องมือและ Alert Rule, prompt 4 กรอบ, ไฟล์ คลังโจทย์ และเวอร์ชัน"""

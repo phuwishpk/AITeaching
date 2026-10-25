@@ -1,8 +1,11 @@
-"""Flow ที่ครูออกแบบใน Gem: แปลงการตั้งค่าของ Gem เป็นสิ่งที่ผังตรรกะในหน้า Admin แสดง (Q24)
+"""Flow ที่ครูออกแบบใน Gem: ผังตรรกะของ Gem แต่ละตัว ไม่ใช่ผังตายตัวชุดเดียว (Q24)
 
-กล่องของเครื่องมือที่ครูปิดจะจางลงพร้อมเหตุผล ส่วนกล่องที่ Alert Rule ส่งแจ้งเตือนจะมีกระดิ่ง (แจ้งอย่างเดียว)
-หรือมือ (หยุดรอครู) การจับคู่ด้านล่างต้องตรงกับที่ engine ใช้จริง (core.py และ services.py)
+กล่องของเครื่องมือที่ครูปิดไม่อยู่ในผัง และเส้นทางต่อตรงไปขั้นที่ engine ใช้จริงเมื่อปิดเครื่องมือนั้น
+ส่วนกล่องที่ Alert Rule ส่งแจ้งเตือนจะมีกระดิ่ง (แจ้งอย่างเดียว) หรือมือ (หยุดรอครู)
+การตัดและต่อเส้นด้านล่างต้องตรงกับที่ engine ทำจริง (core.py › Content.tool และ services.py)
 """
+
+from ..engine import flow as F
 
 from .. import db
 from ..tutor import prompt
@@ -41,21 +44,55 @@ SITUATION_NODES = {
 }
 
 
-def flow_marks(gem: dict) -> dict:
+# เมื่อปิดเครื่องมือ: กล่องที่หายจากผัง เส้นที่ไม่เกิดแล้ว เส้นที่ไปปลายทางใหม่ และป้ายบนเส้นที่ความหมายเปลี่ยน
+TOOL_FLOW = {
+    "hints": {"hide_edges": ["e_hint_button"], "labels": {"e_g3_4": "ครั้งที่ 3 ขึ้นไป"}},
+    # engine ยังผ่านด่าน "อยู่ใน Isomorphic Test?" แต่คำตอบเป็น "ไม่ใช่" เสมอ จึงวาดเป็นผิดแล้วไปด่าน 2 เลย
+    "isomorphic": {"retarget": {"e_g1_wrong": "G2"}, "labels": {"e_mastery_finish": "ผ่าน"}},
+    # Walkthrough ถูกข้ามทันที: พักครบแล้วไปทำโจทย์ที่ง่ายลง ไม่มี Prerequisite ก็ฝึกเรื่องเดิมต่อ
+    "walkthrough": {"retarget": {"e_cb_done": "ANSWERING", "e_rounds_root": "REMEDIAL"},
+                    "labels": {"e_cb_done": "พักครบ ทำโจทย์ง่ายลง", "e_rounds_root": "ไม่มี Prerequisite ฝึกเรื่องเดิม"}},
+    "remedial": {"hide_edges": ["e_rounds_root", "e_walk_round", "e_remedial_pass", "e_remedial_next"],
+                 "labels": {"e_rounds_full": "ส่งต่อครูทันที"}},
+    # ไม่มีแชต: กล่องที่เกิดจากข้อความของนักเรียนไม่เกิดขึ้น
+    "chat": {"hide_nodes": ["CHOOSING_PATH", "SAFETY_STOP"], "hide_edges": ["e_distress"]},
+}
+# เส้นที่มีเฉพาะเมื่อปิดเครื่องมือ
+ONLY_WHEN_OFF = {"e_g3_nohint": "hints"}
+
+
+def flow_view(gem: dict) -> dict:
+    """กล่องและเส้นของผังที่ Gem นี้ใช้จริง พร้อมรายการกล่องที่ครูปิดและเหตุผล"""
     tools = {**manage.TOOLS, **(gem.get("tools") or {})}
-    disabled = {}
-    for tool, nodes in TOOL_NODES.items():
-        if not tools.get(tool, True):
-            for node in nodes:
-                disabled[node] = TOOL_REASON[tool]
+    off = [tool for tool in TOOL_NODES if not tools.get(tool, True)]
+    hidden = {node: TOOL_REASON[tool] for tool in off for node in TOOL_NODES[tool] + TOOL_FLOW.get(tool, {}).get("hide_nodes", [])}
+    drop = {e for tool in off for e in TOOL_FLOW.get(tool, {}).get("hide_edges", [])}
+    drop |= {edge for edge, tool in ONLY_WHEN_OFF.items() if tool not in off}
+    retarget = {e: t for tool in off for e, t in TOOL_FLOW.get(tool, {}).get("retarget", {}).items()}
+    labels = {e: label for tool in off for e, label in TOOL_FLOW.get(tool, {}).get("labels", {}).items()}
+    edges = []
+    for edge in F.EDGES:
+        if edge.get("hidden") or edge["id"] in drop:
+            continue
+        edge = {**edge, "target": retarget.get(edge["id"], edge["target"]), "label": labels.get(edge["id"], edge["label"])}
+        if edge["source"] in hidden or edge["target"] in hidden:
+            continue
+        edges.append(edge)
+    return {"nodes": [n for n in F.NODES if n["id"] not in hidden], "edges": edges, "hidden": hidden}
+
+
+def flow_marks(gem: dict) -> dict:
+    view = flow_view(gem)
+    disabled = view["hidden"]
     labels = {s["key"]: s["label"] for s in alerts.SITUATIONS}
     marks: dict[str, list[dict]] = {}
     for key, rule in alerts.normalize(gem.get("alert_rules")).items():
         if not rule["enabled"]:
             continue
         for node in SITUATION_NODES.get(key, []):
-            marks.setdefault(node, []).append({"key": key, "label": labels[key], **rule})
-    return {"disabled": disabled, "alerts": marks}
+            if node not in disabled:
+                marks.setdefault(node, []).append({"key": key, "label": labels[key], **rule})
+    return {"nodes": view["nodes"], "edges": view["edges"], "disabled": disabled, "alerts": marks}
 
 
 def frames(gem: dict) -> dict:

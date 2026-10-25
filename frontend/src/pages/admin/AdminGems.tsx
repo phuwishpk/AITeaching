@@ -8,18 +8,16 @@ import FlowMap from "../../components/FlowMap";
 import GemIcon from "../../components/GemIcon";
 import { FRAME_LABEL } from "../../components/AiLog";
 import { Badge, Button, Card, CardHead, Empty, Spinner, useToast } from "../../components/ui";
-import { STATUS_TEXT, TOOL_LABELS, type AlertRule, type GemDetail, type GemSummary, type GemTools } from "../teacher/gemTypes";
+import { STATUS_TEXT, TOOL_LABELS, type GemDetail, type GemSummary, type GemTools } from "../teacher/gemTypes";
 import { useAdmin } from "./AdminApp";
+import { HiddenNote, type GemFlow } from "./gemFlow";
 import NodeInspector from "./NodeInspector";
 
 // Flow ที่ครูออกแบบใน Gem (Q24): ผังตรรกะจริงที่ปรับตามเครื่องมือและ Alert Rule ของ Gem ที่เลือก
 // Admin ดูได้อย่างเดียว การแก้ทำที่หน้าครู
 
 interface GemDesign extends Omit<GemDetail, "locked_constraints" | "options"> {
-  flow: {
-    disabled: Record<string, string>;
-    alerts: Record<string, (AlertRule & { key: string; label: string })[]>;
-  };
+  flow: GemFlow;
   frames: Record<"role" | "context" | "task" | "constraints", string>;
   students: string[];
   situations: { key: string; label: string; locked: boolean }[];
@@ -69,7 +67,7 @@ export default function AdminGems() {
         <p className="eyebrow">สิ่งที่ครูออกแบบ</p>
         <h1 className="title-xl">Flow ที่ครูออกแบบใน Gem</h1>
         <p className="lead">
-          เลือก Gem แล้วผังด้านล่างจะเป็นตรรกะที่ Gem นั้นใช้จริง กล่องที่ครูปิดจะจางลง ป้าย 🔔 คือแจ้งครู ป้าย ✋ คือหยุดรอครูอนุมัติ Admin ดูได้อย่างเดียว ครูแก้ได้ที่หน้าสร้าง Gem
+          ผังไม่ตายตัว: แต่ละ Gem มีเฉพาะขั้นที่ครูเปิดใช้ ขั้นของเครื่องมือที่ครูปิดไม่อยู่ในผัง และเส้นทางต่อไปขั้นที่ระบบใช้จริง ป้าย 🔔 คือแจ้งครู ✋ คือหยุดรอครูอนุมัติ Admin ดูได้อย่างเดียว ครูแก้ได้ที่หน้าสร้าง Gem
         </p>
       </header>
 
@@ -113,23 +111,21 @@ export default function AdminGems() {
                 )}
               </span>
               <ul className="flow-legend xsmall muted">
-                <li>
-                  <span className="lg-off" />
-                  ครูปิดไว้
-                </li>
                 <li>🔔 แจ้งครู</li>
                 <li>✋ หยุดรอครูอนุมัติ</li>
                 <li className="strong">กดกล่องเพื่อดูรายละเอียด</li>
               </ul>
             </div>
             <FlowMap
-              nodes={flow.nodes}
-              edges={flow.edges}
+              nodes={d.flow.nodes}
+              edges={d.flow.edges}
               positions={flow.positions.filter((p) => d.students.includes(p.code))}
-              disabled={d.flow.disabled}
               marks={d.flow.alerts}
               onSelectNode={setInspect}
             />
+            <div className="flow-foot">
+              <HiddenNote disabled={d.flow.disabled} allNodes={flow.nodes} />
+            </div>
           </Card>
 
           <div className="grid grid-2 admin-gem-grid">

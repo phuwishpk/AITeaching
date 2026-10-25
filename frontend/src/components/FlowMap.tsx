@@ -198,10 +198,12 @@ export default function FlowMap({
 
   const isReturn = (e: FlowEdge) =>
     (RETURN_TARGETS.has(e.target) && !(e.source === "ANSWERING" && e.target === "E_SUBMIT")) || RETURN_EDGES.has(e.id);
-  const drawn = edges.filter((e) => LAYOUT[e.source] && LAYOUT[e.target] && !isReturn(e) && e.source !== e.target);
+  // ผังของ Gem แต่ละตัวไม่ตายตัว: วาดเฉพาะเส้นที่ทั้งสองปลายอยู่ในผังนี้
+  const present = (e: FlowEdge) => nodeMap.has(e.source) && nodeMap.has(e.target);
+  const drawn = edges.filter((e) => present(e) && LAYOUT[e.source] && LAYOUT[e.target] && !isReturn(e) && e.source !== e.target);
   const returnsBySource = useMemo(() => {
     const map = new Map<string, FlowEdge[]>();
-    for (const e of edges) if (isReturn(e)) map.set(e.source, [...(map.get(e.source) ?? []), e]);
+    for (const e of edges) if (isReturn(e) && present(e)) map.set(e.source, [...(map.get(e.source) ?? []), e]);
     return map;
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [edges]);

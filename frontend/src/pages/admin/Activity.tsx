@@ -10,6 +10,7 @@ import { useAdmin } from "./AdminApp";
 import { useStudentPicker } from "./Topic2";
 import { CodePicker } from "./shared";
 import NodeInspector from "./NodeInspector";
+import type { GemFlow } from "./gemFlow";
 import { answerText, ItemView, type ItemBrief } from "../../components/AnswerSheet";
 
 interface ActivityInput {
@@ -21,6 +22,7 @@ interface ActivityInput {
 
 interface ActivityDecision {
   id: number;
+  set_id?: string;
   from: string;
   to: string;
   rule: string;
@@ -191,6 +193,13 @@ export default function Activity() {
   };
 
   const event = events.find((e) => keyOf(e) === selected) ?? null;
+  // ผังของ Gem ที่นักเรียนในเหตุการณ์นี้เรียนอยู่ (ผังไม่ตายตัว แต่ละ Gem มีเฉพาะขั้นที่ครูเปิดใช้)
+  const eventSet = event?.decisions.find((d) => d.set_id)?.set_id ?? (one ? trip.data?.run?.set_id : undefined);
+  const [setId, setSetId] = useState<string | null>(null);
+  useEffect(() => {
+    if (eventSet) setSetId(eventSet);
+  }, [eventSet]);
+  const gemFlow = useLoad(() => (setId ? api<GemFlow>("admin", `/api/gems/flow-of-set/${setId}`).catch(() => null) : Promise.resolve(null)), [setId]);
   const active = (flow?.positions ?? []).filter((p) => p.kind !== "sim" && !["COMPLETED", "SESSION_ENDED"].includes(p.position));
 
   if (!flow) return <Spinner />;
@@ -320,9 +329,11 @@ export default function Activity() {
               title="เส้นทางของการกระทำนี้ในผัง"
               sub="เส้นสีเข้มคือเส้นทางที่การกระทำที่เลือกเดินผ่าน กล่องที่เน้นคือที่ที่นักเรียนไปอยู่ต่อ กดกล่องเพื่อดูรายละเอียดและปรับแต่ง"
             />
+            {gemFlow.data && <p className="xsmall muted flow-of">ผังของ Gem: {gemFlow.data.name}</p>}
             <FlowMap
-              nodes={flow.nodes}
-              edges={flow.edges}
+              nodes={gemFlow.data?.nodes ?? flow.nodes}
+              edges={gemFlow.data?.edges ?? flow.edges}
+              marks={gemFlow.data?.alerts}
               positions={event ? flow.positions.filter((p) => p.code === event.code) : []}
               selectedStudent={event?.code}
               selectedNode={event?.position}

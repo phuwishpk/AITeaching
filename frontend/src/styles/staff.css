@@ -3942,3 +3942,35 @@ button.route-node:hover {
   border: 1px dashed var(--border-strong);
   background: var(--calm-soft);
 }
+
+/* ผังของ Gem: บอกขั้นที่ครูปิดและไม่อยู่ในผัง */
+.flow-foot {
+  padding: 10px 4px 2px;
+  border-top: 1px solid var(--border);
+}
+
+.hidden-note {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  color: var(--text-2);
+}
+
+.hidden-note li {
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
+}
+
+.hidden-note svg {
+  flex: none;
+  margin-top: 2px;
+}
+
+.flow-of {
+  margin: 0;
+  padding: 0 22px 6px;
+}

@@ -494,3 +494,23 @@ def test_teacher_reviews_adds_edits_and_removes_items(monkeypatch):
     from app.content.readiness import check_set
     assert check_set(builder.usable(db.get_subject(gem["subject_id"])), gem["set_id"])["ok"]
     assert client.get(f"{base}/items", headers={"Authorization": f"Bearer {issue_token('admin')}"}).status_code == 403
+
+
+def test_each_gem_draws_only_its_own_flow():
+    """ผังของ Admin ไม่ตายตัว: กล่องของเครื่องมือที่ครูปิดไม่อยู่ในผัง และทุกเส้นต่อกับกล่องที่มีอยู่จริง"""
+    from itertools import product
+
+    from app.gems import design
+
+    for combo in product([True, False], repeat=5):
+        tools = dict(zip(("chat", "hints", "isomorphic", "walkthrough", "remedial"), combo))
+        view = design.flow_view({"tools": tools})
+        ids = {n["id"] for n in view["nodes"]}
+        assert all(e["source"] in ids and e["target"] in ids for e in view["edges"]), tools
+        assert not set(view["hidden"]) & ids
+    everything = design.flow_view({})
+    assert not everything["hidden"] and all(e["id"] != "e_g3_nohint" for e in everything["edges"])
+    no_iso = design.flow_view({"tools": {"isomorphic": False}})
+    assert next(e for e in no_iso["edges"] if e["id"] == "e_g1_wrong")["target"] == "G2"
+    no_chat = {n["id"] for n in design.flow_view({"tools": {"chat": False}})["nodes"]}
+    assert not {"TEACHER_REVIEW", "SAFETY_STOP", "CHOOSING_PATH"} & no_chat
