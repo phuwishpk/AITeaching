@@ -168,6 +168,9 @@ def normalize(raw: dict) -> tuple[dict, list[str]]:
         if kind is None:
             raise FlowError(f"ขั้น \"{original}\" ใช้ชนิด \"{s.get('kind')}\" ที่ engine ไม่รู้จัก")
         step = {"id": sid, "kind": kind, "label": _text(s.get("label"), 40) or KINDS[kind]["label"]}
+        # ที่มาของขั้นนี้ในคำสั่งของครูหรือเอกสาร (ทุกขั้นต้องมาจาก prompt ครูตรวจได้ทีละขั้น)
+        if _text(s.get("reason"), 240):
+            step["reason"] = _text(s.get("reason"), 240)
         if kind == "item":
             step["pick"] = s.get("pick") if s.get("pick") in PICKS else "adaptive"
             step["hint_button"] = bool(s.get("hint_button", step["pick"] != "isomorphic"))
@@ -228,6 +231,14 @@ def normalize(raw: dict) -> tuple[dict, list[str]]:
     if start not in seen:
         start = next((s["id"] for s in steps if s["kind"] == "item"), "")
     spec = {"summary": _text(raw.get("summary"), 400), "start": start, "params": params, "steps": steps, "edges": edges}
+    # แนวทางของครูแต่ละข้อ และขั้นที่ทำแนวทางนั้น (AI เขียนก่อนออกแบบ ครูใช้ตรวจว่าครบ)
+    guidelines = []
+    for g in raw.get("guidelines") or []:
+        if isinstance(g, dict) and _text(g.get("text"), 300):
+            where = [renamed.get(str(x), _slug(x, "")) for x in g.get("steps") or [] if str(x).strip()]
+            guidelines.append({"text": _text(g.get("text"), 300), "steps": [w for w in where if w]})
+    if guidelines:
+        spec["guidelines"] = guidelines[:30]
     return spec, notes
 
 
@@ -297,6 +308,9 @@ def validate(raw: dict, tools: dict | None = None, bugs: list[str] | None = None
             warnings.append(f"ขั้น \"{step['label']}\" ไปไม่ถึงจากขั้นแรก")
     if not any(steps[s]["kind"] == "end" for s in reachable):
         errors.append("Flow ต้องไปถึงขั้นจบได้ (เพดานจำนวนข้อยังจบ Session ให้อยู่แล้ว แต่ควรมีเกณฑ์จบของครู)")
+    for g in spec.get("guidelines", []):
+        if not any(sid in steps for sid in g["steps"]):
+            errors.append(f"แนวทาง \"{g['text'][:80]}\" ยังไม่มีขั้นใน Flow ที่ทำแนวทางนี้ (ใส่ id ของขั้นใน steps ของแนวทาง)")
     loop = _instant_loop(steps, out)
     if loop:
         errors.append("มีวงที่วนผ่าน " + " → ".join(steps[s]["label"] for s in loop)
@@ -435,6 +449,11 @@ def map_view(spec: dict) -> dict:
 
 
 def describe_step(step: dict) -> str:
+    about = _describe(step)
+    return f"{about} · มาจาก: {step['reason']}" if step.get("reason") else about
+
+
+def _describe(step: dict) -> str:
     kind = step["kind"]
     if kind == "item":
         return f"{PICKS[step['pick']]} · " + ("กดขอคำใบ้ได้" if step.get("hint_button") else "ไม่มีปุ่มคำใบ้")
@@ -511,21 +530,53 @@ def design_prompt(gem: dict, errors: list[str] | None = None, previous: dict | N
         "(ตารางคำใบ้ของครูต่อรหัส) จึงใช้ขั้น hint ระดับละหนึ่งขั้นร่วมกันทุกรหัส แยกเส้นด้วย bug หรือ bug_type "
         "เฉพาะเมื่อระดับคำใบ้หรือทางต่อไปต่างกัน เช่น Slip ที่ครูให้แค่สะกิด = bug_type == \"slip\" ไปคำใบ้ระดับ 1 เสมอ "
         "Misconception ที่ไล่ทีละระดับ = error_count 1, 2, 3 ไปคำใบ้ระดับ 1, 2, 3\n"
-        "ขั้นตอนการออกแบบ: (1) ไล่แนวทางเฉพาะทุกข้อจากคำสั่งของครู สิ่งที่จดจากเอกสาร และตารางข้อผิดพลาด "
-        "(เช่น ระดับคำใบ้ของแต่ละรหัส Slip ให้แค่สะกิด ลำดับขั้นวิธีทำ กิจกรรมที่ครูอยากให้ทำ) "
-        "(2) ทำให้ทุกข้อเป็นขั้นหรือเส้นจริงใน Flow ห้ามตกหล่น (3) เติมส่วนที่ครูไม่ได้บอก\n"
-        "ส่วนที่ครูไม่ได้บอก ให้ใช้แนวทางของแม่แบบ: คำตอบผิดที่ไม่ตรงรหัสใดก็ต้องได้คำใบ้ตามครั้งที่ผิด ผ่านด้วยคำใบ้ทำข้อคู่ขนาน "
-        "ติดหล่ม (ผิดหลายครั้งหรือ impasse สูง) ไปทบทวนพื้นฐาน ทบทวนแล้วยังติดแจ้งหรือรอครู "
-        "และเกณฑ์จบ correct and mastery >= 0.8 and items_done >= 3 and (mains_left == 0 or challenge_done) "
-        "ทุกขั้นต้องมีทางออก ห้ามมีเส้นผิดที่วนกลับขั้นเดิมโดยไม่มีคำใบ้ และต้องไปถึงขั้น end ได้\n"
-        f"ตัวอย่างรูปแบบ JSON (แม่แบบมาตรฐาน ใช้ดูรูปแบบเท่านั้น):\n{json.dumps(standard_template(), ensure_ascii=False)}\n\n"
-        "ตอบเป็น JSON รูปเดียวกับแม่แบบเท่านั้น: summary (สรุปให้ครูอ่าน 2–4 ประโยค: แนวทางเฉพาะแต่ละข้อของครูกลายเป็นขั้นหรือเส้นไหน), "
-        "start, params, steps, edges ป้าย (label) ของขั้นและเส้นสั้นไม่เกิน 4 คำ ภาษาไทย"
+        "ออกแบบตาม prompt ของครูทั้งหมด: ทุกขั้นและทุกเส้นต้องมาจากคำสั่งของครูหรือเอกสารที่แนบเท่านั้น "
+        "(1) ไล่แนวทางทุกข้อจากคำสั่ง สิ่งที่จดจากเอกสาร และตารางข้อผิดพลาด (เช่น ระดับคำใบ้ของแต่ละรหัส Slip ให้แค่สะกิด "
+        "ลำดับขั้นวิธีทำ กิจกรรมที่ครูอยากให้ทำ เกณฑ์จบ) (2) ทำให้ทุกข้อเป็นขั้นหรือเส้นจริง ห้ามตกหล่น "
+        "(3) ห้ามเพิ่มขั้นที่ครูไม่ได้สั่งและเอกสารไม่ได้พูดถึง เช่น ข้อคู่ขนาน ทบทวนพื้นฐาน พัก หรือรอครู "
+        "ถ้าครูไม่ได้สั่งไว้ ไม่ต้องใส่ แม้แม่แบบมาตรฐานจะมี\n"
+        "ทุกขั้นต้องมี reason = ข้อความจากคำสั่งหรือเอกสารที่เป็นที่มาของขั้นนั้น (ยกมาสั้น ๆ)\n"
+        "เขียน guidelines ก่อนออกแบบ: รายการแนวทางทุกข้อของครู (หนึ่งข้อต่อหนึ่งแนวทาง เช่น \"Slip ให้คำใบ้ระดับ 1 อย่างเดียว\" "
+        "\"BUG-M01 ผิดครั้งที่ 2 ให้คำใบ้ระดับ 2\") แต่ละข้อมี steps = id ของขั้นที่ทำแนวทางนั้น ทุกข้อต้องมีขั้นรองรับจริง "
+        "แล้วตรวจเงื่อนไขบนเส้นด้วยการไล่สถานการณ์จริง เช่น ผิดครั้งแรก (error_count == 1, hint_level == 0) ต้องไปขั้นที่ครูกำหนด\n"
+        "กรณีที่ครูไม่ได้บอกว่าต้องทำอะไร ให้ใช้ทางที่เรียบง่ายที่สุดที่สอดคล้องกับแนวทางของครู โดยไม่สร้างขั้นใหม่ "
+        "เช่น ผิดแบบที่ครูไม่ได้พูดถึง = ใช้คำใบ้แบบที่ครูกำหนดไว้แล้ว หรือลองข้อเดิม เกณฑ์จบที่ครูไม่ได้บอก = correct and mains_left == 0 "
+        "ระบบมีกลไกที่ล็อกไว้รองรับอยู่แล้ว (ผิดข้อเดียวกันครบ 6 ครั้งส่งต่อครู เพดานจำนวนข้อ เดาสุ่ม หน้าจอนิ่ง) ไม่ต้องเติมขั้นกันพลาดเอง\n"
+        "ทุกขั้นต้องมีทางออก และต้องไปถึงขั้น end ได้\n"
+        f"ตัวอย่างรูปแบบ JSON (ดูแค่รูปแบบ ห้ามลอกเนื้อหา):\n{json.dumps(FORMAT_EXAMPLE, ensure_ascii=False)}\n\n"
+        "ตอบเป็น JSON รูปเดียวกับตัวอย่างเท่านั้น: guidelines, summary (สรุปให้ครูอ่าน 2–4 ประโยค), "
+        "start, params, steps (ทุกขั้นมี reason), edges ป้าย (label) ของขั้นและเส้นสั้นไม่เกิน 4 คำ ภาษาไทย"
     )
     if errors and previous:
         text += ("\n\nFlow ที่คุณส่งมารอบก่อนตรวจไม่ผ่าน แก้ข้อผิดพลาดเหล่านี้แล้วส่งใหม่ทั้งหมด:\n- " + "\n- ".join(errors)
                  + f"\nFlow รอบก่อน:\n{json.dumps(previous, ensure_ascii=False)[:6000]}")
     return text
+
+
+# ตัวอย่างรูปแบบ JSON ที่สั้นและไม่เกี่ยวกับบทเรียนใด ไม่ให้ AI ยึดติดกับโครงของแม่แบบมาตรฐาน
+FORMAT_EXAMPLE = {
+    "guidelines": [
+        {"text": "ทำโจทย์ทีละข้อตามลำดับ", "steps": ["work"]},
+        {"text": "ผิดให้ดูตัวอย่างก่อนลองใหม่", "steps": ["show"]},
+        {"text": "ทำครบทุกข้อแล้วจบ", "steps": ["done"]},
+    ],
+    "summary": "ครูสั่งให้ทำโจทย์ทีละข้อ ผิดให้ดูตัวอย่างก่อนลองใหม่ ทำครบทุกข้อแล้วจบ",
+    "start": "work", "params": {},
+    "steps": [
+        {"id": "work", "kind": "item", "label": "ทำโจทย์", "pick": "main", "hint_button": False,
+         "reason": "ทำโจทย์ทีละข้อตามลำดับ"},
+        {"id": "show", "kind": "lesson", "label": "ดูตัวอย่าง", "title": "ตัวอย่าง", "text": "", "walkthrough": True,
+         "reason": "ผิดให้ดูตัวอย่างก่อนลองใหม่"},
+        {"id": "done", "kind": "end", "label": "จบ", "result": "completed", "text": "ทำครบแล้ว",
+         "reason": "ทำครบทุกข้อแล้วจบ"},
+    ],
+    "edges": [
+        {"from": "work", "to": "done", "when": "correct and mains_left == 0", "label": "ครบทุกข้อ"},
+        {"from": "work", "to": "work", "when": "correct", "label": "ข้อถัดไป"},
+        {"from": "work", "to": "show", "when": "", "label": "ผิด"},
+        {"from": "show", "to": "work", "when": "", "label": "ลองใหม่"},
+    ],
+}
 
 
 def standard_record(summary: str = "", warnings: list[str] | None = None) -> dict:
@@ -541,7 +592,7 @@ async def design(gem: dict, memory: dict | None = None, bugs: list[dict] | None 
 
     errors, previous = None, None
     bug_ids = [b["id"] for b in bugs] if bugs else None
-    for _ in range(2):
+    for _ in range(3):
         # ออกแบบ Flow ต้องไล่แนวทางของครูทีละข้อ จึงให้โมเดลคิดเต็มที่ (โทเคนที่ใช้คิดนับรวมใน max_tokens)
         raw = await builder.ask_json("flow", design_prompt(gem, errors, previous, memory, bugs), 32000, thinking="high")
         raw = raw if isinstance(raw, dict) else {}
@@ -549,4 +600,5 @@ async def design(gem: dict, memory: dict | None = None, bugs: list[dict] | None 
         if not checked["errors"]:
             return record(checked["spec"], "ai", checked["warnings"], reviewed=False)
         errors, previous = checked["errors"], raw
-    return standard_record("", ["AI ออกแบบ Flow ที่ตรวจผ่านไม่ได้ (" + "; ".join(errors or [])[:300] + ") จึงใช้ผังมาตรฐานของระบบ"])
+    return standard_record("", ["AI ออกแบบ Flow ที่ตรวจผ่านไม่ได้ 3 รอบ (" + "; ".join(errors or [])[:300] + ") จึงใช้ผังมาตรฐานของระบบ "
+                                "กดให้ AI ออกแบบใหม่ในแท็บ Flow ได้"])

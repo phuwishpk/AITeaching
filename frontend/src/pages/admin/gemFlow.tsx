@@ -25,6 +25,7 @@ export interface CustomGemFlow {
   edges: SpecEdge[];
   guards: SpecGuard[];
   summary: string;
+  guidelines?: { text: string; steps: string[] }[];
   source: string | null;
   reviewed: boolean;
   warnings: string[];
@@ -133,6 +134,15 @@ export function CustomNote({ flow }: { flow: CustomGemFlow }) {
           {flow.reviewed ? <Badge tone="success">ครูตรวจแล้ว</Badge> : <Badge tone="warning">ครูยังไม่ได้ตรวจ</Badge>}
         </span>
         {flow.summary && <span className="small">{flow.summary}</span>}
+        {!!flow.guidelines?.length && (
+          <ul className="xsmall" style={{ margin: 0, paddingLeft: 18 }}>
+            {flow.guidelines.map((g, i) => (
+              <li key={i}>
+                {g.text} → {g.steps.map((sid) => flow.nodes.find((n) => n.id === sid)?.label ?? sid).join(", ")}
+              </li>
+            ))}
+          </ul>
+        )}
         {flow.params.length > 0 && (
           <span className="xsmall muted">ตัวเลขจากคำสั่งของครู: {flow.params.map((p) => `${p.label} = ${p.value}`).join(" · ")}</span>
         )}

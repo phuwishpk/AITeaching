@@ -183,6 +183,8 @@ export interface FlowStepSpec {
   result?: string;
   goal?: string;
   response?: string;
+  // ข้อความในคำสั่งของครูหรือเอกสารที่เป็นที่มาของขั้นนี้
+  reason?: string;
 }
 
 export interface FlowEdgeSpec {
@@ -196,6 +198,8 @@ export interface FlowEdgeSpec {
 
 export interface FlowSpec {
   summary: string;
+  // แนวทางของครูแต่ละข้อ และขั้นที่ทำแนวทางนั้น (AI เขียนก่อนออกแบบ)
+  guidelines?: { text: string; steps: string[] }[];
   start: string;
   params: Record<string, number>;
   steps: FlowStepSpec[];

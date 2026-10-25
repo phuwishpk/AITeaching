@@ -90,6 +90,7 @@ def custom_flow(gem: dict) -> dict | None:
     return {
         "custom": True, **flowspec.map_view(spec),
         "summary": spec.get("summary", ""), "source": flow.get("source"), "reviewed": bool(flow.get("reviewed")),
+        "guidelines": spec.get("guidelines", []),
         "warnings": flow.get("warnings") or [], "locked": flowspec.LOCKED,
         "params": [{"key": k, "label": flowspec.PARAM_LABELS[k], "value": v} for k, v in (spec.get("params") or {}).items()
                    if v != flowspec.DEFAULT_PARAMS.get(k)],

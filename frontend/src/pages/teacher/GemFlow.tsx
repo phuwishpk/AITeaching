@@ -120,6 +120,31 @@ export default function GemFlowPage() {
         </div>
       </header>
 
+      {!!draft?.guidelines?.length && (
+        <Card>
+          <CardHead title="แนวทางของครูที่ AI นำมาออกแบบ" sub="ทุกขั้นมาจากคำสั่งหรือเอกสารของครู กดชื่อขั้นเพื่อดูในผัง" />
+          <ul className="card-body flow-locked" style={{ paddingTop: 0 }}>
+            {draft.guidelines.map((g, i) => (
+              <li key={i}>
+                <CircleCheck size={14} />
+                <span className="small">
+                  {g.text}
+                  {" → "}
+                  {g.steps.map((sid) => (
+                    <button key={sid} type="button" className="link-button" onClick={() => {
+                      setSelected(sid);
+                      setSide("step");
+                    }}>
+                      {draft.steps.find((s) => s.id === sid)?.label ?? sid}
+                    </button>
+                  ))}
+                </span>
+              </li>
+            ))}
+          </ul>
+        </Card>
+      )}
+
       {(detail.summary || detail.outdated) && (
         <div className={`callout ${detail.outdated ? "callout-warning" : "callout-info"}`}>
           <Sparkles size={16} />
@@ -401,6 +426,9 @@ function StepEditor({
       <p className="xsmall muted">{kind?.about}</p>
       <Field label="ชื่อขั้น (สั้น ๆ)">
         <input className="input" value={step.label} maxLength={40} onChange={(e) => set({ label: e.target.value })} />
+      </Field>
+      <Field label="มาจากคำสั่งหรือเอกสารข้อไหน" hint="AI ออกแบบทุกขั้นจาก prompt ของครู ช่องนี้บอกที่มา แก้ได้">
+        <textarea className="input" rows={2} value={step.reason ?? ""} maxLength={240} onChange={(e) => set({ reason: e.target.value })} />
       </Field>
 
       {step.kind === "item" && (

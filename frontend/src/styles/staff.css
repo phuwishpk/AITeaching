@@ -4225,3 +4225,14 @@ button.route-node:hover {
 .gem-owner-note {
   margin: 12px 24px 0;
 }
+
+.link-button {
+  margin: 0 2px;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--accent);
+  font: inherit;
+  text-decoration: underline;
+  cursor: pointer;
+}

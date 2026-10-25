@@ -264,3 +264,21 @@ def test_flow_branches_on_bug_codes_and_runs_ai_activities(subject):
     assert view["text"] == "เรียงขั้นตอนต่อไปนี้" and view["response"] == "text"
     engine.reflect(state, at(ctx, 1100), "ลบก่อนแล้วหาร", {"pass": True, "score": 90})
     assert state["position"] == F.DONE
+
+
+def test_designed_flow_must_map_every_guideline_to_a_step():
+    flow = {
+        "guidelines": [{"text": "Slip ให้คำใบ้ระดับ 1", "steps": ["hint_1"]}, {"text": "ทำครบแล้วจบ", "steps": ["missing"]}],
+        "start": "work",
+        "steps": [{"id": "work", "kind": "item", "pick": "main", "reason": "ทำโจทย์ทีละข้อ"},
+                  {"id": "hint_1", "kind": "hint", "level": 1, "reason": "Slip ให้คำใบ้ระดับ 1"},
+                  {"id": "end", "kind": "end"}],
+        "edges": [{"from": "work", "to": "end", "when": "correct and mains_left == 0"},
+                  {"from": "work", "to": "hint_1", "when": 'wrong and bug_type == "slip"'},
+                  {"from": "work", "to": "work", "when": ""}, {"from": "hint_1", "to": "work", "when": ""}],
+    }
+    checked = flowspec.validate(flow)
+    assert any("ทำครบแล้วจบ" in e for e in checked["errors"]), "แนวทางที่ไม่มีขั้นรองรับต้องส่งกลับให้ AI แก้"
+    assert checked["spec"]["steps"][1]["reason"] == "Slip ให้คำใบ้ระดับ 1"
+    flow["guidelines"][1]["steps"] = ["end"]
+    assert not flowspec.validate(flow)["errors"]
