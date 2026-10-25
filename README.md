@@ -90,6 +90,20 @@ docs/          decisions.md, flow.md และ ADR
 CONTEXT.md     อภิธานศัพท์ของโปรเจกต์
 ```
 
+## ขึ้นเซิร์ฟเวอร์ (Docker + Cloudflare Tunnel)
+
+บนเครื่อง Linux ที่มี docker และ cloudflared (ล็อกอินบัญชี Cloudflare แล้ว):
+
+```bash
+git clone https://github.com/phuwishpk/AITeaching.git ai-tutor && cd ai-tutor
+# รหัสผ่านครูและ Admin (ไม่ตั้ง = เข้าได้ทันที ห้ามทำแบบนั้นบนเครื่องที่เปิดสู่อินเทอร์เน็ต)
+printf 'TUTOR_TEACHER_PASSWORD=...\nTUTOR_ADMIN_PASSWORD=...\n' > .env && chmod 600 .env
+./deploy/tunnel.sh tutor.example.com   # สร้าง tunnel และ DNS แล้วเปิดทั้งแอปและ tunnel
+```
+
+ข้อมูลทั้งหมด (ฐานข้อมูล API key ไฟล์อัปโหลด) อยู่ในโฟลเดอร์ `runtime/` บนเซิร์ฟเวอร์ คอนเทนเนอร์เปิดใหม่เองเมื่อเครื่องรีบูต
+อัปเดตเวอร์ชัน: `git pull && docker compose -f deploy/docker-compose.yml up -d --build`
+
 ## พัฒนาต่อ
 
 ```bash
