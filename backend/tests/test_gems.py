@@ -774,3 +774,14 @@ def test_tutor_prompts_carry_the_whole_gem_document(monkeypatch):
     assert "ศักดิ์ศรีเท่ากัน" in seen["system"] and result["source"] == "gemini"
     log = db.query_one("SELECT frames FROM ai_logs ORDER BY id DESC LIMIT 1")
     assert "ส่งเอกสารของ Gem ทั้งหมด" in db.loads(log["frames"])["knowledge"]
+
+
+def test_staff_password_when_the_server_sets_one(monkeypatch):
+    client = TestClient(app)
+    assert client.post("/api/auth/staff", json={"role": "teacher"}).status_code == 200
+    monkeypatch.setenv("TUTOR_TEACHER_PASSWORD", "ครู-1234")
+    assert client.get("/api/auth/staff-mode").json() == {"teacher": True, "admin": False}
+    assert client.post("/api/auth/staff", json={"role": "teacher"}).status_code == 401
+    assert client.post("/api/auth/staff", json={"role": "teacher", "password": "ผิด"}).status_code == 401
+    assert client.post("/api/auth/staff", json={"role": "teacher", "password": "ครู-1234"}).json()["token"]
+    assert client.post("/api/auth/staff", json={"role": "admin"}).status_code == 200

@@ -25,6 +25,13 @@ if [ ! -f frontend/dist/index.html ] || [ -n "$(find frontend/src frontend/index
   (cd frontend && npm run build)
 fi
 
+# ค่าตั้งของเซิร์ฟเวอร์ (เช่น รหัสผ่านครูและ Admin) อยู่ใน .env ข้างไฟล์นี้ ไม่ขึ้น git
+if [ -f .env ]; then
+  set -a
+  . ./.env
+  set +a
+fi
+
 cd backend
 echo "เปิดที่ http://localhost:${PORT:-8000}"
 exec .venv/bin/uvicorn app.main:app --host "${HOST:-127.0.0.1}" --port "${PORT:-8000}"
