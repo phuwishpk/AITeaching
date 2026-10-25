@@ -1,0 +1,15 @@
+# ไม่ส่งเข้า docker build: ข้อมูลที่ระบบสร้าง ความลับ และไฟล์ที่ build ใหม่ในคอนเทนเนอร์อยู่แล้ว
+.git
+.env
+.env.*
+runtime
+reference
+deploy/cloudflared
+backend/.venv
+backend/.pytest_cache
+**/__pycache__
+frontend/node_modules
+frontend/dist
+.markdown-collab
+.claude
+.vscode

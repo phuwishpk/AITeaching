@@ -32,3 +32,6 @@ dist/
 .DS_Store
 .idea/
 .vscode/
+
+# ค่าของ Cloudflare Tunnel บนเซิร์ฟเวอร์ (มี credentials)
+deploy/cloudflared/
