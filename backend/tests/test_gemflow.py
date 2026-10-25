@@ -626,3 +626,33 @@ def test_teacher_designed_chat_rules(subject):
 
     flow["chat"]["intents"][0]["goto"] = "w"
     assert any("พาไปขั้น" in e for e in flowspec.validate(flow)["errors"]), "แชตพาไปขั้นทำโจทย์ไม่ได้"
+
+
+def test_teacher_keywords_in_the_prompt_are_required(monkeypatch):
+    """คำที่ครูเขียนไว้ใน prompt ให้จับในแชตต้องอยู่ครบ AI ทำหายต้องออกแบบใหม่"""
+    import asyncio
+
+    from app.gems import builder
+
+    instructions = ('ให้เติมคำว่า "คูณและหารทำจาก ___ ไป ___"\n'
+                    'การตอบแชต: เรียกตัวเองว่า "พี่" ถ้านักเรียนพิมพ์ "เฉลย", “บอกคำตอบ” ให้ถามกลับว่าขั้นแรกทำอะไร\n'
+                    "keyword: ขอตัวอย่าง, ยกตัวอย่าง หรือ มีตัวอย่างไหม")
+    assert flowspec.teacher_keywords(instructions) == ["เฉลย", "บอกคำตอบ", "ขอตัวอย่าง", "ยกตัวอย่าง", "มีตัวอย่างไหม"]
+
+    def flow(keywords):
+        return {"start": "w", "steps": [{"id": "w", "kind": "item", "pick": "main"}, {"id": "e", "kind": "end"}],
+                "edges": [{"from": "w", "to": "e", "when": "correct"}, {"from": "w", "to": "w", "when": ""}],
+                "chat": {"intents": [{"label": "ขอคำตอบ", "keywords": keywords, "reply": "ถามกลับ"}]}}
+
+    designs = [flow(["เฉลย"]), flow(["เฉลย", "บอก คำตอบ", "ขอตัวอย่าง", "ยกตัวอย่าง", "มีตัวอย่างไหม", "ขอคำตอบหน่อย"])]
+    prompts = []
+
+    async def fake_ask(step, user, max_tokens=12000, thinking="minimal"):
+        prompts.append(user)
+        return designs[len(prompts) - 1]
+
+    monkeypatch.setattr(builder, "ask_json", fake_ask)
+    result = asyncio.run(flowspec.design({"name": "PEMDAS", "instructions": instructions}))
+    assert len(prompts) == 2 and '"บอกคำตอบ"' in prompts[0], "บอก AI ทุกคำของครูตั้งแต่รอบแรก"
+    assert "บอกคำตอบ" in prompts[1] and "ยังไม่อยู่" in prompts[1], "รอบแรกทำคำหาย ต้องออกแบบใหม่"
+    assert not flowspec.missing_keywords(result["spec"], flowspec.teacher_keywords(instructions))

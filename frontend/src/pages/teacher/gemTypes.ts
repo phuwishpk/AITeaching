@@ -292,6 +292,8 @@ export interface GemFlowDetail {
   map: FlowMapData | null;
   reference_map: FlowMapData;
   outdated: boolean;
+  // คำที่ครูเขียนไว้ใน prompt ให้จับในแชต
+  teacher_keywords: string[];
 }
 
 export interface FlowCheck {

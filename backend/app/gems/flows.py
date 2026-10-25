@@ -28,6 +28,10 @@ def _validate(gem: dict, raw: dict) -> dict:
     checked = flowspec.validate(raw, [b["id"] for b in bugs] if bugs is not None else None)
     if checked["spec"] and not checked["errors"]:
         checked["warnings"] += flowspec.leak_warnings(checked["spec"], _items(gem))
+        missing = flowspec.missing_keywords(checked["spec"], flowspec.teacher_keywords(gem.get("instructions", "")))
+        if missing:
+            checked["warnings"].append(f"คำที่ครูเขียนไว้ใน prompt ให้จับในแชตยังไม่ถูกจับ: {', '.join(missing)} "
+                                       "เพิ่มในแท็บแชต AI หรือกดออกแบบใหม่")
     return checked
 
 
@@ -47,6 +51,8 @@ def detail(gem: dict) -> dict:
         # แม่แบบอ้างอิง ครูเปิดดูเป็นแนวทางเขียนคำสั่ง ไม่ใช้เป็น Flow ของ Gem
         "reference_map": flowspec.map_view(flowspec.validate(flowspec.standard_template())["spec"]),
         "outdated": "instructions_key" in flow and builder.flow_needs_design(gem),
+        # คำที่ครูเขียนไว้ใน prompt ให้จับในแชต หน้า Flow ทำเครื่องหมายว่าคำไหนมาจากครู
+        "teacher_keywords": flowspec.teacher_keywords(gem.get("instructions", "")),
     }
 
 

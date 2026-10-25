@@ -303,7 +303,7 @@ export default function GemFlowPage() {
                 ) : (
                   <p className="small muted">กดกล่องในผังหรือในรายการขั้นเพื่อดูและแก้</p>
                 ))}
-              {side === "chat" && <ChatEditor spec={draft} update={update} />}
+              {side === "chat" && <ChatEditor spec={draft} update={update} teacherKeywords={detail.teacher_keywords ?? []} />}
               {side === "params" && <Params spec={draft} catalog={catalog} update={update} />}
               {side === "vars" && <Vars catalog={catalog} />}
               {side === "locked" && <Locked catalog={catalog} />}
@@ -767,8 +767,20 @@ const CHAT_GOTO_KINDS = ["hint", "lesson", "activity", "widget", "reflect", "bre
 const CHAT_DEFAULT: ChatSpec = { style: "", sentences: 3, examples: false, guards: [], intents: [] };
 
 // แนวทางการตอบแชตของ AI: AI ดึงจากคำสั่งของครูตอนออกแบบ Flow ครูแก้ได้ ไม่มี = แชตแบบอัตโนมัติ
-function ChatEditor({ spec, update }: { spec: FlowSpec; update: (change: (spec: FlowSpec) => void) => void }) {
+function ChatEditor({
+  spec,
+  update,
+  teacherKeywords,
+}: {
+  spec: FlowSpec;
+  update: (change: (spec: FlowSpec) => void) => void;
+  teacherKeywords: string[];
+}) {
   const chat = spec.chat;
+  const flat = (k: string) => k.replace(/\s/g, "").toLowerCase();
+  const fromTeacher = new Set(teacherKeywords.map(flat));
+  const caught = new Set((chat?.intents ?? []).flatMap((i) => i.keywords.map(flat)));
+  const missing = teacherKeywords.filter((k) => !caught.has(flat(k)));
   const set = (patch: Partial<ChatSpec>) => update((s) => void (s.chat = { ...(s.chat ?? CHAT_DEFAULT), ...patch }));
   const setIntent = (index: number, patch: Partial<ChatIntent>) =>
     update((s) => {
@@ -793,6 +805,19 @@ function ChatEditor({ spec, update }: { spec: FlowSpec; update: (change: (spec: 
   return (
     <div className="stack">
       {chat.reason && <p className="xsmall muted">มาจาก: {chat.reason}</p>}
+      {teacherKeywords.length > 0 && (
+        <div className="stack stack-sm">
+          <span className="small strong">คำที่ครูเขียนไว้ใน prompt</span>
+          <div className="pill-list">
+            {teacherKeywords.map((k) => (
+              <Badge key={k} tone={caught.has(flat(k)) ? "success" : "warning"}>
+                {k}
+              </Badge>
+            ))}
+          </div>
+          {missing.length > 0 && <span className="xsmall warning-text">ยังไม่ถูกจับ: {missing.join(", ")} เพิ่มในรายการด้านล่างหรือกดออกแบบใหม่</span>}
+        </div>
+      )}
       <Field label="บุคลิกและวิธีอธิบาย" hint="แทนการใช้คำสั่งทั้งก้อนของ Gem ในแชต">
         <textarea className="input" rows={3} maxLength={600} value={chat.style} onChange={(e) => set({ style: e.target.value })} />
       </Field>
@@ -822,9 +847,17 @@ function ChatEditor({ spec, update }: { spec: FlowSpec; update: (change: (spec: 
             <input className="input" value={intent.label} maxLength={40} onChange={(e) => setIntent(i, { label: e.target.value })} aria-label="ชื่อ" />
             <Button size="sm" variant="ghost" icon={<Trash2 size={14} />} onClick={() => update((s) => void s.chat?.intents.splice(i, 1))} aria-label="ลบ" />
           </div>
-          <Field label="คำที่นักเรียนพิมพ์" hint="คั่นด้วยจุลภาค">
+          <Field label="คำที่นักเรียนพิมพ์" hint="คั่นด้วยจุลภาค ★ = คำจาก prompt ของครู">
             <input className="input" value={intent.keywords.join(", ")} onChange={(e) => setIntent(i, { keywords: e.target.value.split(",").map((k) => k.trim()).filter(Boolean) })} />
           </Field>
+          <div className="pill-list">
+            {intent.keywords.map((k) => (
+              <span key={k} className="xsmall muted">
+                {fromTeacher.has(flat(k)) ? "★ " : ""}
+                {k}
+              </span>
+            ))}
+          </div>
           <Field label="ให้ AI ตอบอย่างไร">
             <input className="input" value={intent.reply} maxLength={300} onChange={(e) => setIntent(i, { reply: e.target.value })} />
           </Field>
