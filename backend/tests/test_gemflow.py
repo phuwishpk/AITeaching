@@ -782,3 +782,13 @@ def test_unreachable_extra_steps_are_pruned_not_fatal(monkeypatch):
     assert [s["id"] for s in flow["spec"]["steps"]] == ["w", "walk", "e"]
     assert flow["spec"]["guidelines"][0]["steps"] == ["walk"] and flow["spec"]["after_stress"] == "walk"
     assert any("ตัดขั้นที่ไม่มีทางเข้า" in w for w in flow["warnings"])
+
+
+def test_finishing_on_a_wrong_answer_is_caught_by_simulation():
+    """จาก Gemini จริง: มีคำว่า correct ในเงื่อนไข แต่ "or challenge_done" ทำให้ตอบผิดก็จบชุด"""
+    flow = {"start": "w", "steps": [{"id": "w", "kind": "item", "pick": "adaptive"}, {"id": "e", "kind": "end"}],
+            "edges": [{"from": "w", "to": "e", "when": "(correct and mains_left == 0 and mastery >= 0.8) or challenge_done"},
+                      {"from": "w", "to": "w", "when": ""}]}
+    assert flowspec.ending_on_wrong(flowspec.validate(flow)["spec"])
+    flow["edges"][0]["when"] = "correct and ((mains_left == 0 and mastery >= 0.8) or challenge_done)"
+    assert not flowspec.ending_on_wrong(flowspec.validate(flow)["spec"])

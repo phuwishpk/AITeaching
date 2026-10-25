@@ -108,7 +108,8 @@ def _groups(step: dict, edges: list[dict]) -> list[tuple[dict, list[str]]]:
         return [({}, names)]
     groups = []
     for outcome, other in (("correct", "wrong"), ("wrong", "correct")):
-        names = sorted(set().union(*[u for u in used if other not in u]) - {"correct", "wrong"} if used else set())
+        # ทุกตัวแปรที่เส้นใช้ (เส้นที่มี correct ก็อาจเป็นจริงตอนตอบผิดได้ เช่น "(correct and ...) or challenge_done")
+        names = sorted(set().union(*used) - {"correct", "wrong"} if used else set())
         if outcome == "wrong" and "error_count" not in names:
             names.append("error_count")
         names += [p for p in PROBES[outcome] if p not in names]

@@ -904,14 +904,19 @@ REVIEW = ("Flow นี้ผ่านกฎของระบบแล้ว ต
 
 
 def ending_on_wrong(flow_spec: dict) -> list[str]:
-    """เส้นจากขั้นทำโจทย์ไปขั้นจบ (สำเร็จ) ที่ไม่ได้ต้องตอบถูก: นักเรียนตอบผิดก็จบชุดได้ (เจอจาก Gemini จริง)"""
+    """เส้นจากขั้นทำโจทย์ไปขั้นจบ (สำเร็จ) ที่นักเรียนตอบผิดก็ไปถึงได้ ตรวจด้วยการจำลอง ไม่ใช่ดูว่ามีคำว่า correct
+    (เจอจาก Gemini จริง: "(correct and mains_left == 0) or challenge_done" ตอบผิดหลังทำโจทย์ท้าทายได้ก็จบ)"""
     steps = {s["id"]: s for s in flow_spec["steps"]}
     notes = []
-    for edge in flow_spec["edges"]:
-        source, target = steps.get(edge["from"]), steps.get(edge["to"])
-        if (source and target and source["kind"] == "item" and target["kind"] == "end" and target.get("result") == "completed"
-                and edge.get("when") and "correct" not in conditions.names(edge["when"])):
-            notes.append(f"เส้น \"{edge.get('label') or edge['when']}\" จบชุดได้แม้นักเรียนตอบผิด ใส่ correct and ในเงื่อนไข")
+    for step in flow_spec["steps"]:
+        if step["kind"] != "item":
+            continue
+        for values, edge in simulate.cases(flow_spec, step):
+            target = steps.get((edge or {}).get("to"))
+            if values.get("wrong") and target and target["kind"] == "end" and target.get("result") == "completed":
+                notes.append(f"เส้น \"{edge.get('label') or edge['when']}\" จบชุดได้แม้นักเรียนตอบผิด "
+                             f"({edge['when']}) ให้ทุกเกณฑ์จบอยู่ใต้ correct and (...)")
+                break
     return notes
 
 
@@ -1012,14 +1017,19 @@ async def design(gem: dict, memory: dict | None = None, bugs: list[dict] | None 
         audit = await audit_flow(gem, best["spec"])
         failing = [c for c in audit if not c["ok"]]
         if failing:
+            # แก้เฉพาะข้อที่ไม่ผ่าน ถ้ารอบแก้ไปทำผิดกฎข้ออื่น ให้แก้อีกครั้งหนึ่ง ใช้ผลใหม่เมื่อข้อที่ไม่ผ่านไม่เพิ่มขึ้น
             fixes = [f"แนวทาง \"{c['guideline']}\" ยังไม่ตรง: {c['fix'] or c['evidence']}" for c in failing]
-            raw = await builder.ask_json("flow", design_prompt(gem, fixes + [REVIEW + simulate.table_text(best["spec"])],
-                                                              previous, memory, bugs), 32000, thinking="high")
-            fixed, problems = _checked(raw if isinstance(raw, dict) else {}, bug_ids, keywords)
-            if not problems:
-                again = await audit_flow(gem, fixed["spec"])
-                if sum(not c["ok"] for c in again) <= len(failing):
-                    best, audit = fixed, again
+            fixes += [REVIEW + simulate.table_text(best["spec"])]
+            base = previous
+            for _ in range(2):
+                raw = await builder.ask_json("flow", design_prompt(gem, fixes, base, memory, bugs), 32000, thinking="high")
+                fixed, problems = _checked(raw if isinstance(raw, dict) else {}, bug_ids, keywords)
+                if not problems:
+                    again = await audit_flow(gem, fixed["spec"])
+                    if sum(not c["ok"] for c in again) <= len(failing):
+                        best, audit = fixed, again
+                    break
+                fixes, base = problems, raw
         notes = await write_widgets(gem, best["spec"], memory, items)
         warnings = [w for w in best["warnings"] if not w.startswith("Widget \"")] + notes
         warnings += [f"AI ตรวจแล้วแนวทาง \"{c['guideline'][:80]}\" อาจยังไม่ตรง: {c['fix'] or c['evidence']}"
