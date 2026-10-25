@@ -28,6 +28,7 @@ map \$http_upgrade \$connection_upgrade {
 
 server {
     listen 80;
+    absolute_redirect off;  # อยู่หลัง Cloudflare (https) ให้ redirect เป็น path ไม่ใส่ http:// เอง
     resolver 127.0.0.11 valid=10s ipv6=off;
     client_max_body_size 16m;
     proxy_read_timeout 300s;
