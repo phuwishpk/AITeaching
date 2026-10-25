@@ -804,3 +804,16 @@ def test_after_stress_inside_params_is_accepted():
                       {"from": "walk", "to": "back", "when": ""}]}
     spec = flowspec.validate(flow)["spec"]
     assert spec["after_stress"] == "walk" and "after_stress" not in spec["params"]
+
+
+def test_concepts_the_teacher_mentions_must_appear_in_the_flow():
+    """ครูพูดถึงติดหล่ม ทบทวนครบ 2 รอบ และหลังพักเพราะเครียด แต่ Flow ไม่ได้ใช้ ตรวจด้วยกฎว่าขาด"""
+    instructions = ("ผิดครั้งที่ 3 ถ้าติดหล่มให้ทบทวนพื้นฐาน ส่งไปทบทวนครบ 2 รอบแล้วให้รอครู "
+                    "ถ้าเครียดหรือท้อ พักเสร็จแล้วให้ดูตัวอย่าง")
+    flow = {"start": "w", "steps": [{"id": "w", "kind": "item", "pick": "main"},
+                                    {"id": "rem", "kind": "item", "pick": "prerequisite"}, {"id": "e", "kind": "end"}],
+            "edges": [{"from": "w", "to": "e", "when": "correct"}, {"from": "w", "to": "rem", "when": "wrong and error_count >= 3"},
+                      {"from": "w", "to": "w", "when": ""}, {"from": "rem", "to": "w", "when": ""}]}
+    gaps = flowspec.concept_gaps(instructions, flowspec.validate(flow)["spec"])
+    assert any("impasse" in g for g in gaps) and any("rounds" in g for g in gaps) and any("after_stress" in g for g in gaps)
+    assert not any("prerequisite" in g for g in gaps), "มีขั้นทบทวนพื้นฐานแล้ว"

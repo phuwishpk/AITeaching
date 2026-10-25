@@ -937,6 +937,35 @@ def prune_unreachable(raw: dict) -> dict:
     return spec
 
 
+# คำในคำสั่งของครู → สิ่งที่ Flow ต้องใช้ ถ้าครูพูดถึงแต่ Flow ไม่ได้ใช้เลย แนวทางนั้นหายแน่นอน (ตรวจด้วยกฎ ไม่พึ่ง AI)
+CONCEPTS = [
+    (r"ติดหล่ม|เวลาคิดยาวขึ้น|impasse", lambda f: "impasse" in f["vars"], "ติดหล่ม แต่ไม่มีเส้นไหนใช้ impasse"),
+    (r"ไม่มี(ความรู้)?พื้นฐาน|ไม่มี prerequisite", lambda f: "has_prerequisite" in f["vars"],
+     "กรณีไม่มีพื้นฐานให้ทบทวน แต่ไม่มีเส้นไหนใช้ has_prerequisite"),
+    (r"(ครบ|เกิน)\s*\d+\s*รอบ", lambda f: "rounds" in f["vars"], "จำนวนรอบที่ส่งไปทบทวน แต่ไม่มีเส้นไหนใช้ rounds"),
+    (r"เข้าใจผิด|สะเพร่า|misconception|slip|ชนิดข้อผิดพลาด|bug library",
+     lambda f: f["vars"] & {"bug", "bug_type", "misconception", "slip"} or "auto" in f["levels"],
+     "ชนิดข้อผิดพลาด แต่ไม่มีเส้นไหนแยกตาม bug_type และไม่มีขั้นคำใบ้ระดับ auto"),
+    (r"(เครียด|ท้อ)[^\n]*(หลังพัก|พักเสร็จ|พักแล้ว)|(หลังพัก|พักเสร็จ|พักแล้ว)[^\n]*(เครียด|ท้อ)",
+     lambda f: f["after_stress"], "สิ่งที่ทำหลังพักเพราะเครียด แต่ไม่ได้ใส่ after_stress"),
+    (r"คู่ขนาน|isomorphic", lambda f: "isomorphic" in f["picks"], "ข้อคู่ขนาน แต่ไม่มีขั้น item ที่ pick isomorphic"),
+    (r"ทบทวนพื้นฐาน|prerequisite", lambda f: "prerequisite" in f["picks"], "ทบทวนพื้นฐาน แต่ไม่มีขั้น item ที่ pick prerequisite"),
+    (r"ถูกติดกัน", lambda f: "streak" in f["vars"], "ถูกติดกัน แต่ไม่มีเส้นไหนใช้ streak"),
+    (r"โจทย์ท้าทาย", lambda f: "challenge_done" in f["vars"] or "harder" in f["picks"],
+     "โจทย์ท้าทาย แต่ไม่มีเส้นที่ใช้ challenge_done หรือขั้นที่ pick harder"),
+]
+
+
+def concept_gaps(instructions: str, flow_spec: dict) -> list[str]:
+    """เรื่องที่ครูพูดถึงในคำสั่งแต่ Flow ไม่ได้ใช้เลย (เช่น ครูพูดถึงติดหล่ม แต่ไม่มีเส้นไหนดู impasse)"""
+    used = {"vars": set().union(*[conditions.names(e.get("when")) for e in flow_spec["edges"]] or [set()]),
+            "levels": {s.get("level") for s in flow_spec["steps"] if s["kind"] == "hint"},
+            "picks": {s.get("pick") for s in flow_spec["steps"] if s["kind"] == "item"},
+            "after_stress": flow_spec.get("after_stress")}
+    text = (instructions or "").lower()
+    return [f"คำสั่งของครูพูดถึง{need}" for pattern, ok, need in CONCEPTS if re.search(pattern, text) and not ok(used)]
+
+
 def _checked(raw: dict, bug_ids, keywords: list[str]) -> tuple[dict | None, list[str]]:
     """ตรวจ Flow ที่ AI ส่งมา ถ้าเหลือแค่ขั้นที่ไม่มีทางเข้า (เช่น ขั้นพักซ้ำกับการพักเพราะเครียดของระบบ) ตัดทิ้งแล้วตรวจใหม่"""
     checked = validate(raw, bug_ids)
@@ -1004,16 +1033,25 @@ async def design(gem: dict, memory: dict | None = None, bugs: list[dict] | None 
     errors, previous = None, None
     bug_ids = [b["id"] for b in bugs] if bugs else None
     keywords = teacher_keywords(gem.get("instructions", ""))
-    best = None
+    best, fallback = None, None
+    instructions = gem.get("instructions", "")
     for attempt in range(3):
-        best = None
         # ออกแบบ Flow ต้องไล่แนวทางของครูทีละข้อ จึงให้โมเดลคิดเต็มที่ (โทเคนที่ใช้คิดนับรวมใน max_tokens)
         raw = await builder.ask_json("flow", design_prompt(gem, errors, previous, memory, bugs), 32000, thinking="high")
         best, problems = _checked(raw if isinstance(raw, dict) else {}, bug_ids, keywords)
-        if not problems:
+        gaps = concept_gaps(instructions, best["spec"]) if best else []
+        if best and not gaps:
             previous = raw
             break
+        if best:
+            # ผ่านกฎแต่ขาดเรื่องที่ครูพูดถึง: ให้แก้ ถ้าแก้ไม่ได้ใช้ตัวนี้พร้อมคำเตือน (ไม่ล้มการออกแบบ)
+            if fallback is None or len(gaps) < len(fallback[1]):
+                fallback = (best, gaps, raw)
+            problems = [g + " เพิ่มเส้นหรือขั้นตามคำสั่งนั้น" for g in gaps]
         errors, previous = problems, raw
+    if (best is None or concept_gaps(instructions, best["spec"])) and fallback is not None:
+        best, gaps, previous = fallback
+        best["warnings"] += gaps
     if best is not None:
         # ตรวจทีละแนวทางของครูกับตารางจำลอง ถ้ามีข้อไม่ผ่านให้แก้เฉพาะข้อนั้นหนึ่งรอบ แล้วใช้แบบที่ไม่ผ่านน้อยกว่า
         audit = await audit_flow(gem, best["spec"])
