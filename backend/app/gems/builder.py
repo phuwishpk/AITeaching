@@ -231,7 +231,33 @@ def parse_json(text: str) -> dict | list:
         try:
             return json.loads(cleaned[start:end + 1])
         except json.JSONDecodeError as error:
+            closed = _close_brackets(cleaned[start:])
+            if closed is not None:
+                return closed
             raise BuildError(f"อ่าน JSON จาก AI ไม่ได้: {error}") from None
+
+
+def _close_brackets(text: str):
+    """JSON ที่ AI ส่งมาขาดวงเล็บปิดตอนท้าย (Gemini บางครั้งหยุดก่อน "]}"): เติมวงเล็บที่ยังเปิดอยู่แล้วลองอ่าน"""
+    stack, quoted, escaped = [], False, False
+    for ch in text:
+        if quoted:
+            escaped = not escaped and ch == "\\"
+            if ch == '"' and not escaped:
+                quoted = False
+            continue
+        if ch == '"':
+            quoted = True
+        elif ch in "[{":
+            stack.append("]" if ch == "[" else "}")
+        elif ch in "]}" and stack:
+            stack.pop()
+    if quoted or not stack:
+        return None
+    try:
+        return json.loads(text.rstrip().rstrip(",") + "".join(reversed(stack)))
+    except json.JSONDecodeError:
+        return None
 
 
 def listing(payload, key: str) -> list:
