@@ -40,6 +40,7 @@ export const KIND_TEXT: Record<string, string> = {
   check: "ด่านตัดสินใจ",
   activity: "กิจกรรมที่ AI สร้าง",
   widget: "Widget",
+  chat: "แชต",
   end: "จบ",
 };
 

@@ -1492,6 +1492,11 @@ def reflect(state: dict, ctx: Ctx, text: str, verdict: dict | None = None) -> Fx
     return gemflow.reflect(state, ctx, text, verdict)
 
 
+def chat_goto(state: dict, ctx: Ctx, intent: dict) -> Fx:
+    """แชตพาไปขั้นใน Flow ตามแนวทางแชตของครู (เฉพาะ Gem ที่มี Flow)"""
+    return gemflow.chat_goto(state, ctx, intent) if ctx.content.spec else Fx()
+
+
 def widget(state: dict, ctx: Ctx, response: dict) -> Fx:
     """นักเรียนส่งคำตอบของ Widget ในขั้น "widget" ของ Flow ที่ออกแบบใน Gem (ตรวจด้วยกฎ)"""
     if not ctx.content.spec:

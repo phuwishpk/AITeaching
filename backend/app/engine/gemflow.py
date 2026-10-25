@@ -704,6 +704,27 @@ def widget(state: dict, ctx: C.Ctx, response: dict) -> C.Fx:
     return fx
 
 
+def chat_intent(flow_spec: dict | None, message: str) -> dict | None:
+    """สิ่งที่นักเรียนพิมพ์ที่ครูกำหนดไว้ในแนวทางแชต จับด้วยคำ (อธิบายได้ ไม่ใช้ AI ตัดสิน) ข้อแรกที่ตรงชนะ"""
+    flat = normalize(message or "").lower().replace(" ", "")
+    for intent in ((flow_spec or {}).get("chat") or {}).get("intents", []):
+        if any(k.replace(" ", "") in flat for k in intent["keywords"]):
+            return intent
+    return None
+
+
+def chat_goto(state: dict, ctx: C.Ctx, intent: dict) -> C.Fx:
+    """แชตพาไปขั้นที่ครูกำหนด (เช่น ขอตัวอย่าง → กิจกรรม) เฉพาะตอนกำลังทำโจทย์ ขั้นนั้นกลับมาข้อเดิมตามเส้นของมันเอง"""
+    fx = C.Fx()
+    resolve_timers(state, ctx, fx)
+    step = step_of(ctx, intent.get("goto"))
+    if step is None or state["position"] not in F.CAN_ANSWER:
+        return fx
+    fx.trace("chat_intent", step["id"], {"intent": intent["id"], "label": intent["label"]}, ctx.now)
+    enter(state, ctx, fx, step["id"], ["g_chat"], [f"นักเรียนพิมพ์ในแชต: {intent['label']} → {label(step)}"])
+    return fx
+
+
 def judged(step: dict | None) -> bool:
     """ขั้นที่ให้ AI ประเมินคำตอบที่นักเรียนพิมพ์: อธิบายความคิดที่ครูเปิดประเมิน หรือกิจกรรมที่ให้พิมพ์ตอบ"""
     return bool(step) and (bool(step.get("judge")) or (step["kind"] == "activity" and step.get("response") == "text"))
@@ -826,9 +847,10 @@ def features(flow_spec: dict | None) -> dict:
         "reflect": "reflect" in kinds,
         "activity": "activity" in kinds,
         "break": "break" in kinds,
-        "notify": "notify" in kinds,
+        "notify": "notify" in kinds or any(i.get("notify") for i in (flow_spec.get("chat") or {}).get("intents", [])),
         "teacher": "teacher" in kinds,
         "widget": "widget" in kinds,
+        "chat_flow": bool(flow_spec.get("chat")),
         "widgets": sorted({s["widget"] for s in steps if s["kind"] == "widget"}),
         "isomorphic": "isomorphic" in picks,
         "remedial": "prerequisite" in picks,

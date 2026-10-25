@@ -168,12 +168,12 @@ async def generate_hint(subject: dict, item: dict, concept_name: str, level: int
 
 async def chat_reply(subject: dict, item: dict | None, concept_name: str, student: dict, message: str,
                      tag: dict | None, hints_shown: list[str], fallback: str, code: str | None,
-                     history: list[dict] | None = None) -> dict:
+                     history: list[dict] | None = None, chat: dict | None = None, intent: dict | None = None) -> dict:
     query = " ".join(filter(None, [message, item.get("prompt") if item else None, concept_name]))
     memory = knowledge_memory(subject)
     terms, docs = _retrieve(subject, query) if not memory else (rag.tokenize(query), [])
-    built = _with_memory(prompt.chat_prompt(subject, item, concept_name, student, message, tag, docs, hints_shown, history),
-                         memory)
+    built = _with_memory(prompt.chat_prompt(subject, item, concept_name, student, message, tag, docs, hints_shown, history,
+                                            chat, intent), memory)
     result, errors = await _call(built["system"], built["user"])
     retrieved = {"query_terms": terms[:30], "documents": docs, "tag": tag["id"] if tag else None}
     if result is not None and guard.has_trigger(result.text) and not distress.detect(message)["level"]:

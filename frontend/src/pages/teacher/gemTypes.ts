@@ -131,6 +131,7 @@ export interface FlowFeatures {
   activity?: boolean;
   widget?: boolean;
   widgets?: string[];
+  chat_flow?: boolean;
   break?: boolean;
   notify?: boolean;
   teacher?: boolean;
@@ -148,6 +149,7 @@ export const FEATURE_LABELS: [Exclude<keyof FlowFeatures, "all" | "widgets">, st
   ["reflect", "อธิบายความคิด"],
   ["activity", "กิจกรรมที่ AI สร้าง"],
   ["widget", "Widget ให้ลงมือทำ"],
+  ["chat_flow", "แนวทางตอบแชตจากครู"],
   ["break", "พักสายตา"],
   ["notify", "แจ้งครู"],
   ["teacher", "หยุดรอครู"],
@@ -243,8 +245,28 @@ export interface FlowEdgeSpec {
   text?: string;
 }
 
+// แนวทางการตอบแชตของ AI ที่ดึงจากคำสั่งของครู (ไม่มี = แชตแบบอัตโนมัติ) ข้อห้ามที่ล็อกไว้ใช้เสมอ
+export interface ChatIntent {
+  id: string;
+  label: string;
+  keywords: string[];
+  reply: string;
+  goto: string | null;
+  notify: boolean;
+}
+
+export interface ChatSpec {
+  style: string;
+  sentences: number;
+  examples: boolean;
+  guards: string[];
+  intents: ChatIntent[];
+  reason?: string;
+}
+
 export interface FlowSpec {
   summary: string;
+  chat?: ChatSpec;
   // แนวทางของครูแต่ละข้อ และขั้นที่ทำแนวทางนั้น (AI เขียนก่อนออกแบบ)
   guidelines?: { text: string; steps: string[] }[];
   start: string;

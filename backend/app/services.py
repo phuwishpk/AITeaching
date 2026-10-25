@@ -460,10 +460,18 @@ async def chat(code: str, set_id: str, message: str) -> dict:
         tag = content.tag(item_state.get("last_tag")) if item_state else None
         student = _student_vars(state)
         persist(state, fx, ctx.now)
+    # แนวทางการตอบแชตที่ครูกำหนดใน Flow (ไม่มี = แบบอัตโนมัติ) และสิ่งที่นักเรียนพิมพ์ที่ครูให้รับมือเป็นพิเศษ
+    chat_spec = (content.spec or {}).get("chat")
+    intent = gemflow.chat_intent(content.spec, scrubbed)
+    if intent and intent.get("notify"):
+        await raise_alert(code, set_id, "flow_notify", f"แชต ({intent['label']}): \"{scrubbed[:80]}\"", dedupe=False)
+    if intent and intent.get("goto"):
+        state, content, ctx, _ = await run_event(code, set_id, engine.chat_goto, intent)
     if ai_enabled_for(code):
         history = chat_memory(code, set_id)
         reply = await tutor.chat_reply(content.subject, it, content.concept_name(it["concept"]) if it else "",
-                                       student, scrubbed, tag, [h for h in hints_shown if h], fallback, code, history)
+                                       student, scrubbed, tag, [h for h in hints_shown if h], fallback, code, history,
+                                       chat_spec, intent)
     else:
         reply = {"text": fallback, "source": "authored"}
     if ai_failed(reply):
