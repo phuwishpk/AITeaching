@@ -355,13 +355,12 @@ def validate(raw: dict, bugs: list[str] | None = None) -> dict:
     return {"spec": spec, "errors": errors, "warnings": list(dict.fromkeys(warnings))}
 
 
-OVERLAP = "เส้นชนกัน: "
+OVERLAP = "แนวทางที่เกิดพร้อมกัน: "
 
 
 def clashes(steps: dict, out: dict[str, list[dict]]) -> list[tuple[dict, dict, dict]]:
-    """เส้นตอบถูกสองเส้นจากขั้นเดียวกันที่เป็นจริงพร้อมกันได้ (ใช้ตัวแปรคนละตัว) engine ไปตามเส้นแรกเท่านั้น
-    แนวทางของครูที่อยู่บนเส้นหลังจึงหายไปเงียบ ๆ เช่น "ถูกหลังใช้คำใบ้ → ข้อคู่ขนาน" ถูกข้ามเพราะ "ครบ 2 ข้อ → อธิบาย" มาก่อน
-    คืน (ขั้น, เส้นแรก, เส้นที่ถูกข้าม) เส้นไปขั้นจบมาก่อนได้ ไม่นับว่าชน"""
+    """เส้นตอบถูกสองเส้นจากขั้นทำโจทย์เดียวกันที่เป็นจริงพร้อมกันได้ (ใช้ตัวแปรคนละตัว) เช่น "ครบ 2 ข้อ → อธิบาย"
+    กับ "ถูกหลังใช้คำใบ้ → ข้อคู่ขนาน" คืน (ขั้น, เส้นแรก, เส้นหลัง) เส้นไปขั้นจบไม่นับ"""
     found = []
     for sid, edges in out.items():
         wins = []
@@ -385,23 +384,9 @@ def _edge_name(edge: dict) -> str:
 
 
 def overlaps(steps: dict, out: dict[str, list[dict]]) -> list[str]:
+    """บอกครูว่าแนวทางไหนเกิดพร้อมกันได้ และระบบทำอะไรก่อน (engine ทำครบทั้งคู่ ดู gemflow.follow_ups)"""
     return [f"{OVERLAP}ขั้น \"{step['label']}\" ถ้า \"{_edge_name(first)}\" และ \"{_edge_name(later)}\" "
-            f"เป็นจริงพร้อมกัน ระบบไปตาม \"{_edge_name(first)}\" อย่างเดียว \"{_edge_name(later)}\" จะถูกข้าม"
-            for step, first, later in clashes(steps, out)]
-
-
-def _without_correct(when: str) -> str:
-    return re.sub(r"\bcorrect\s+and\s+|\s+and\s+correct\b", "", when)
-
-
-def clash_fixes(flow_spec: dict) -> list[str]:
-    """วิธีแก้เส้นชนกันทีละคู่ สำหรับให้ AI แก้ Flow หนึ่งรอบ"""
-    steps = {s["id"]: s for s in flow_spec["steps"]}
-    out = {sid: [e for e in flow_spec["edges"] if e["from"] == sid] for sid in steps}
-    return [f"เส้นจาก {step['id']} \"{later['when']}\" (ไป {later['to']}) ถูกข้ามเมื่อ \"{first['when']}\" (ไป {first['to']}) "
-            f"เป็นจริงด้วย แก้โดยไม่ตัดแนวทางใด: เพิ่มเส้นออกจาก {first['to']} ไป {later['to']} ด้วยเงื่อนไข "
-            f"\"{_without_correct(later['when'])}\" (ไว้ก่อนเส้นอื่นของ {first['to']}) "
-            f"ตัวแปรอย่าง hint_level ยังเป็นของข้อล่าสุดหลังขั้น {first['to']} แก้เฉพาะเส้นเหล่านี้ ส่วนอื่นของ Flow ให้คงเดิมทุกตัวอักษร"
+            f"เป็นจริงพร้อมกัน ระบบทำ \"{_edge_name(first)}\" ก่อน แล้วพาไปทำ \"{_edge_name(later)}\" ต่อเมื่อกลับมาที่ขั้นนี้"
             for step, first, later in clashes(steps, out)]
 
 
@@ -614,9 +599,9 @@ def design_prompt(gem: dict, errors: list[str] | None = None, previous: dict | N
         "และตัวแปรเหล่านี้ (แยกทางตามข้อผิดพลาดได้ เช่น wrong and bug == \"BUG-M01\" หรือ bug_type == \"slip\"):\n"
         f"{variables}\n"
         "เส้นออกจากขั้นเดียวกันเรียงตามลำดับ เส้นแรกที่เป็นจริงชนะ ให้เส้นสุดท้ายเป็น \"\" (ทุกกรณีที่เหลือ) เสมอ\n"
-        "แนวทางสองข้อที่เกิดพร้อมกันได้ (เช่น ถูกหลังใช้คำใบ้ → ข้อคู่ขนาน และ ถูกครบ 2 ข้อ → อธิบายความคิด) ต้องได้ทำครบทั้งคู่ "
-        "อย่าให้เส้นแรกทำให้อีกแนวทางหายไป ให้ต่อจากขั้นแรกไปอีกขั้นด้วยเงื่อนไขของอีกแนวทาง "
-        "(ตัวแปรของข้อล่าสุด เช่น hint_level ยังใช้ได้หลังขั้นอธิบายความคิด Widget หรือพัก)\n\n"
+        "เส้นตอบถูกหลายเส้นจากขั้น item ที่เป็นจริงพร้อมกัน (เช่น ถูกหลังใช้คำใบ้ → ข้อคู่ขนาน และ ครบ 2 ข้อ → อธิบายความคิด) "
+        "ระบบทำเส้นแรกก่อน แล้วพาไปทำเส้นอื่นที่เป็นจริงต่อเมื่อกลับมาที่ขั้น item นั้น จึงเรียงเส้นตามลำดับที่อยากให้ทำ "
+        "ไม่ต้องเขียนเงื่อนไขกันกันเอง\n\n"
         f"ตัวเลขของทั้ง Flow (params) ใส่เฉพาะที่คำสั่งของครูพูดถึงตรง ๆ ต้องอยู่ในช่วง "
         f"(hint_unlock_wait คือเวลาที่ต้องคิดก่อนกดขอคำใบ้เองได้ ก่อนลองตอบครั้งแรก):\n{params}\n"
         "ตัวเลขในขั้นและในเงื่อนไขให้เอามาจากคำสั่งของครู ถ้าครูไม่ได้บอกให้ใช้ค่าของแม่แบบ\n\n"
@@ -771,30 +756,16 @@ async def design(gem: dict, memory: dict | None = None, bugs: list[dict] | None 
 
     errors, previous = None, None
     bug_ids = [b["id"] for b in bugs] if bugs else None
-    passed = None  # Flow ที่ตรวจผ่านแต่มีเส้นชนกัน ใช้ถ้ารอบที่ให้แก้แย่กว่าเดิม
     for _ in range(3):
         # ออกแบบ Flow ต้องไล่แนวทางของครูทีละข้อ จึงให้โมเดลคิดเต็มที่ (โทเคนที่ใช้คิดนับรวมใน max_tokens)
         raw = await builder.ask_json("flow", design_prompt(gem, errors, previous, memory, bugs), 32000, thinking="high")
         raw = raw if isinstance(raw, dict) else {}
         checked = validate(raw, bug_ids)
         if not checked["errors"]:
-            clashing = [w for w in checked["warnings"] if w.startswith(OVERLAP)]
-            if clashing and passed is None:
-                # แนวทางของครูที่จะหายเพราะเส้นชนกัน: ให้ AI แก้หนึ่งรอบ
-                passed = checked
-                errors = clash_fixes(checked["spec"])
-                previous = raw
-                continue
-            if passed is not None and len(clashing) >= len([w for w in passed["warnings"] if w.startswith(OVERLAP)]):
-                checked = passed
             notes = await write_widgets(gem, checked["spec"], memory, items)
             warnings = [w for w in checked["warnings"] if not w.startswith("Widget \"")] + notes
             return record(checked["spec"], "ai", warnings, reviewed=False)
         errors, previous = checked["errors"], raw
-    if passed is not None:
-        notes = await write_widgets(gem, passed["spec"], memory, items)
-        return record(passed["spec"], "ai", [w for w in passed["warnings"] if not w.startswith("Widget \"")] + notes,
-                      reviewed=False)
     # ผังมาตรฐานเป็นแค่แม่แบบอ้างอิง ไม่ใช้แทน Flow ของ Gem: ออกแบบไม่ผ่านก็แจ้งให้ออกแบบใหม่
     raise builder.BuildError("AI ออกแบบ Flow ที่ตรวจผ่านไม่ได้ 3 รอบ (" + "; ".join(errors or [])[:300] + ") "
                              "กดให้ AI ออกแบบใหม่ในแท็บ Flow หรือเขียนคำสั่งให้ชัดขึ้น")

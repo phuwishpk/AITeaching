@@ -504,3 +504,29 @@ def test_conditions_allow_every_n_items():
         except conditions.ConditionError:
             continue
         raise AssertionError(f"{bad} ต้องไม่ผ่าน")
+
+
+def test_simultaneous_success_guidelines_both_run(subject):
+    """ถูกหลังใช้คำใบ้ตรงกับข้อที่ครบ 2 ข้อ: อธิบายความคิดก่อน (เส้นแรก) แล้วพาไปข้อคู่ขนานต่อ ไม่หายไปเงียบ ๆ"""
+    flow = {"start": "w",
+            "steps": [{"id": "w", "kind": "item", "pick": "main"}, {"id": "h", "kind": "hint", "level": 1},
+                      {"id": "why", "kind": "reflect", "question": "อธิบาย"},
+                      {"id": "iso", "kind": "item", "pick": "isomorphic"}, {"id": "e", "kind": "end"}],
+            "edges": [{"from": "w", "to": "e", "when": "correct and items_done >= 10"},
+                      {"from": "w", "to": "why", "when": "correct and items_done % 2 == 0", "label": "ครบ 2 ข้อ"},
+                      {"from": "w", "to": "iso", "when": "correct and hint_level > 0", "label": "ถูกหลังใช้คำใบ้"},
+                      {"from": "w", "to": "w", "when": "correct"}, {"from": "w", "to": "h", "when": "wrong"},
+                      {"from": "w", "to": "w", "when": ""}, {"from": "h", "to": "back", "when": ""},
+                      {"from": "why", "to": "w", "when": ""}, {"from": "iso", "to": "w", "when": "correct"},
+                      {"from": "iso", "to": "iso", "when": ""}]}
+    content = gem_content(subject, flow)
+    state, ctx = start(content)
+    engine.submit(state, at(ctx, 1030), demo.correct_raw(it_of(content, state)))
+    assert step(state) == "w", "ข้อแรก: ครบ 1 ข้อ ไม่มีเส้นพิเศษ"
+    engine.submit(state, at(ctx, 1060), demo.other_wrong(it_of(content, state)))
+    engine.submit(state, at(ctx, 1090), demo.correct_raw(it_of(content, state)))
+    assert state["position"] == F.REFLECT, "ครบ 2 ข้อ (เส้นแรก) ทำก่อน"
+    engine.reflect(state, at(ctx, 1120), "ย้ายข้าง", None)
+    assert step(state) == "iso" and state["position"] == F.ISO, "แล้วจึงทำข้อคู่ขนานที่ค้างไว้"
+    engine.submit(state, at(ctx, 1150), demo.correct_raw(it_of(content, state)))
+    assert step(state) == "w" and state["position"] == F.ANSWERING and not state["flow"]["queue"]

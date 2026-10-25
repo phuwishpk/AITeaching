@@ -17,7 +17,7 @@ from . import core as C
 from . import flow as F
 from . import widgets as W
 from .answers import normalize
-from .conditions import describe, evaluate
+from .conditions import describe, evaluate, names
 
 STUCK_LIMIT = 6
 MAX_HOPS = 30
@@ -170,7 +170,36 @@ def follow(state: dict, ctx: C.Ctx, fx: C.Fx, from_step: str, edges: list[str], 
         # กลับไปขั้นทำโจทย์ที่นักเรียนมา (ขั้นคำใบ้หรือบทเรียนที่หลายขั้นโจทย์ใช้ร่วมกัน)
         target = fs(state).get("item_step") or spec(ctx)["start"]
     notes.append(f"{edge_text(edge)} → {label(step_of(ctx, target))}")
+    if step and step["kind"] == "item":
+        for extra in follow_ups(state, ctx, from_step, edge):
+            fs(state).setdefault("queue", []).append(
+                {"origin": from_step, "to": extra["to"], "edge": extra["id"], "label": edge_text(extra)})
+            notes.append(f"\"{edge_text(extra)}\" เป็นจริงด้วย จะทำต่อเมื่อกลับมาที่ขั้นนี้")
     enter(state, ctx, fx, target, edges + [edge["id"]], notes, hops + 1)
+
+
+def follow_ups(state: dict, ctx: C.Ctx, step_id: str, chosen: dict) -> list[dict]:
+    """เส้นตอบถูกเส้นอื่นที่เป็นจริงพร้อมกับเส้นที่เลือก และเป็นแนวทางคนละเรื่อง (ใช้ตัวแปรคนละตัว)
+    เช่น ถูกหลังใช้คำใบ้ → ข้อคู่ขนาน กับ ครบ 2 ข้อ → อธิบายความคิด ทำเส้นแรกก่อน แล้วพาไปทำเส้นที่เหลือต่อ
+    ไม่ให้แนวทางของครูหายไปเงียบ ๆ เพราะเส้นแรกที่เป็นจริงชนะ"""
+    picked = names(chosen.get("when")) - {"correct"}
+    target = step_of(ctx, chosen["to"])
+    if "correct" not in names(chosen.get("when")) or "wrong" in picked or not picked or (target and target["kind"] == "end"):
+        return []
+    current = values(state, ctx, step_id)
+    out, after = [], False
+    for edge in edges_from(ctx, step_id):
+        if edge is chosen:
+            after = True
+            continue
+        used = names(edge.get("when"))
+        other = used - {"correct"}
+        goal = step_of(ctx, edge["to"])
+        if (after and "correct" in used and "wrong" not in used and other and goal and goal["kind"] != "end"
+                and edge["to"] not in (step_id, chosen["to"]) and not other <= picked and not picked <= other
+                and evaluate(edge["when"], current)):
+            out.append(edge)
+    return out
 
 
 def go(state: dict, ctx: C.Ctx, fx: C.Fx, position: str, edges: list[str], notes: list[str], detail: dict | None = None):
@@ -182,6 +211,13 @@ def go(state: dict, ctx: C.Ctx, fx: C.Fx, position: str, edges: list[str], notes
 def enter(state: dict, ctx: C.Ctx, fx: C.Fx, step_id: str, edges: list[str], notes: list[str], hops: int = 0,
           pick: str | None = None):
     flow = fs(state)
+    queue = flow.get("queue") or []
+    if queue and step_id == queue[0]["origin"]:
+        # กลับมาที่ขั้นทำโจทย์ที่มีแนวทางค้างไว้ (เส้นตอบถูกอีกเส้นที่เป็นจริงพร้อมกัน): ทำแนวทางนั้นก่อนได้ข้อใหม่
+        pending = queue.pop(0)
+        notes.append(f"ต่อด้วยแนวทางที่ค้างไว้: {pending['label']}")
+        edges = edges + [pending["edge"]]
+        step_id = pending["to"]
     step = step_of(ctx, step_id)
     if hops > MAX_HOPS or step is None:
         stuck(state, ctx, fx, edges, notes + ["Flow วนผ่านขั้นที่ไม่หยุดรอนานเกินไป ส่งต่อครู"])
@@ -709,6 +745,7 @@ def override(state: dict, ctx: C.Ctx, action: str, params: dict) -> C.Fx:
         if key != "cooldown_until":
             state["timers"][key] = None
     flow["pending"] = None
+    flow["queue"] = []
     state["ended"] = False
     state["end_reason"] = None
     step = flow_step(state, ctx)
