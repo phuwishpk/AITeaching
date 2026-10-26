@@ -22,16 +22,18 @@ BASE = {"correct": False, "wrong": False, "misconception": False, "slip": False,
 DOMAINS = {
     "error_count": [1, 2, 3, 4], "hint_level": [0, 1], "items_done": [1, 2, 3, 4], "items_count": [2, 20],
     "streak": [0, 3], "solved_here": [0, 2], "rounds": [0, 2], "mains_left": [3, 0], "visits": [1, 2],
-    "widget_tries": [1, 2], "target_visits": [0, 1], "chat_help": [0, 2], "mastery": [0.6, 0.9], "concept_mastery": [0.6, 0.9],
+    "widget_tries": [1, 2], "target_visits": [0, 1], "chat_help": [0, 4], "mastery": [0.6, 0.9], "concept_mastery": [0.6, 0.9],
     "impasse": [0.0, 80.0], "rt": [20.0, 60.0], "rt_ratio": [1.0, 2.0], "judge_score": [90, 30],
     "bug_type": ["", "slip", "misconception"],
 }
 MAX_CASES = 20000
 # กรณีทดสอบมาตรฐานของขั้นทำโจทย์ ลองเสมอแม้ Flow ไม่ได้ใช้ตัวแปรนั้น ตารางจึงเห็นแนวทางที่ AI ลืมใส่
 # เช่น ผิดครั้งที่ 3 แล้วติดหล่ม แต่ยังได้คำใบ้ระดับ 3 (ตัวแปรที่ไม่ได้ใช้ไม่ทำให้ engine เลือกต่างกัน แค่โผล่ในตาราง)
-PROBES = {"wrong": ["bug_type", "impasse", "has_prerequisite", "rounds"],
+PROBES = {"wrong": ["bug_type", "impasse", "has_prerequisite", "rounds", "chat_help"],
           "correct": ["hint_level", "mastery", "mains_left", "challenge_done"]}
-SHOW_ALWAYS = {"impasse", "has_prerequisite", "rounds", "mastery", "mains_left", "challenge_done"}
+SHOW_ALWAYS = {"impasse", "has_prerequisite", "rounds", "mastery", "mains_left", "challenge_done", "chat_help"}
+# แสดงทุกครั้งที่ผิด ไม่ใช่แค่ตั้งแต่ครั้งที่ 3 (เจอจาก Gemini จริง: ถามแชต 4 ครั้งแล้วผิดครั้งแรก ยังได้คำใบ้แทนตัวอย่าง)
+EVERY_ERROR = {"chat_help"}
 # กรณีที่ต้องเปลี่ยนหลายตัวแปรพร้อมกันถึงจะเห็นผล (ตารางปกติเปลี่ยนทีละตัว) เช่น เข้าเกณฑ์จบชุด
 COMBOS = [("ตอบถูก · ไม่ใช้คำใบ้ · โจทย์หลักครบ · Mastery 0.9", {"correct": True, "mains_left": 0, "mastery": 0.9}),
           ("ตอบถูก · หลังใช้คำใบ้ · โจทย์หลักครบ · Mastery 0.9", {"correct": True, "hint_level": 1, "mains_left": 0, "mastery": 0.9}),
@@ -269,7 +271,8 @@ def table(flow_spec: dict, limit: int = 40) -> list[dict]:
             if (values.get("error_count") or 0) > 4:
                 continue
             # ตัวแปรของกรณีทดสอบมาตรฐานแสดงเสมอ (ผิดตั้งแต่ครั้งที่ 3 หรือตอบถูกโดยไม่ใช้คำใบ้) แม้ผลไม่ต่าง
-            probe = (name in PROBES["wrong"] and values.get("wrong") and values.get("error_count", 0) >= 3
+            probe = (name in PROBES["wrong"] and values.get("wrong")
+                     and (values.get("error_count", 0) >= 3 or name in EVERY_ERROR)
                      and values.get("bug_type", "") == "") or (name in PROBES["correct"] and values.get("correct")
                                                                 and values.get("hint_level") == 0)
             probe = probe and name in SHOW_ALWAYS
