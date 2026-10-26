@@ -966,14 +966,27 @@ CONCEPTS = [
 
 
 def concept_gaps(instructions: str, flow_spec: dict) -> list[str]:
-    """เรื่องที่ครูพูดถึงในคำสั่งแต่ Flow ไม่ได้ใช้เลย (เช่น ครูพูดถึงติดหล่ม แต่ไม่มีเส้นไหนดู impasse)"""
-    used = {"vars": set().union(*[conditions.names(e.get("when")) for e in flow_spec["edges"]] or [set()]),
+    """เรื่องที่ครูพูดถึงในคำสั่งแต่ Flow ไม่ได้ใช้เลย (เช่น ครูพูดถึงติดหล่ม แต่ไม่มีเส้นไหนดู impasse)
+    ยกประโยคของครูมาด้วย AI ที่ได้แค่ "ไม่มีเส้นไหนใช้ X" เคยตัดแนวทางนั้นทิ้งซ้ำทุกรอบ"""
+    def names(edge: dict) -> set[str]:
+        try:
+            return conditions.names(edge.get("when"))
+        except conditions.ConditionError:
+            return set()
+
+    used = {"vars": set().union(*[names(e) for e in flow_spec["edges"]] or [set()]),
             "levels": {s.get("level") for s in flow_spec["steps"] if s["kind"] == "hint"},
             "picks": {s.get("pick") for s in flow_spec["steps"] if s["kind"] == "item"},
             "after_stress": flow_spec.get("after_stress"),
             "count_as_hint": (flow_spec.get("chat") or {}).get("count_as_hint", True)}
-    text = (instructions or "").lower()
-    return [f"คำสั่งของครูพูดถึง{need}" for pattern, ok, need in CONCEPTS if re.search(pattern, text) and not ok(used)]
+    lines = [line.strip() for line in (instructions or "").splitlines() if line.strip()]
+    gaps = []
+    for pattern, ok, need in CONCEPTS:
+        said = next((line for line in lines if re.search(pattern, line.lower())), None)
+        if said and not ok(used):
+            gaps.append(f"คำสั่งของครูพูดถึง{need} ประโยคของครู: \"{said[:200]}\" ต้องมีเส้นหรือขั้นที่ทำตามประโยคนี้จริง "
+                        "(เส้นจากขั้น item ที่ใช้ตัวแปรนี้ในเงื่อนไข วางไว้ก่อนเส้นทั่วไปที่ดักกรณีเดียวกัน)")
+    return gaps
 
 
 def _checked(raw: dict, bug_ids, keywords: list[str]) -> tuple[dict | None, list[str]]:
@@ -1066,7 +1079,7 @@ async def design(gem: dict, memory: dict | None = None, bugs: list[dict] | None 
             # ผ่านกฎแต่ขาดเรื่องที่ครูพูดถึง: ให้แก้ ถ้าแก้ไม่ได้ใช้ตัวนี้พร้อมคำเตือน (ไม่ล้มการออกแบบ)
             if fallback is None or len(gaps) < len(fallback[1]):
                 fallback = (best, gaps, raw)
-            problems = [g + " เพิ่มเส้นหรือขั้นตามคำสั่งนั้น" for g in gaps]
+            problems = gaps
         errors, previous = problems, raw
     if (best is None or concept_gaps(instructions, best["spec"])) and fallback is not None:
         best, gaps, previous = fallback
