@@ -958,8 +958,8 @@ CONCEPTS = [
     (r"ถูกติดกัน", lambda f: "streak" in f["vars"], "ถูกติดกัน แต่ไม่มีเส้นไหนใช้ streak"),
     (r"ไม่นับ(เป็น)?(การขอ)?คำใบ้", lambda f: f["count_as_hint"] is False,
      "การถามในแชตที่ไม่นับเป็นคำใบ้ แต่ไม่ได้ใส่ chat.count_as_hint เป็น false"),
-    (r"(ถาม|พิมพ์)[^\n]*(เกิน|ครบ|ตั้งแต่)\s*\d+\s*ครั้ง[^\n]*|(แชต|แชท)[^\n]*(เกิน|ครบ)\s*\d+\s*ครั้ง",
-     lambda f: "chat_help" in f["vars"] or "error_count" in f["vars"], "จำนวนครั้งที่ถามในแชต แต่ไม่มีเส้นไหนใช้ chat_help"),
+    (r"(ถาม|แชต|แชท)[^\n]*(เกิน|ครบ|ตั้งแต่)\s*\d+\s*ครั้ง",
+     lambda f: "chat_help" in f["vars"], "จำนวนครั้งที่ถามในแชต แต่ไม่มีเส้นไหนใช้ chat_help"),
     (r"โจทย์ท้าทาย", lambda f: "challenge_done" in f["vars"] or "harder" in f["picks"],
      "โจทย์ท้าทาย แต่ไม่มีเส้นที่ใช้ challenge_done หรือขั้นที่ pick harder"),
 ]

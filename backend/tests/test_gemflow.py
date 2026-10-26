@@ -861,3 +861,14 @@ def test_dead_edges_are_moved_up_by_rule():
     fixed, problems = flowspec._checked(flow, None, [])
     assert not problems and [e["label"] for e in fixed["spec"]["edges"] if e["from"] == "w"][1] == "ถามแชตเกิน 3 ครั้ง"
     assert any("ระบบย้ายเส้น" in w for w in fixed["warnings"])
+
+
+def test_asking_too_many_times_in_chat_needs_chat_help():
+    """จาก Gemini จริง: ครูสั่ง "ถามในข้อเดียวเกิน 3 ครั้งแล้วยังตอบผิด ให้ดูตัวอย่าง" แต่ Flow ไม่มีเส้นที่ใช้ chat_help"""
+    flow = {"start": "w", "steps": [{"id": "w", "kind": "item", "pick": "main"}, {"id": "e", "kind": "end"}],
+            "edges": [{"from": "w", "to": "e", "when": "correct"}, {"from": "w", "to": "w", "when": "wrong and error_count >= 2"},
+                      {"from": "w", "to": "w", "when": ""}]}
+    spec = flowspec.validate(flow)["spec"]
+    gaps = flowspec.concept_gaps("ถ้าถามในแชตในข้อเดียวเกิน 3 ครั้งแล้วยังตอบผิด ให้ดูตัวอย่าง", spec)
+    assert any("chat_help" in g for g in gaps)
+    assert not any("chat_help" in g for g in flowspec.concept_gaps("ผิดข้อเดิมครบ 4 ครั้งให้ทบทวน", spec))
