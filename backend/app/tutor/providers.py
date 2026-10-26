@@ -169,8 +169,8 @@ async def _call_gemini_once(api_key: str, model: str, system: str, user: str, ma
         raise ProviderError("ไม่พบโมเดล Gemini ที่เลือก")
     if response.status_code == 429 and "quota" in response.text.lower():
         # Free Tier จำกัดจำนวนครั้งต่อนาทีและต่อวันแยกตามโมเดล โมเดลที่ฉลาดกว่ามักได้โควตาน้อยกว่า
-        tier = "Free Tier " if "free_tier" in response.text else ""
-        raise ProviderBusy(f"โควตา{tier}ของ API key สำหรับโมเดลนี้หมด (เปิด billing ใน Google AI Studio หรือรอโควตารีเซ็ต)")
+        tier = " Free Tier" if "free_tier" in response.text else ""
+        raise ProviderBusy(f"โควตา{tier} ของ API key สำหรับโมเดลนี้หมด (เปิด billing ใน Google AI Studio หรือรอโควตารีเซ็ต)")
     if response.status_code in (429, 503):
         raise ProviderBusy("Gemini มีผู้ใช้มากชั่วคราว ลองโมเดลอื่นหรือรอสักครู่")
     if response.status_code >= 300:
