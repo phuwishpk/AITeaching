@@ -16,13 +16,13 @@ BASE = {"correct": False, "wrong": False, "misconception": False, "slip": False,
         "rt": 20.0, "rt_ratio": 1.0, "slow": False, "judge_pass": None, "judge_score": None, "error_count": 0,
         "hint_level": 0, "impasse": 0.0, "mastery": 0.6, "concept_mastery": 0.6, "items_done": 1, "items_count": 2,
         "streak": 0, "solved_here": 0, "rounds": 0, "mains_left": 3, "challenge_done": False, "visits": 1,
-        "has_prerequisite": True, "target_visits": 0, "widget_pass": False, "widget_tries": 1, "bug": "", "bug_type": ""}
+        "has_prerequisite": True, "target_visits": 0, "chat_help": 0, "widget_pass": False, "widget_tries": 1, "bug": "", "bug_type": ""}
 
 # ค่าที่ลองต่อตัวแปร (ค่าแรก = กรณีทั่วไป) ตัวเลขในเงื่อนไขของครูถูกเพิ่มเข้าไปเองด้วย
 DOMAINS = {
     "error_count": [1, 2, 3, 4], "hint_level": [0, 1], "items_done": [1, 2, 3, 4], "items_count": [2, 20],
     "streak": [0, 3], "solved_here": [0, 2], "rounds": [0, 2], "mains_left": [3, 0], "visits": [1, 2],
-    "widget_tries": [1, 2], "target_visits": [0, 1], "mastery": [0.6, 0.9], "concept_mastery": [0.6, 0.9],
+    "widget_tries": [1, 2], "target_visits": [0, 1], "chat_help": [0, 2], "mastery": [0.6, 0.9], "concept_mastery": [0.6, 0.9],
     "impasse": [0.0, 80.0], "rt": [20.0, 60.0], "rt_ratio": [1.0, 2.0], "judge_score": [90, 30],
     "bug_type": ["", "slip", "misconception"],
 }
@@ -159,6 +159,38 @@ def _product(domains: list[list]) -> int:
     for d in domains:
         total *= max(len(d), 1)
     return total
+
+
+def dead_in(flow_spec: dict, step: dict) -> list[dict]:
+    edges = [e for e in flow_spec["edges"] if e["from"] == step["id"]]
+    if len(edges) < 2:
+        return []
+    used = {id(edge) for _, edge in cases(flow_spec, step) if edge is not None}
+    return [e for e in edges if id(e) not in used]
+
+
+def reorder_dead(flow_spec: dict) -> list[str]:
+    """ย้ายเส้นที่ไม่มีวันถูกใช้ขึ้นไปก่อนเส้นที่ดักมันไว้ (ตำแหน่งต่ำสุดที่เส้นนั้นถูกใช้ได้และไม่ทำให้เส้นอื่นเสีย)
+    แก้ลำดับเส้นด้วยกฎ ไม่ต้องให้ AI แก้ซ้ำ (เจอจาก Gemini จริง: เส้นถามแชตเกิน 3 ครั้งอยู่ใต้เส้นคำใบ้ที่ดักทุกกรณี)"""
+    notes = []
+    for step in flow_spec["steps"]:
+        for edge in dead_in(flow_spec, step):
+            own = [i for i, e in enumerate(flow_spec["edges"]) if e["from"] == step["id"]]
+            at = own.index(next(i for i in own if flow_spec["edges"][i] is edge))
+            before = len(dead_in(flow_spec, step))
+            for slot in range(at - 1, -1, -1):
+                trial = list(flow_spec["edges"])
+                trial.remove(edge)
+                trial.insert(trial.index(flow_spec["edges"][own[slot]]), edge)
+                candidate = {**flow_spec, "edges": trial}
+                dead = dead_in(candidate, step)
+                if edge not in dead and len(dead) < before:
+                    above = flow_spec["edges"][own[slot]]
+                    flow_spec["edges"] = trial
+                    notes.append(f"ระบบย้ายเส้น \"{edge.get('label') or edge['when']}\" ของขั้น \"{step['label']}\" "
+                                 f"ขึ้นไปก่อน \"{above.get('label') or above['when'] or 'ทุกกรณี'}\" เพราะเส้นนั้นดักไว้ทุกกรณี")
+                    break
+    return notes
 
 
 def dead_edges(flow_spec: dict) -> list[str]:

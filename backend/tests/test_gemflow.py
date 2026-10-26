@@ -843,3 +843,21 @@ def test_asking_the_chat_counts_as_using_a_hint(subject):
     state, ctx = start(content)
     assert not engine.chat_help(state, at(ctx, 1010)).result, "ครูสั่งว่าไม่นับ"
     assert flowspec.concept_gaps("ถามในแชตไม่นับเป็นคำใบ้", flowspec.validate({**flow, "chat": None})["spec"])
+
+
+def test_dead_edges_are_moved_up_by_rule():
+    """จาก Gemini จริง: "ถามแชตเกิน 3 ครั้งแล้วตอบผิด" อยู่ใต้เส้นคำใบ้ที่ดักทุกกรณีตอบผิด ระบบย้ายขึ้นให้เอง"""
+    from app.gems import simulate
+
+    flow = {"start": "w", "steps": [{"id": "w", "kind": "item", "pick": "main"}, {"id": "h", "kind": "hint", "level": "auto"},
+                                    {"id": "walk", "kind": "lesson", "walkthrough": True}, {"id": "e", "kind": "end"}],
+            "edges": [{"from": "w", "to": "e", "when": "correct and mains_left == 0"},
+                      {"from": "w", "to": "h", "when": "wrong", "label": "ผิด ให้คำใบ้"},
+                      {"from": "w", "to": "walk", "when": "chat_help > 3 and wrong", "label": "ถามแชตเกิน 3 ครั้ง"},
+                      {"from": "w", "to": "w", "when": ""}, {"from": "h", "to": "back", "when": ""},
+                      {"from": "walk", "to": "back", "when": ""}]}
+    checked = flowspec.validate(flow)
+    assert any(w.startswith(simulate.DEAD) for w in checked["warnings"])
+    fixed, problems = flowspec._checked(flow, None, [])
+    assert not problems and [e["label"] for e in fixed["spec"]["edges"] if e["from"] == "w"][1] == "ถามแชตเกิน 3 ครั้ง"
+    assert any("ระบบย้ายเส้น" in w for w in fixed["warnings"])

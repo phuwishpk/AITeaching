@@ -980,6 +980,15 @@ def _checked(raw: dict, bug_ids, keywords: list[str]) -> tuple[dict | None, list
     """ตรวจ Flow ที่ AI ส่งมา ถ้าเหลือแค่ขั้นที่ไม่มีทางเข้า (เช่น ขั้นพักซ้ำกับการพักเพราะเครียดของระบบ) ตัดทิ้งแล้วตรวจใหม่"""
     checked = validate(raw, bug_ids)
     problems = design_problems(checked, keywords)
+    if problems and any(p.startswith(simulate.DEAD) for p in problems) and checked["spec"]:
+        # เส้นที่ถูกเส้นก่อนหน้าดักไว้หมด: ระบบย้ายขึ้นเองด้วยกฎ แล้วตรวจใหม่
+        spec = json.loads(json.dumps(checked["spec"]))
+        moved = simulate.reorder_dead(spec)
+        if moved:
+            raw = spec
+            checked = validate(spec, bug_ids)
+            checked["warnings"] += moved
+            problems = design_problems(checked, keywords)
     if problems and all("ไปไม่ถึงจากขั้นแรก" in p for p in problems):
         pruned = validate(prune_unreachable(raw), bug_ids)
         if not design_problems(pruned, keywords):
