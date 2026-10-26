@@ -872,3 +872,23 @@ def test_asking_too_many_times_in_chat_needs_chat_help():
     gaps = flowspec.concept_gaps("ถ้าถามในแชตในข้อเดียวเกิน 3 ครั้งแล้วยังตอบผิด ให้ดูตัวอย่าง", spec)
     assert any("chat_help" in g for g in gaps)
     assert not any("chat_help" in g for g in flowspec.concept_gaps("ผิดข้อเดิมครบ 4 ครั้งให้ทบทวน", spec))
+
+
+def test_ai_cannot_switch_off_counting_chat_as_hints(monkeypatch):
+    """จาก Gemini จริง: ครูเขียนว่าการถามในแชตนับเป็นคำใบ้ แต่ AI ใส่ count_as_hint: false"""
+    import asyncio
+
+    from app.gems import builder
+
+    designed = {"start": "w", "steps": [{"id": "w", "kind": "item", "pick": "main"}, {"id": "e", "kind": "end"}],
+                "edges": [{"from": "w", "to": "e", "when": "correct"}, {"from": "w", "to": "w", "when": ""}],
+                "chat": {"style": "พี่สอนน้อง", "count_as_hint": False}}
+
+    async def fake_ask(step, user, max_tokens=12000, thinking="minimal", retry=True):
+        return designed
+
+    monkeypatch.setattr(builder, "ask_json", fake_ask)
+    flow = asyncio.run(flowspec.design({"name": "x", "instructions": "การถามเรื่องโจทย์ในแชตนับเป็นการขอคำใบ้"}))
+    assert flow["spec"]["chat"]["count_as_hint"] is True
+    flow = asyncio.run(flowspec.design({"name": "x", "instructions": "การถามในแชตไม่นับเป็นคำใบ้"}))
+    assert flow["spec"]["chat"]["count_as_hint"] is False

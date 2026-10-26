@@ -1089,6 +1089,10 @@ async def design(gem: dict, memory: dict | None = None, bugs: list[dict] | None 
                         best, audit = fixed, again
                     break
                 fixes, base = problems, raw
+        chat = best["spec"].get("chat")
+        if chat and chat.get("count_as_hint") is False and not re.search(r"ไม่นับ", instructions):
+            # ถามในแชตนับเป็นคำใบ้เป็นค่าเริ่มต้น ปิดได้เฉพาะเมื่อครูสั่ง (เจอจาก Gemini จริง: ปิดเองทั้งที่ครูบอกให้นับ)
+            chat["count_as_hint"] = True
         notes = await write_widgets(gem, best["spec"], memory, items)
         warnings = [w for w in best["warnings"] if not w.startswith("Widget \"")] + notes
         warnings += [f"AI ตรวจแล้วแนวทาง \"{c['guideline'][:80]}\" อาจยังไม่ตรง: {c['fix'] or c['evidence']}"
