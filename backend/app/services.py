@@ -479,6 +479,10 @@ async def chat(code: str, set_id: str, message: str) -> dict:
         state, content, ctx, _ = await run_event(code, set_id, engine.chat_goto, intent)
     if ai_enabled_for(code):
         history = chat_memory(code, set_id)
+        # ข้อความก่อนเริ่มข้อนี้เป็นของโจทย์ข้อก่อน (เจอจาก AI จริง: ทำข้อใหม่แล้วยังพูดถึงตัวเลขของข้อเก่า)
+        started = (item_state or {}).get("started_at")
+        for message in history:
+            message["earlier"] = bool(started) and (message.get("ts") or 0) < started
         reply = await tutor.chat_reply(content.subject, it, content.concept_name(it["concept"]) if it else "",
                                        student, scrubbed, tag, [h for h in hints_shown if h], fallback, code, history,
                                        chat_spec, intent)
@@ -690,7 +694,7 @@ def messages_for(code: str, limit: int = 80, include_drafts: bool = False) -> li
 def chat_memory(code: str, set_id: str) -> list[dict]:
     """บทสนทนาล่าสุดใน Gem เดียวกัน (ทุกรุ่นของคลัง) ให้ AI จำได้ ไม่รวมข้อความที่เพิ่งส่ง และไม่ปนแชตของบทเรียนอื่น"""
     gem_prefix = set_id.split("-b")[0] if set_id.startswith("gem-") else set_id
-    rows = db.query("SELECT sender, text, set_id FROM messages WHERE code = ? AND sender != 'draft' "
+    rows = db.query("SELECT sender, text, set_id, ts FROM messages WHERE code = ? AND sender != 'draft' "
                     "AND (set_id = ? OR set_id LIKE ? OR set_id IS NULL) ORDER BY ts DESC, id DESC LIMIT ?",
                     (code, set_id, f"{gem_prefix}-b%", CHAT_MEMORY + 1))
     return list(reversed(rows))[:-1]

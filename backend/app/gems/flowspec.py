@@ -1025,8 +1025,8 @@ async def audit_flow(gem: dict, flow_spec: dict) -> list[dict]:
             f"ขั้นใน Flow: " + ", ".join(f"{s['id']} ({KINDS[s['kind']]['label']}: {s['label']})" for s in flow_spec["steps"])
             + f"\nหลังพักเพราะเครียดไปขั้น: {flow_spec.get('after_stress') or 'กลับขั้นเดิม'}\n\n{simulate.table_text(flow_spec)}")
     try:
-        # โทเคนที่ใช้คิดนับรวมใน max_tokens รอบตรวจที่คิดเต็มที่จึงต้องเผื่อไว้มาก (8000 เคยถูกตัดกลางคำตอบ)
-        raw = await builder.ask_json("flow_check", user, 20000, thinking="high", retry=False)
+        # โทเคนที่ใช้คิดนับรวมใน max_tokens รอบตรวจที่คิดเต็มที่จึงต้องเผื่อไว้มาก (8000 และ 20000 เคยถูกตัดกลางคำตอบ)
+        raw = await builder.ask_json("flow_check", user, 32000, thinking="high", retry=False)
     except builder.BuildError:
         return []
     checks = raw.get("checks") if isinstance(raw, dict) else None

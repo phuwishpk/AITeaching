@@ -98,9 +98,22 @@ SPEAKER = {"student": "นักเรียน", "tutor": "ครูผู้�
 
 
 def history_block(history: list[dict] | None) -> str:
-    """บทสนทนาก่อนหน้า (ล่าสุดอยู่ท้าย) ให้ AI จำได้ว่าคุยอะไรกันไปแล้ว ไม่ถามซ้ำและต่อเนื่องจากเดิม"""
-    lines = [f"{SPEAKER.get(m['sender'], m['sender'])}: {str(m['text'])[:400]}" for m in history or [] if m.get("text")]
-    return "<history>\n" + "\n".join(lines) + "\n</history>\n" if lines else ""
+    """บทสนทนาก่อนหน้า (ล่าสุดอยู่ท้าย) ให้ AI จำได้ว่าคุยอะไรกันไปแล้ว ไม่ถามซ้ำและต่อเนื่องจากเดิม
+    ข้อความของโจทย์ข้อก่อน (earlier) แยกหัวไว้ ไม่ให้ AI เอาตัวเลขของข้อเก่ามาพูดกับข้อใหม่"""
+    def line(m: dict) -> str:
+        return f"{SPEAKER.get(m['sender'], m['sender'])}: {str(m['text'])[:400]}"
+
+    messages = [m for m in history or [] if m.get("text")]
+    earlier = [line(m) for m in messages if m.get("earlier")]
+    current = [line(m) for m in messages if not m.get("earlier")]
+    if not messages:
+        return ""
+    parts = []
+    if earlier:
+        parts.append("(คุยกันตอนทำโจทย์ข้อก่อน ไม่ใช่โจทย์ปัจจุบัน ใช้แค่รู้ว่าเคยคุยอะไร ห้ามเอาตัวเลขมาใช้)\n" + "\n".join(earlier))
+    if current:
+        parts.append(("(คุยกันในโจทย์ปัจจุบัน)\n" if earlier else "") + "\n".join(current))
+    return "<history>\n" + "\n".join(parts) + "\n</history>\n"
 
 
 def chat_prompt(subject: dict, item: dict | None, concept_name: str, student: dict, message: str,

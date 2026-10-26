@@ -916,3 +916,12 @@ def test_design_and_chat_use_their_own_gemini_model(monkeypatch):
     assert asked == ["gemini-smart", "gemini-fast"]
     assert result.text == "ok" and errors == ["gemini: ใช้ gemini-lite แทน (gemini-smart: โควตาหมด)"]
     assert not services.ai_failed({"text": "ok", "source": "gemini", "errors": errors})
+
+
+def test_chat_history_marks_messages_from_earlier_items():
+    """จาก AI จริง: ทำข้อใหม่แล้ว AI ยังพูดถึง "4x ลบ 2x" ของข้อก่อน ประวัติแชตต้องแยกว่าข้อความไหนเป็นของข้อก่อน"""
+    block = prompt.history_block([{"sender": "student", "text": "4x - 2x ได้เท่าไหร่", "earlier": True},
+                                  {"sender": "tutor", "text": "ลองนับดูนะ", "earlier": True},
+                                  {"sender": "student", "text": "ข้อนี้เริ่มยังไง", "earlier": False}])
+    assert block.index("ข้อก่อน") < block.index("4x") < block.index("(คุยกันในโจทย์ปัจจุบัน)") < block.index("ข้อนี้เริ่มยังไง")
+    assert "ข้อก่อน" not in prompt.history_block([{"sender": "student", "text": "สวัสดี"}])
