@@ -890,3 +890,11 @@ def test_ai_answers_in_scope_when_teacher_is_not_on_the_chat_page(monkeypatch):
     state["position"] = F.SAFETY
     db.save_state(state)
     assert client.post(url, headers=headers, json={"message": "ข้อนี้ต้องทำอะไรก่อน"}).json()["to_teacher"]
+
+
+def test_guard_block_is_not_an_ai_outage():
+    """จาก Gemini จริง: AI ตอบได้แต่ Guard บล็อก นักเรียนเคยเห็น "ตอบไม่ได้ชั่วคราว (ยังไม่ได้ใส่ API key)" ของ Claude ที่ถูกข้าม"""
+    blocked = {"text": "ลองคิดดูนะ", "source": "authored", "guard": {"blocked": True}, "errors": ["claude: ยังไม่ได้ใส่ API key"]}
+    assert not services.ai_failed(blocked)
+    failed = {"text": "x", "source": "authored", "errors": ["claude: ยังไม่ได้ใส่ API key", "gemini: เกินโควตา"]}
+    assert services.ai_failed(failed) and services.failure_reason(failed["errors"]) == "เกินโควตา"

@@ -111,9 +111,19 @@ async def live_generate(code: str, set_id: str, subject_id: str, request: dict):
 
 
 def ai_failed(result: dict) -> bool:
-    """AI ถูกเรียกแต่ไม่สำเร็จทุก Provider (ไม่นับ Offline Mode ที่ตั้งใจปิด AI)"""
+    """AI ถูกเรียกแต่ไม่สำเร็จทุก Provider (ไม่นับ Offline Mode ที่ตั้งใจปิด AI)
+    AI ตอบได้แต่ Answer-Leak Guard บล็อก ไม่ใช่การขัดข้อง (เคยแสดงว่า "ตอบไม่ได้ชั่วคราว" ผิด เพราะ errors
+    มีบรรทัดของ Provider ที่ถูกข้ามติดมา เช่น claude ที่ไม่ได้ใส่ key)"""
     errors = result.get("errors") or []
+    if (result.get("guard") or {}).get("blocked"):
+        return False
     return result.get("source") == "authored" and bool(errors) and errors != ["Offline Mode"]
+
+
+def failure_reason(errors: list[str]) -> str:
+    """สาเหตุที่อ่านแล้วตรง: ข้าม Provider ที่ไม่ได้ใส่ key (ถูกข้ามตามปกติ) ใช้ error ของตัวที่ลองจริง"""
+    real = [e for e in errors if "ยังไม่ได้ใส่ API key" not in e] or errors
+    return real[-1].split(": ", 1)[-1] if real else "ไม่ทราบสาเหตุ"
 
 
 async def raise_alert(code: str, set_id: str, kind: str, message: str, level: str = "normal", dedupe: bool = True):
@@ -480,7 +490,7 @@ async def chat(code: str, set_id: str, message: str) -> dict:
     if ai_failed(reply) and not teacher_here:
         # AI Outage: แชตบอก error ตรง ๆ แต่ทำโจทย์ต่อได้ และแจ้งครูพร้อมข้อความ error (Q22)
         # ถ้าครูอยู่ในแชตแล้ว ครูเป็นคนตอบ นักเรียนไม่ต้องเห็น error
-        reason = reply["errors"][0].split(": ", 1)[-1]
+        reason = failure_reason(reply["errors"])
         text = f"ครูผู้ช่วยตอบไม่ได้ชั่วคราว ({reason}) ทำโจทย์ต่อได้เลย ครูได้รับแจ้งแล้ว"
         await post_message(code, set_id, "system", text)
         return {"reply": text, "source": "error", "view": engine.student_view(state, ctx)}
