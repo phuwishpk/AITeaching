@@ -179,7 +179,8 @@ async def refine_instructions(body: RefineBody, auth: dict = Depends(teacher)):
         "เขียนเป็นย่อหน้าข้อความธรรมดาที่ขึ้นต้นด้วย \"คุณคือ\" ไม่ใช้สัญลักษณ์ markdown เช่น ** # หรือ ---"
     )
     user = f"ชื่อ Gem: {body.name}\nคำอธิบาย: {body.description}\nคำสั่งเดิมของครู:\n{body.instructions or '(ยังไม่มี เขียนร่างจากชื่อและคำอธิบาย)'}"
-    result, errors = await service._call(system, user, max_tokens=1500, timeout=60.0, backup_models=builder.GEMINI_BACKUPS)
+    result, errors = await service._call(system, user, max_tokens=1500, timeout=60.0, backup_models=builder.GEMINI_BACKUPS,
+                                         task="design")
     service._log(None, "gem_refine", {"role": system, "task": user}, None, result, result.text if result else "", None, errors)
     if result is None:
         raise HTTPException(502, "; ".join(errors) or "เรียก AI ไม่สำเร็จ")

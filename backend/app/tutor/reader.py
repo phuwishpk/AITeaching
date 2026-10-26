@@ -32,7 +32,7 @@ def _gemini() -> tuple[str, str] | None:
     key, _ = settings_store.api_key("gemini")
     if ai["active"] == "offline" or not key:
         return None
-    return key, ai["gemini_model"]
+    return key, ai["gemini_design_model"]  # อ่านเอกสารเป็นงานสร้างบทเรียน
 
 
 async def _transcribe(gemini: tuple[str, str], mime: str, data: bytes, label: str) -> str:

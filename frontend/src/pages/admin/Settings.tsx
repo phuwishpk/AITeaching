@@ -12,7 +12,9 @@ interface KeyInfo {
 }
 
 interface SettingsData {
-  ai: { active: "claude" | "gemini" | "offline"; order: string[]; claude_model: string; gemini_model: string };
+  ai: { active: "claude" | "gemini" | "offline"; order: string[]; claude_model: string; gemini_model: string; gemini_design_model: string };
+  // โมเดล Gemini ที่ใช้จริงล่าสุดแยกตามงาน และเหตุผลถ้าไม่ใช่ตัวที่ตั้งไว้
+  usage: Partial<Record<"chat" | "design", { model: string; ts: number; fallback: string | null }>>;
   keys: Record<"claude" | "gemini", KeyInfo>;
   params: Record<string, number>;
   param_labels: Record<string, string>;
@@ -101,6 +103,13 @@ export default function Settings() {
         info={s.keys.gemini}
         model={s.ai.gemini_model}
         onModel={(model) => saveAi({ gemini_model: model })}
+        modelLabel="โมเดลสำหรับแชตและคำใบ้ (ตอนนักเรียนเรียน เรียกบ่อย ควรเร็ว)"
+        second={{
+          label: "โมเดลสำหรับสร้างบทเรียน (อ่านเอกสาร สร้างคลังโจทย์ ออกแบบและตรวจ Flow เรียกไม่กี่ครั้ง ใช้ตัวฉลาดได้)",
+          model: s.ai.gemini_design_model,
+          onModel: (model) => saveAi({ gemini_design_model: model }),
+        }}
+        usage={s.usage}
         onKeyChange={settings.reload}
       />
 
@@ -187,12 +196,18 @@ function ProviderCard({
   model,
   onModel,
   onKeyChange,
+  modelLabel = "โมเดล",
+  second,
+  usage,
 }: {
   provider: (typeof PROVIDERS)[number];
   info: KeyInfo;
   model: string;
   onModel: (model: string) => void;
   onKeyChange: () => void;
+  modelLabel?: string;
+  second?: { label: string; model: string; onModel: (model: string) => void };
+  usage?: SettingsData["usage"];
 }) {
   const toast = useToast();
   const [key, setKey] = useState("");
@@ -270,7 +285,7 @@ function ProviderCard({
           </div>
         )}
         <div className="key-row">
-          <Field label="โมเดล">
+          <Field label={modelLabel}>
             <input className="input mono" list={`${provider.id}-models`} value={modelDraft} onChange={(e) => setModelDraft(e.target.value)} />
           </Field>
           <datalist id={`${provider.id}-models`}>
@@ -285,6 +300,21 @@ function ProviderCard({
             ทดสอบการเชื่อมต่อ
           </Button>
         </div>
+        {second && <ModelField provider={provider.id} {...second} />}
+        {usage && (Object.keys(usage) as ("chat" | "design")[]).map((task) => {
+          const u = usage[task]!;
+          const wanted = task === "chat" ? model : second?.model;
+          return (
+            <div key={task} className={`callout ${u.model === wanted ? "callout-calm" : "callout-warning"}`}>
+              {u.model === wanted ? <CircleCheck size={18} /> : <TriangleAlert size={18} color="var(--warning)" />}
+              <span className="small">
+                ล่าสุดงาน{task === "chat" ? "แชตและคำใบ้" : "สร้างบทเรียน"}ใช้ <span className="mono">{u.model}</span>
+                {u.model !== wanted && ` ไม่ใช่ ${wanted} ที่ตั้งไว้`}
+                {u.fallback && ` · เหตุผล: ${u.fallback}`}
+              </span>
+            </div>
+          );
+        })}
         {test &&
           (test.ok ? (
             <div className="callout callout-success">
@@ -302,5 +332,21 @@ function ProviderCard({
           ))}
       </div>
     </Card>
+  );
+}
+
+// ช่องโมเดลที่สอง (งานสร้างบทเรียน) ใช้รายการโมเดลจากการทดสอบการเชื่อมต่อชุดเดียวกัน
+function ModelField({ provider, label, model, onModel }: { provider: string; label: string; model: string; onModel: (model: string) => void }) {
+  const [draft, setDraft] = useState(model);
+  useEffect(() => setDraft(model), [model]);
+  return (
+    <div className="key-row">
+      <Field label={label}>
+        <input className="input mono" list={`${provider}-models`} value={draft} onChange={(e) => setDraft(e.target.value)} />
+      </Field>
+      <Button disabled={draft === model || !draft.trim()} onClick={() => onModel(draft.trim())}>
+        ใช้โมเดลนี้
+      </Button>
+    </div>
   );
 }

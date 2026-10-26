@@ -5,7 +5,7 @@ import json
 
 from fastapi.testclient import TestClient
 
-from app import db, services
+from app import db, services, settings_store
 from app.api.deps import issue_token
 from app.engine import flow as F
 from app.gems import builder, flowspec, manage, verify
@@ -752,7 +752,7 @@ def test_gemini_reads_pdfs_page_by_page_and_falls_back_locally(monkeypatch):
     assert how == "local" and not text and warning
 
     monkeypatch.setattr(settings_store, "api_key", lambda provider: ("fake-key", "test"))
-    monkeypatch.setattr(settings_store, "ai_settings", lambda: {"active": "gemini", "gemini_model": "gemini-test", "order": ["gemini"]})
+    monkeypatch.setattr(settings_store, "ai_settings", lambda: {"active": "gemini", "gemini_model": "gemini-test", "gemini_design_model": "gemini-test", "order": ["gemini"]})
     asked = []
 
     async def fake_gemini(key, model, system, user, **options):
@@ -898,3 +898,21 @@ def test_guard_block_is_not_an_ai_outage():
     assert not services.ai_failed(blocked)
     failed = {"text": "x", "source": "authored", "errors": ["claude: ยังไม่ได้ใส่ API key", "gemini: เกินโควตา"]}
     assert services.ai_failed(failed) and services.failure_reason(failed["errors"]) == "เกินโควตา"
+
+
+def test_design_and_chat_use_their_own_gemini_model(monkeypatch):
+    """งานสร้างบทเรียนใช้โมเดลที่ฉลาดกว่าได้ งานแชตใช้ตัวเร็ว ตัวที่เลือกใช้ไม่ได้ (โควตาหมด) บันทึกเหตุผลที่ใช้ตัวสำรอง"""
+    settings_store.save_ai_settings({"active": "gemini", "gemini_model": "gemini-fast", "gemini_design_model": "gemini-smart"})
+    monkeypatch.setattr(settings_store, "api_key", lambda provider: ("key", "file"))
+    asked = []
+
+    async def fake_call_gemini(key, model, system, user, **options):
+        asked.append(model)
+        return providers.LLMResult("ok", "gemini", "gemini-lite", 1, 1, 1, fallback=f"{model}: โควตาหมด")
+
+    monkeypatch.setattr(providers, "call_gemini", fake_call_gemini)
+    result, errors = asyncio.run(service._call("s", "u", task="design"))
+    asyncio.run(service._call("s", "u"))
+    assert asked == ["gemini-smart", "gemini-fast"]
+    assert result.text == "ok" and errors == ["gemini: ใช้ gemini-lite แทน (gemini-smart: โควตาหมด)"]
+    assert not services.ai_failed({"text": "ok", "source": "gemini", "errors": errors})

@@ -281,7 +281,7 @@ async def ask_json(step: str, user: str, max_tokens: int = 12000, thinking: str 
         if attempt:
             await asyncio.sleep(RETRY_DELAYS[attempt - 1])
         result, errors = await service._call(SYSTEM, user, max_tokens=max_tokens, json_mode=True, timeout=300.0,
-                                             backup_models=GEMINI_BACKUPS, thinking=thinking)
+                                             backup_models=GEMINI_BACKUPS, thinking=thinking, task="design")
         service._log(None, f"gem_{step}", frames, None, result, result.text[:4000] if result else "", None, errors)
         if result is None:
             problem = "; ".join(errors) or problem

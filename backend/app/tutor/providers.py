@@ -36,6 +36,8 @@ class LLMResult:
     tokens_in: int
     tokens_out: int
     latency_ms: int
+    # โมเดลที่เลือกไว้แต่ใช้ไม่ได้ จึงใช้ตัวสำรองแทน พร้อมเหตุผล เช่น "gemini-3.5-flash: โควตาหมด"
+    fallback: str = ""
 
 
 def _claude_error(error: Exception) -> ProviderError:
@@ -127,12 +129,16 @@ async def call_gemini(api_key: str, model: str, system: str, user: str, max_toke
                       attachments: list[dict] | None = None, thinking: str = "minimal") -> LLMResult:
     """backup_models: รุ่นที่ลองต่อเมื่อรุ่นหลักรับงานไม่ไหว (ใช้ตอนสร้าง Item Bank ซึ่งยาวและพลาดไม่ได้)
     attachments: ไฟล์ที่ให้ Gemini อ่านเอง เช่น PDF หรือรูป [{"mime": "application/pdf", "data": bytes}]"""
+    skipped = []
     for candidate in [model, *[m for m in backup_models if m != model]]:
         try:
-            return await _call_gemini_once(api_key, candidate, system, user, max_tokens, json_mode, timeout, attachments,
-                                           thinking)
+            result = await _call_gemini_once(api_key, candidate, system, user, max_tokens, json_mode, timeout, attachments,
+                                             thinking)
+            result.fallback = "; ".join(skipped)
+            return result
         except ProviderBusy as error:
             busy = error
+            skipped.append(f"{candidate}: {error}")
     raise busy
 
 
@@ -161,6 +167,10 @@ async def _call_gemini_once(api_key: str, model: str, system: str, user: str, ma
         raise ProviderError(f"Gemini ไม่รับคำขอ: {message[:120] or response.status_code}")
     if response.status_code == 404:
         raise ProviderError("ไม่พบโมเดล Gemini ที่เลือก")
+    if response.status_code == 429 and "quota" in response.text.lower():
+        # Free Tier จำกัดจำนวนครั้งต่อนาทีและต่อวันแยกตามโมเดล โมเดลที่ฉลาดกว่ามักได้โควตาน้อยกว่า
+        tier = "Free Tier " if "free_tier" in response.text else ""
+        raise ProviderBusy(f"โควตา{tier}ของ API key สำหรับโมเดลนี้หมด (เปิด billing ใน Google AI Studio หรือรอโควตารีเซ็ต)")
     if response.status_code in (429, 503):
         raise ProviderBusy("Gemini มีผู้ใช้มากชั่วคราว ลองโมเดลอื่นหรือรอสักครู่")
     if response.status_code >= 300:

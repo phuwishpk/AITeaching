@@ -25,6 +25,8 @@ async def _call(system: str, user: str, **options) -> tuple[providers.LLMResult 
     options ส่งต่อให้ Provider เช่น max_tokens, json_mode, timeout (ใช้ตอนสร้าง Item Bank ของ Gem)
     """
     ai = settings_store.ai_settings()
+    # task="design" = งานสร้างบทเรียนตอนครูกดสร้าง (ใช้โมเดลที่ตั้งไว้สำหรับงานนี้) ไม่ระบุ = งานตอนนักเรียนเรียน
+    task = options.pop("task", "chat")
     if ai["active"] == "offline":
         return None, ["Offline Mode"]
     chain = [ai["active"]] + [p for p in ai["order"] if p != ai["active"]]
@@ -40,7 +42,11 @@ async def _call(system: str, user: str, **options) -> tuple[providers.LLMResult 
                 return await providers.call_claude(key, ai["claude_model"], system, user, **claude_options), errors
             if provider == "gemini":
                 gemini_options = {"backup_models": providers.GEMINI_BACKUPS, **options}
-                return await providers.call_gemini(key, ai["gemini_model"], system, user, **gemini_options), errors
+                model = ai["gemini_design_model"] if task == "design" else ai["gemini_model"]
+                result = await providers.call_gemini(key, model, system, user, **gemini_options)
+                if result.fallback:
+                    errors.append(f"gemini: ใช้ {result.model} แทน ({result.fallback})")
+                return result, errors
         except providers.ProviderError as error:
             errors.append(f"{provider}: {error}")
     return None, errors

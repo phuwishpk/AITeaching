@@ -105,12 +105,14 @@ def ai_settings() -> dict:
         "order": stored.get("order", ["claude", "gemini"]),
         "claude_model": stored.get("claude_model", CLAUDE_DEFAULT_MODEL),
         "gemini_model": stored.get("gemini_model", GEMINI_DEFAULT_MODEL),
+        # งานสร้างบทเรียน (อ่านเอกสาร สร้างคลัง ออกแบบและตรวจ Flow) เรียกไม่กี่ครั้ง ใช้โมเดลที่ฉลาดกว่าแชตได้
+        "gemini_design_model": stored.get("gemini_design_model") or stored.get("gemini_model", GEMINI_DEFAULT_MODEL),
     }
 
 
 def save_ai_settings(updates: dict) -> dict:
     current = ai_settings()
-    for key in ("active", "order", "claude_model", "gemini_model"):
+    for key in ("active", "order", "claude_model", "gemini_model", "gemini_design_model"):
         if key in updates and updates[key] is not None:
             current[key] = updates[key]
     db.set_setting("ai", current)

@@ -395,7 +395,21 @@ def get_settings(auth: dict = Depends(admin)):
         "params": settings_store.params(),
         "param_labels": PARAM_LABELS,
         "demo": settings_store.demo(),
+        "usage": model_usage(),
     }
+
+
+def model_usage() -> dict:
+    """โมเดล Gemini ที่ใช้จริงล่าสุดแยกตามงาน และเหตุผลถ้าไม่ใช่ตัวที่ตั้งไว้ (เช่น โควตา Free Tier ของตัวหลักหมด)"""
+    rows = db.query("SELECT ts, purpose, model, error FROM ai_logs WHERE provider = 'gemini' ORDER BY id DESC LIMIT 80")
+    out = {}
+    for task, match in (("design", lambda p: p.startswith("gem_")), ("chat", lambda p: not p.startswith("gem_"))):
+        mine = [r for r in rows if match(r["purpose"] or "")]
+        if not mine:
+            continue
+        fallback = next((r["error"].split("gemini: ", 1)[-1] for r in mine[:10] if r["error"] and "gemini: ใช้" in r["error"]), None)
+        out[task] = {"model": mine[0]["model"], "ts": mine[0]["ts"], "fallback": fallback}
+    return out
 
 
 @router.put("/settings")
