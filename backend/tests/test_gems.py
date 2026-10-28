@@ -930,9 +930,13 @@ def test_data_from_before_accounts_belongs_to_the_first_user():
     db.execute("INSERT INTO ai_logs (ts, code, purpose) VALUES (1, 'S-70', 'hint_l1')")
     users.add("first", "ครูคนแรก")
     users.add("second", "ครูคนที่สอง")
+    theirs = manage.create({"name": "ของคนที่สอง"}, "teacher", owner="second")
+    preview = f"TEST-{theirs['id'].removeprefix('gem-').upper()}"
+    db.execute("INSERT INTO students (code, kind, created_at) VALUES (?, 'test', 0)", (preview,))
     assert users.claim("first")[0] == 1
     assert manage.get(gem["id"])["owner"] == "first"
     assert db.query_one("SELECT owner FROM students WHERE code = 'S-70'")["owner"] == "first"
+    assert db.query_one("SELECT owner FROM students WHERE code = ?", (preview,))["owner"] == "second"
     assert db.query_one("SELECT owner FROM ai_logs")["owner"] == "first"
 
 

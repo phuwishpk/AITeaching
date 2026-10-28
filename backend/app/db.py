@@ -131,6 +131,12 @@ def adopt_orphans(username: str, conn: sqlite3.Connection | None = None) -> int:
                 gem["owner"] = username
                 conn.execute("UPDATE gems SET data = ? WHERE id = ?", (dumps(gem), row["id"]))
                 adopted += 1
+        # นักเรียนทดสอบ (TEST-<รหัส Gem>) เป็นของเจ้าของ Gem นั้น ไม่ใช่ของผู้ใช้คนแรก
+        for row in conn.execute("SELECT code FROM students WHERE owner IS NULL AND kind = 'test'").fetchall():
+            gem = conn.execute("SELECT data FROM gems WHERE id = ?",
+                               ("gem-" + row["code"].removeprefix("TEST-").lower(),)).fetchone()
+            if gem:
+                conn.execute("UPDATE students SET owner = ? WHERE code = ?", (loads(gem["data"]).get("owner"), row["code"]))
         conn.execute("UPDATE students SET owner = ? WHERE owner IS NULL", (username,))
         conn.execute("UPDATE ai_logs SET owner = COALESCE((SELECT s.owner FROM students s WHERE s.code = ai_logs.code), ?) "
                      "WHERE owner IS NULL", (username,))
