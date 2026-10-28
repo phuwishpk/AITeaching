@@ -1,11 +1,15 @@
-"""การเข้าระบบ: Student ใช้ Student Code, Teacher และ Admin เข้าได้ทันที แต่ละบทบาทใช้ token ของตัวเอง"""
+"""การเข้าระบบ: Student ใช้ Student Code, Teacher และ Admin ใช้บัญชีผู้ใช้ (หรือเข้าได้ทันทีในโหมดเดิม)
+แต่ละบทบาทใช้ token ของตัวเอง token หมดอายุเอง เข้าจากเครื่องไหนก็ได้ด้วยบัญชีเดิม"""
 
 import secrets
 import time
 
 from fastapi import Depends, Header, HTTPException
 
-from .. import db, settings_store
+from .. import db, settings_store, users
+
+# อายุของ token: ครูและ Admin สั้นกว่า เพราะเห็นข้อมูลนักเรียนและตั้งค่า API key ได้
+TOKEN_TTL = {"teacher": 7 * 86400, "admin": 7 * 86400, "student": 30 * 86400}
 
 
 def issue_token(role: str, code: str | None = None) -> str:
@@ -17,7 +21,15 @@ def issue_token(role: str, code: str | None = None) -> str:
 def resolve_token(token: str | None) -> dict | None:
     if not token:
         return None
-    row = db.query_one("SELECT role, code FROM tokens WHERE token = ?", (token,))
+    row = db.query_one("SELECT role, code, created_at FROM tokens WHERE token = ?", (token,))
+    if not row:
+        return None
+    if time.time() - (row.pop("created_at") or 0) > TOKEN_TTL.get(row["role"], 0):
+        revoke_token(token)
+        return None
+    # token ของครูหรือ Admin ที่ออกก่อนมีบัญชีผู้ใช้ ไม่รู้ว่าเป็นใคร จึงต้องเข้าระบบใหม่
+    if row["role"] in ("teacher", "admin") and not row.get("code") and users.exist():
+        return None
     return row
 
 

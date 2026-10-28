@@ -3,7 +3,7 @@ import time
 from fastapi import APIRouter, Depends, File, HTTPException, UploadFile
 from pydantic import BaseModel
 
-from .. import analytics, db, seed, services
+from .. import analytics, db, scope, seed, services
 from ..content.readiness import check_set
 from ..engine import flow as F
 from ..tutor import rag, reader, service
@@ -11,8 +11,8 @@ from .deps import require
 
 router = APIRouter(prefix="/api/teacher", tags=["teacher"])
 teacher = require("teacher")
-# จัดการวิชา โจทย์ และเอกสาร ทำได้ทั้งครูและ Admin (ไม่มีข้อมูลนักเรียน) ส่วนอื่นของหน้าครูยังเป็นของครูคนเดียว
-# ครูคนเดียวแก้คลังโจทย์ได้ Admin ดู Gem และคลังโจทย์ได้อย่างเดียวผ่าน /api/gems (ADR-0003)
+# ครูแก้คลังโจทย์ได้ Admin ดู Gem และคลังโจทย์ได้อย่างเดียวผ่าน /api/gems (ADR-0003)
+# มีผู้ใช้หลายคน: ทุก endpoint เห็นเฉพาะนักเรียน วิชา และ Gem ของผู้ใช้ที่ล็อกอิน (scope.py)
 content_editor = require("teacher")
 
 
@@ -32,10 +32,11 @@ class TagDecision(BaseModel):
     decision: str
 
 
-# การแจ้งเตือนของนักเรียนจำลองไม่ขึ้นหน้าครู (ใช้ประกอบผังในหน้า Admin เท่านั้น)
-CLASS_ALERTS = (
-    "SELECT a.* FROM alerts a JOIN students s ON s.code = a.code WHERE s.kind != 'sim' ORDER BY a.ts DESC"
-)
+def class_alerts(user: str | None, limit: int) -> list[dict]:
+    """การแจ้งเตือนของนักเรียนของผู้ใช้ ไม่รวมนักเรียนจำลอง (ใช้ประกอบผังในหน้า Admin เท่านั้น)"""
+    clause, params = scope.where(user, "a.code")
+    return db.query(f"SELECT a.* FROM alerts a JOIN students s ON s.code = a.code WHERE s.kind != 'sim' AND {clause} "
+                    "ORDER BY a.ts DESC LIMIT ?", (*params, limit))
 
 
 def roster_map() -> dict[str, str]:
@@ -44,18 +45,20 @@ def roster_map() -> dict[str, str]:
 
 @router.get("/overview")
 def overview(auth: dict = Depends(teacher)):
+    user = scope.of(auth)
     names = roster_map()
-    students = services.staff_overview()
+    students = services.staff_overview(user)
     for s in students:
         s["name"] = names.get(s["code"])
-    alerts = db.query(CLASS_ALERTS + " LIMIT 100")
-    model = analytics.clusters()
+    model = analytics.clusters(owner=user)
+    clause, params = scope.where(user)
     return {
         "students": students,
-        "alerts": alerts,
-        "telemetry": analytics.telemetry(),
+        "alerts": class_alerts(user, 100),
+        "telemetry": analytics.telemetry(user),
         "clusters": model.get("centroids", []),
-        "pending_tags": db.query_one("SELECT COUNT(*) AS n FROM suggested_tags WHERE status = 'pending'")["n"],
+        "pending_tags": db.query_one(f"SELECT COUNT(*) AS n FROM suggested_tags WHERE status = 'pending' AND {clause}",
+                                     params)["n"],
         "now": time.time(),
     }
 
@@ -63,13 +66,14 @@ def overview(auth: dict = Depends(teacher)):
 @router.get("/clusters")
 def clusters(auth: dict = Depends(teacher)):
     names = roster_map()
-    model = dict(analytics.clusters())
+    model = dict(analytics.clusters(owner=scope.of(auth)))
     model["points"] = [{**p, "name": names.get(p["code"])} for p in model.get("points", [])]
     return model
 
 
 @router.get("/students/{code}")
 def student_detail(code: str, auth: dict = Depends(teacher)):
+    scope.student(auth, code)
     names = roster_map()
     views = []
     for state in db.states_for(code):
@@ -101,7 +105,7 @@ def student_detail(code: str, auth: dict = Depends(teacher)):
         "answers": answers,
         "ai_logs": logs,
         "alerts": db.query("SELECT * FROM alerts WHERE code = ? ORDER BY ts DESC LIMIT 20", (code,)),
-        "cluster": analytics.cluster_of(code),
+        "cluster": analytics.cluster_of(code, scope.of(auth)),
     }
 
 
@@ -120,18 +124,21 @@ class DraftSend(BaseModel):
 @router.get("/students/{code}/messages")
 def student_messages(code: str, before: float | None = None, hints: bool = True, auth: dict = Depends(teacher)):
     """ประวัติแชตกับ AI และครู ย้อนหลังได้ด้วย before (เวลาของข้อความเก่าสุดที่เห็นแล้ว)"""
+    scope.student(auth, code)
     return {**services.teacher_history(code, before, hints=hints), "mode": services.chat_mode(code)}
 
 
 @router.post("/students/{code}/watching")
 def watching(code: str, auth: dict = Depends(teacher)):
     """หน้าแชตของครูเปิดอยู่: ระหว่างนี้ AI ร่างคำตอบให้ครูตรวจ (โหมดครู) ปิดหน้าแล้ว AI ตอบเองในขอบเขตบทเรียน"""
+    scope.student(auth, code)
     services.mark_watching(code)
     return {"ok": True}
 
 
 @router.post("/students/{code}/chat-mode")
 async def chat_mode(code: str, body: ChatMode, auth: dict = Depends(teacher)):
+    scope.student(auth, code)
     if body.mode not in ("ai", "teacher"):
         raise HTTPException(400, "โหมดแชตไม่ถูกต้อง")
     services.log_teacher(code, "chat_mode", {"mode": body.mode})
@@ -140,12 +147,20 @@ async def chat_mode(code: str, body: ChatMode, auth: dict = Depends(teacher)):
 
 @router.post("/drafts/{draft_id}/send")
 async def send_draft(draft_id: int, body: DraftSend, auth: dict = Depends(teacher)):
+    _draft(draft_id, auth)
     return await services.send_draft(draft_id, body.text)
+
+
+def _draft(draft_id: int, auth: dict) -> dict | None:
+    draft = db.query_one("SELECT code, text FROM messages WHERE id = ? AND sender = 'draft'", (draft_id,))
+    if draft:
+        scope.student(auth, draft["code"])
+    return draft
 
 
 @router.delete("/drafts/{draft_id}")
 def delete_draft(draft_id: int, auth: dict = Depends(teacher)):
-    draft = db.query_one("SELECT code, text FROM messages WHERE id = ? AND sender = 'draft'", (draft_id,))
+    draft = _draft(draft_id, auth)
     db.execute("DELETE FROM messages WHERE id = ? AND sender = 'draft'", (draft_id,))
     if draft:
         services.log_teacher(draft["code"], "draft_discarded", {"draft": draft["text"]})
@@ -155,6 +170,7 @@ def delete_draft(draft_id: int, auth: dict = Depends(teacher)):
 @router.post("/students/{code}/viewed")
 def viewed(code: str, auth: dict = Depends(teacher)):
     """หน้าครูเปิดดูนักเรียนคนนี้ ใช้วัดว่าครูเข้ามาดูหลังแจ้งเตือนกี่นาที"""
+    scope.student(auth, code)
     services.log_teacher(code, "viewed")
     return {"ok": True}
 
@@ -162,12 +178,13 @@ def viewed(code: str, auth: dict = Depends(teacher)):
 @router.get("/inbox")
 def inbox(auth: dict = Depends(teacher)):
     names = roster_map()
-    return [{**row, "name": names.get(row["code"])} for row in services.inbox()]
+    return [{**row, "name": names.get(row["code"])} for row in services.inbox(scope.of(auth))]
 
 
 @router.get("/students/{code}/answers")
 def student_answers(code: str, auth: dict = Depends(teacher)):
     """โจทย์ที่กำลังทำและคำตอบแต่ละครั้ง ใช้ตรวจกิจกรรมข้างกล่องแชต"""
+    scope.student(auth, code)
     return services.answer_sheet(code)
 
 
@@ -178,6 +195,7 @@ async def send_message(code: str, body: TeacherMessage, auth: dict = Depends(tea
         raise HTTPException(400, "พิมพ์ข้อความก่อนส่ง")
     if not db.query_one("SELECT code FROM students WHERE code = ?", (code,)):
         raise HTTPException(404, "ไม่พบนักเรียนรหัสนี้")
+    scope.student(auth, code)
     states = db.states_for(code)
     set_id = max(states, key=lambda s: s["last_activity"])["set_id"] if states else None
     services.log_teacher(code, "message", {"text": text})
@@ -186,19 +204,21 @@ async def send_message(code: str, body: TeacherMessage, auth: dict = Depends(tea
 
 @router.post("/students/{code}/override")
 async def override(code: str, body: Override, auth: dict = Depends(teacher)):
+    scope.student(auth, code)
     return await services.override(code, body.set_id, body.action, body.params, body.reason, "teacher")
 
 
 @router.get("/alerts")
 def alerts(auth: dict = Depends(teacher)):
-    return db.query(CLASS_ALERTS + " LIMIT 200")
+    return class_alerts(scope.of(auth), 200)
 
 
 @router.post("/alerts/{alert_id}/ack")
 def ack(alert_id: int, auth: dict = Depends(teacher)):
-    db.execute("UPDATE alerts SET acknowledged = 1 WHERE id = ?", (alert_id,))
     alert = db.query_one("SELECT code, kind, message FROM alerts WHERE id = ?", (alert_id,))
     if alert:
+        scope.student(auth, alert["code"])
+        db.execute("UPDATE alerts SET acknowledged = 1 WHERE id = ?", (alert_id,))
         services.log_teacher(alert["code"], "ack", {"alert_id": alert_id, "kind": alert["kind"], "message": alert["message"]})
     return {"ok": True}
 
@@ -207,28 +227,34 @@ def ack(alert_id: int, auth: dict = Depends(teacher)):
 
 @router.get("/roster")
 def roster(auth: dict = Depends(teacher)):
-    rows = db.query(
+    clause, params = scope.where(scope.of(auth), "s.code")
+    return db.query(
         "SELECT s.code, r.name, s.created_at FROM students s LEFT JOIN roster r ON r.code = s.code "
-        "WHERE s.kind = 'real' ORDER BY s.code"
+        f"WHERE s.kind = 'real' AND {clause} ORDER BY s.code", params
     )
-    return rows
 
 
 @router.post("/roster")
 def add_roster(body: RosterEntry, auth: dict = Depends(teacher)):
+    """นักเรียนที่เพิ่มเป็นของครูคนนี้ เรียนได้เฉพาะ Gem ของครูคนนี้ (Student Code ไม่ซ้ำกันทั้งระบบ)"""
+    user = scope.of(auth)
     code = (body.code or "").strip().upper()
     if not code:
         existing = [r["code"] for r in db.query("SELECT code FROM students WHERE code LIKE 'S-%'")]
         numbers = [int(c[2:]) for c in existing if c[2:].isdigit()]
         code = f"S-{(max(numbers) + 1) if numbers else 1:02d}"
-    db.execute("INSERT OR IGNORE INTO students (code, kind, persona, created_at) VALUES (?,?,?,?)",
-               (code, "real", None, time.time()))
+    row = db.query_one("SELECT kind FROM students WHERE code = ?", (code,))
+    if row and (row["kind"] != "real" or not scope.sees(user, code)):
+        raise HTTPException(400, f"รหัส {code} มีอยู่ในระบบแล้ว เลือกรหัสอื่น หรือเว้นว่างให้ระบบตั้งให้")
+    db.execute("INSERT OR IGNORE INTO students (code, kind, persona, created_at, owner) VALUES (?,?,?,?,?)",
+               (code, "real", None, time.time(), user))
     db.execute("INSERT OR REPLACE INTO roster (code, name) VALUES (?, ?)", (code, body.name.strip()))
     return {"code": code, "name": body.name.strip()}
 
 
 @router.delete("/roster/{code}")
 def remove_roster(code: str, auth: dict = Depends(teacher)):
+    scope.student(auth, code)
     db.execute("DELETE FROM roster WHERE code = ?", (code,))
     return {"ok": True}
 
@@ -248,12 +274,12 @@ def summary(subject: dict) -> dict:
 
 @router.get("/subjects")
 def subjects(auth: dict = Depends(content_editor)):
-    return [summary(s) for s in db.list_subjects()]
+    return [summary(s) for s in scope.subjects(scope.of(auth))]
 
 
 @router.get("/subjects/{subject_id}")
 def get_subject(subject_id: str, auth: dict = Depends(content_editor)):
-    subject = db.get_subject(subject_id)
+    subject = scope.subject(auth, subject_id)
     if not subject:
         raise HTTPException(404, "ไม่พบวิชานี้")
     return subject
@@ -276,7 +302,12 @@ def validate(subject: dict):
 
 @router.put("/subjects/{subject_id}")
 def save_subject(subject_id: str, subject: dict, auth: dict = Depends(content_editor)):
+    existing = scope.subject(auth, subject_id)
     subject["id"] = subject_id
+    # เจ้าของและการผูกกับ Gem มาจากของเดิม ไม่ใช่จากที่หน้าเว็บส่งมา
+    subject.pop("owner", None)
+    if existing and existing.get("owner"):
+        subject["owner"] = existing["owner"]
     validate(subject)
     db.save_subject(subject)
     services.invalidate_content()
@@ -288,6 +319,8 @@ def create_subject(subject: dict, auth: dict = Depends(content_editor)):
     validate(subject)
     if db.get_subject(subject["id"]):
         raise HTTPException(400, "มีวิชารหัสนี้อยู่แล้ว")
+    subject.pop("gem", None)
+    subject["owner"] = scope.of(auth)
     db.save_subject(subject)
     services.invalidate_content()
     seed.rebuild_index(subject["id"])
@@ -296,6 +329,7 @@ def create_subject(subject: dict, auth: dict = Depends(content_editor)):
 
 @router.delete("/subjects/{subject_id}")
 def delete_subject(subject_id: str, auth: dict = Depends(content_editor)):
+    scope.subject(auth, subject_id)
     db.delete_subject(subject_id)
     db.execute("DELETE FROM documents WHERE subject_id = ?", (subject_id,))
     services.invalidate_content()
@@ -304,7 +338,7 @@ def delete_subject(subject_id: str, auth: dict = Depends(content_editor)):
 
 @router.get("/subjects/{subject_id}/readiness/{set_id}")
 def readiness(subject_id: str, set_id: str, auth: dict = Depends(content_editor)):
-    subject = db.get_subject(subject_id)
+    subject = scope.subject(auth, subject_id)
     if not subject:
         raise HTTPException(404, "ไม่พบวิชานี้")
     return check_set(subject, set_id)
@@ -312,6 +346,7 @@ def readiness(subject_id: str, set_id: str, auth: dict = Depends(content_editor)
 
 @router.get("/subjects/{subject_id}/documents")
 def documents(subject_id: str, auth: dict = Depends(content_editor)):
+    scope.subject(auth, subject_id)
     rows = db.query(
         "SELECT id, filename, kind, chars, warning, uploaded_at, chunks FROM documents WHERE subject_id = ? ORDER BY uploaded_at DESC",
         (subject_id,),
@@ -325,7 +360,7 @@ def documents(subject_id: str, auth: dict = Depends(content_editor)):
 
 @router.post("/subjects/{subject_id}/documents")
 async def upload(subject_id: str, file: UploadFile = File(...), auth: dict = Depends(content_editor)):
-    if not db.get_subject(subject_id):
+    if not scope.subject(auth, subject_id):
         raise HTTPException(404, "ไม่พบวิชานี้")
     data = await file.read()
     if len(data) > 15 * 1024 * 1024:
@@ -341,8 +376,13 @@ async def upload(subject_id: str, file: UploadFile = File(...), auth: dict = Dep
 @router.delete("/documents/{doc_id}")
 def delete_document(doc_id: int, auth: dict = Depends(content_editor)):
     row = db.query_one("SELECT subject_id FROM documents WHERE id = ?", (doc_id,))
-    db.execute("DELETE FROM documents WHERE id = ?", (doc_id,))
     if row:
+        # เอกสารผูกกับวิชา หรือกับ Gem (ไฟล์ของ Gem ใช้รหัส Gem)
+        if db.get_gem(row["subject_id"]):
+            scope.gem(auth, row["subject_id"])
+        else:
+            scope.subject(auth, row["subject_id"])
+        db.execute("DELETE FROM documents WHERE id = ?", (doc_id,))
         seed.rebuild_index(row["subject_id"])
     return {"ok": True}
 
@@ -351,10 +391,12 @@ def delete_document(doc_id: int, auth: dict = Depends(content_editor)):
 
 @router.get("/tags")
 def tags(auth: dict = Depends(teacher)):
-    rows = db.query("SELECT * FROM suggested_tags ORDER BY ts DESC LIMIT 100")
+    user = scope.of(auth)
+    clause, params = scope.where(user)
+    rows = db.query(f"SELECT * FROM suggested_tags WHERE {clause} ORDER BY ts DESC LIMIT 100", params)
     tag_names = {}
     item_info = {}
-    for subject in db.list_subjects():
+    for subject in scope.subjects(user):
         tag_names.update({t["id"]: t["name"] for t in subject.get("bug_tags", [])})
         item_info.update({it["id"]: f"{it['prompt']} {it.get('math') or ''}".strip() for it in subject.get("items", [])})
     for row in rows:
@@ -366,10 +408,10 @@ def tags(auth: dict = Depends(teacher)):
 @router.post("/tags/{tag_id}")
 def decide_tag(tag_id: int, body: TagDecision, auth: dict = Depends(teacher)):
     row = db.query_one("SELECT * FROM suggested_tags WHERE id = ?", (tag_id,))
-    if not row:
+    if not row or not scope.sees(scope.of(auth), row["code"]):
         raise HTTPException(404, "ไม่พบรายการนี้")
     if body.decision == "confirm":
-        for subject in db.list_subjects():
+        for subject in scope.subjects(scope.of(auth)):
             for item in subject.get("items", []):
                 if item["id"] == row["item_id"]:
                     answer = row["answer"]
@@ -389,11 +431,17 @@ def decide_tag(tag_id: int, body: TagDecision, auth: dict = Depends(teacher)):
 
 @router.get("/ai-logs")
 def ai_logs(code: str | None = None, auth: dict = Depends(teacher)):
+    mine, params = owned_logs(scope.of(auth))
     if code:
-        rows = db.query("SELECT * FROM ai_logs WHERE code = ? ORDER BY ts DESC LIMIT 50", (code,))
+        rows = db.query(f"SELECT * FROM ai_logs WHERE code = ? AND {mine} ORDER BY ts DESC LIMIT 50", (code, *params))
     else:
-        rows = db.query("SELECT * FROM ai_logs ORDER BY ts DESC LIMIT 50")
+        rows = db.query(f"SELECT * FROM ai_logs WHERE {mine} ORDER BY ts DESC LIMIT 50", params)
     for row in rows:
         for key in ("frames", "retrieved", "guard"):
             row[key] = db.loads(row[key])
     return rows
+
+
+def owned_logs(user: str | None) -> tuple[str, tuple]:
+    """การเรียก AI ที่คิดกับ API key ของผู้ใช้ (ของ Gem และนักเรียนของตัวเอง หรือที่ผู้ใช้กดเอง)"""
+    return ("owner = ?", (user,)) if user else ("1 = 1", ())

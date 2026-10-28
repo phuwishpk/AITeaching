@@ -1,4 +1,4 @@
-"""API ของ Gem: ครูสร้างและแก้ได้ Admin ดูได้อย่างเดียว"""
+"""API ของ Gem: ครูสร้างและแก้ได้ Admin ดูได้อย่างเดียว มีผู้ใช้หลายคน: เห็นและแก้ได้เฉพาะ Gem ของตัวเอง"""
 
 import asyncio
 import re
@@ -7,7 +7,7 @@ import time
 from fastapi import APIRouter, Depends, File, HTTPException, UploadFile
 from pydantic import BaseModel
 
-from .. import db, seed, services, settings_store, users
+from .. import db, scope, seed, services, settings_store
 from ..gems import alerts as gem_alerts
 from ..gems import builder, design, flows, flowspec, guide, items, manage, versions
 from ..engine import core as engine
@@ -20,12 +20,14 @@ viewer = require("teacher", "admin")
 
 
 async def owner(gem_id: str, auth: dict = Depends(teacher)) -> dict:
-    """แก้ สร้างใหม่ หรือลบ Gem ได้เฉพาะเจ้าของ (มีผู้ใช้หลายคน) เพราะงาน AI ของ Gem คิดกับ API key ของเจ้าของ
-    คนอื่นดู ลองเรียน และติดตามนักเรียนของ Gem นี้ได้ตามปกติ"""
-    gem = db.get_gem(gem_id)
-    if gem and gem.get("owner") and users.exist() and auth.get("code") != gem["owner"]:
-        raise HTTPException(403, f"Gem นี้เป็นของ {users.owner_name(gem['owner']) or gem['owner']} แก้ไขได้เฉพาะเจ้าของ "
-                                 "ดูและลองเรียนได้ตามปกติ")
+    """แก้ ลองเรียน สร้างใหม่ หรือลบ Gem ได้เฉพาะเจ้าของ (มีผู้ใช้หลายคน) Gem ของคนอื่นตอบเหมือนไม่มี"""
+    scope.gem(auth, gem_id)
+    return auth
+
+
+async def mine(gem_id: str, auth: dict = Depends(viewer)) -> dict:
+    """ดู Gem (หน้าครูและหน้า Admin) ได้เฉพาะของตัวเอง"""
+    scope.gem(auth, gem_id)
     return auth
 
 
@@ -87,7 +89,7 @@ def _load(gem_id: str) -> dict:
 
 @router.get("")
 def list_gems(auth: dict = Depends(viewer)):
-    return [manage.summary(manage.get(g["id"])) for g in db.list_gems()]
+    return [manage.summary(manage.get(g["id"])) for g in scope.gems(scope.of(auth))]
 
 
 @router.get("/meta")
@@ -100,7 +102,7 @@ def gem_meta(auth: dict = Depends(viewer)):
 
 
 @router.get("/{gem_id}")
-def get_gem(gem_id: str, auth: dict = Depends(viewer)):
+def get_gem(gem_id: str, auth: dict = Depends(mine)):
     return manage.detail(_load(gem_id))
 
 
@@ -109,13 +111,13 @@ def flow_of_set(set_id: str, auth: dict = Depends(viewer)):
     """ผังของ Gem ที่ชุดคำถามนี้เป็นของ (ทุกรุ่นของคลัง) ใช้วาดเส้นทางของนักเรียนในหน้ากิจกรรมสด"""
     subject = next((s for s in db.list_subjects() if any(q["id"] == set_id for q in s.get("question_sets", []))), None)
     gem = db.get_gem((subject or {}).get("gem", {}).get("id", "")) if subject else None
-    if gem is None:
+    if gem is None or not scope.owns(scope.of(auth), gem):
         raise HTTPException(404, "ชุดคำถามนี้ไม่ใช่ Gem")
     return {"gem_id": gem["id"], "name": gem["name"], **design.flow_marks(gem)}
 
 
 @router.get("/{gem_id}/design")
-def gem_design(gem_id: str, auth: dict = Depends(viewer)):
+def gem_design(gem_id: str, auth: dict = Depends(mine)):
     """Flow ที่ครูออกแบบ (หน้า Admin): ผังตามเครื่องมือและ Alert Rule, prompt 4 กรอบ, ไฟล์ คลังโจทย์ และเวอร์ชัน"""
     _load(gem_id)
     return design.build(gem_id)
@@ -195,7 +197,7 @@ def _plain(text: str) -> str:
 
 
 @router.get("/{gem_id}/files")
-def gem_files(gem_id: str, auth: dict = Depends(viewer)):
+def gem_files(gem_id: str, auth: dict = Depends(mine)):
     _load(gem_id)
     return manage.files(gem_id)
 
@@ -234,12 +236,12 @@ def _flow(call):
 
 
 @router.get("/{gem_id}/flow")
-def gem_flow(gem_id: str, auth: dict = Depends(viewer)):
+def gem_flow(gem_id: str, auth: dict = Depends(mine)):
     return flows.detail(_load(gem_id))
 
 
 @router.post("/{gem_id}/flow/check")
-def check_flow(gem_id: str, body: FlowBody, auth: dict = Depends(teacher)):
+def check_flow(gem_id: str, body: FlowBody, auth: dict = Depends(owner)):
     """ตรวจ Flow ที่ครูกำลังแก้โดยยังไม่บันทึก: ข้อผิดพลาด คำเตือน และเงื่อนไขที่แปลเป็นภาษาคน"""
     return flows.check(_load(gem_id), body.spec)
 
@@ -292,7 +294,7 @@ def resolve_flag(gem_id: str, item_id: str, body: FlagBody, auth: dict = Depends
 # ---------------------------------------------------------------- เวอร์ชัน
 
 @router.get("/{gem_id}/versions")
-def gem_versions(gem_id: str, auth: dict = Depends(viewer)):
+def gem_versions(gem_id: str, auth: dict = Depends(mine)):
     _load(gem_id)
     return versions.history(gem_id)
 
@@ -311,8 +313,8 @@ def restore_version(gem_id: str, n: int, auth: dict = Depends(owner)):
 def _preview_code(gem: dict) -> str:
     """นักเรียนทดสอบหนึ่งคนต่อ Gem (kind = test) ไม่นับเข้าสถิติห้อง ไม่ส่งแจ้งเตือนถึงครู"""
     code = f"TEST-{gem['id'].removeprefix('gem-').upper()}"
-    db.execute("INSERT OR IGNORE INTO students (code, kind, persona, created_at) VALUES (?, 'test', NULL, ?)",
-               (code, time.time()))
+    db.execute("INSERT OR IGNORE INTO students (code, kind, persona, created_at, owner) VALUES (?, 'test', NULL, ?, ?)",
+               (code, time.time(), gem.get("owner")))
     return code
 
 
@@ -335,7 +337,7 @@ def _preview(code: str, payload: dict) -> dict:
 
 
 @router.get("/{gem_id}/preview")
-async def preview_state(gem_id: str, auth: dict = Depends(teacher)):
+async def preview_state(gem_id: str, auth: dict = Depends(owner)):
     gem = _load(gem_id)
     code, set_id = _preview_code(gem), _preview_set(gem)
     if not db.load_state(code, set_id):
@@ -344,56 +346,56 @@ async def preview_state(gem_id: str, auth: dict = Depends(teacher)):
 
 
 @router.post("/{gem_id}/preview/start")
-async def preview_start(gem_id: str, auth: dict = Depends(teacher)):
+async def preview_start(gem_id: str, auth: dict = Depends(owner)):
     gem = _load(gem_id)
     code, set_id = _preview_code(gem), _preview_set(gem)
     return _preview(code, {"view": await services.start(code, set_id, restart=True)})
 
 
 @router.post("/{gem_id}/preview/answer")
-async def preview_answer(gem_id: str, body: PreviewAnswer, auth: dict = Depends(teacher)):
+async def preview_answer(gem_id: str, body: PreviewAnswer, auth: dict = Depends(owner)):
     gem = _load(gem_id)
     code = _preview_code(gem)
     return _preview(code, await services.submit(code, _preview_set(gem), body.answer))
 
 
 @router.post("/{gem_id}/preview/hint")
-async def preview_hint(gem_id: str, auth: dict = Depends(teacher)):
+async def preview_hint(gem_id: str, auth: dict = Depends(owner)):
     gem = _load(gem_id)
     code = _preview_code(gem)
     return _preview(code, await services.hint(code, _preview_set(gem)))
 
 
 @router.post("/{gem_id}/preview/lesson-done")
-async def preview_lesson_done(gem_id: str, auth: dict = Depends(teacher)):
+async def preview_lesson_done(gem_id: str, auth: dict = Depends(owner)):
     gem = _load(gem_id)
     code = _preview_code(gem)
     return _preview(code, await services.simple(code, _preview_set(gem), engine.walkthrough_done))
 
 
 @router.post("/{gem_id}/preview/reflect")
-async def preview_reflect(gem_id: str, body: PreviewAnswer, auth: dict = Depends(teacher)):
+async def preview_reflect(gem_id: str, body: PreviewAnswer, auth: dict = Depends(owner)):
     gem = _load(gem_id)
     code = _preview_code(gem)
     return _preview(code, await services.reflect(code, _preview_set(gem), body.answer))
 
 
 @router.post("/{gem_id}/preview/widget")
-async def preview_widget(gem_id: str, body: PreviewWidget, auth: dict = Depends(teacher)):
+async def preview_widget(gem_id: str, body: PreviewWidget, auth: dict = Depends(owner)):
     gem = _load(gem_id)
     code = _preview_code(gem)
     return _preview(code, await services.widget(code, _preview_set(gem), body.response))
 
 
 @router.post("/{gem_id}/preview/resume")
-async def preview_resume(gem_id: str, auth: dict = Depends(teacher)):
+async def preview_resume(gem_id: str, auth: dict = Depends(owner)):
     gem = _load(gem_id)
     code = _preview_code(gem)
     return _preview(code, await services.simple(code, _preview_set(gem), engine.resume))
 
 
 @router.post("/{gem_id}/preview/chat")
-async def preview_chat(gem_id: str, body: PreviewChat, auth: dict = Depends(teacher)):
+async def preview_chat(gem_id: str, body: PreviewChat, auth: dict = Depends(owner)):
     gem = _load(gem_id)
     code = _preview_code(gem)
     return _preview(code, await services.chat(code, _preview_set(gem), body.message))
@@ -409,7 +411,7 @@ def _items(call):
 
 
 @router.get("/{gem_id}/items")
-def bank_items(gem_id: str, auth: dict = Depends(teacher)):
+def bank_items(gem_id: str, auth: dict = Depends(owner)):
     _load(gem_id)
     return _items(lambda: items.listing(gem_id))
 

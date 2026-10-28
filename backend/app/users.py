@@ -1,12 +1,13 @@
-"""ผู้ใช้ฝั่งครูและ Admin: หลายคนใช้ระบบเดียวกัน (Gem นักเรียน และข้อมูลชุดเดียว) แต่ละคนมีรหัสผ่านและ API key ของตัวเอง
+"""ผู้ใช้ฝั่งครูและ Admin: หลายคนใช้เว็บเดียวกัน แต่ละคนมีรหัสผ่าน ข้อมูล และ API key ของตัวเอง
 
+แต่ละคนเห็นเฉพาะ Gem นักเรียน และข้อมูลการเรียนของตัวเอง (scope.py) ตั้งค่า AI และ API key ได้เฉพาะของตัวเอง
 AI ของ Gem คิดกับ API key ของเจ้าของ Gem เสมอ (settings_store.use_keys_of) จึงไม่มีใครใช้ key ของคนอื่น
-ยังไม่มีผู้ใช้ในตาราง staff = โหมดเดิม: เข้าหน้าครูและ Admin ได้ทันที (หรือใช้รหัสจาก .env) และใช้ API key กลาง
+ยังไม่มีผู้ใช้ในตาราง staff = โหมดเดิม: เข้าหน้าครูและ Admin ได้ทันที (หรือใช้รหัสจาก .env) เห็นทุกอย่าง และใช้ API key กลาง
 
 ใช้จาก command line บนเซิร์ฟเวอร์:
   python -m app.users add <ชื่อผู้ใช้> "<ชื่อที่แสดง>"   สร้างผู้ใช้และสุ่มรหัสผ่าน
   python -m app.users passwd <ชื่อผู้ใช้>                สุ่มรหัสผ่านใหม่
-  python -m app.users claim <ชื่อผู้ใช้>                 ให้ Gem ที่ยังไม่มีเจ้าของ และ API key กลางเดิม เป็นของผู้ใช้นี้
+  python -m app.users claim <ชื่อผู้ใช้>                 ให้ Gem นักเรียนที่ยังไม่มีเจ้าของ และ API key กลางเดิม เป็นของผู้ใช้นี้
   python -m app.users list
 """
 
@@ -31,6 +32,12 @@ def exist() -> bool:
 
 def listing() -> list[dict]:
     return db.query("SELECT username, name, created_at FROM staff ORDER BY created_at")
+
+
+def first() -> str | None:
+    """ผู้ใช้คนแรก: เจ้าของข้อมูลที่เกิดก่อนมีผู้ใช้หลายคน"""
+    row = db.query_one("SELECT username FROM staff ORDER BY created_at LIMIT 1")
+    return row["username"] if row else None
 
 
 def get(username: str | None) -> dict | None:
@@ -66,13 +73,8 @@ def add(username: str, name: str, password: str | None = None) -> str:
 
 
 def claim(username: str) -> tuple[int, list[str]]:
-    """Gem ที่สร้างก่อนมีผู้ใช้ และ API key กลางเดิม เป็นของผู้ใช้คนนี้"""
-    count = 0
-    for gem in db.list_gems():
-        if not gem.get("owner"):
-            gem["owner"] = username
-            db.save_gem(gem)
-            count += 1
+    """Gem นักเรียน และบันทึก AI ที่เกิดก่อนมีผู้ใช้ และ API key กลางเดิม เป็นของผู้ใช้คนนี้"""
+    count = db.adopt_orphans(username)
     moved = settings_store.claim_shared_keys(username)
     return count, moved
 

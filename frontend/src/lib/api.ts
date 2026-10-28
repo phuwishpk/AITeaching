@@ -35,6 +35,31 @@ export function clearAuth(role: Role) {
   }
 }
 
+export const STAFF_ROLES = ["teacher", "admin"] as const;
+
+export interface Account {
+  username: string;
+  name: string;
+}
+
+// หน้าแรก: บัญชีเดียวได้ token ทั้งหน้าครูและหน้าผู้ดูแลระบบ ชื่อที่แสดงเก็บไว้แสดงบนแถบด้านบน
+export async function staffLogin(username: string, password: string): Promise<Account> {
+  const result = await api<Account & { tokens: Record<(typeof STAFF_ROLES)[number], string> }>(null, "/api/auth/login", {
+    body: { username, password },
+  });
+  for (const role of STAFF_ROLES) setAuth(role, { token: result.tokens[role], code: result.name });
+  return { username: result.username, name: result.name };
+}
+
+// ออกจากระบบทั้งหน้าครูและหน้าผู้ดูแลระบบ (ใช้สลับบัญชีด้วย)
+export function staffLogout() {
+  for (const role of STAFF_ROLES) {
+    // api อ่าน token ทันทีที่เรียก จึงล้างที่เก็บต่อได้เลยโดยไม่ต้องรอ
+    if (getAuth(role)) api(role, "/api/auth/logout", { method: "POST" }).catch(() => {});
+    clearAuth(role);
+  }
+}
+
 export class ApiError extends Error {
   status: number;
   constructor(status: number, message: string) {

@@ -2,7 +2,7 @@
 
 import time
 
-from . import db, demo, services
+from . import db, demo, scope, services, settings_store, users
 from .gems import manage
 from .tutor import rag
 
@@ -43,16 +43,21 @@ def ensure_seed():
     now = time.time()
     if not db.query_one("SELECT code FROM students WHERE kind = 'real'"):
         for code, name in DEMO_STUDENTS:
-            db.execute("INSERT OR IGNORE INTO students (code, kind, persona, created_at) VALUES (?,?,?,?)",
-                       (code, "real", None, now))
+            db.execute("INSERT OR IGNORE INTO students (code, kind, persona, created_at, owner) VALUES (?,?,?,?,?)",
+                       (code, "real", None, now, users.first()))
             db.execute("INSERT OR REPLACE INTO roster (code, name) VALUES (?, ?)", (code, name))
     ensure_cohort()
 
 
 def ensure_cohort():
-    """นักเรียนจำลองสำหรับ K-Means และสถิติห้อง สร้างเมื่อมี Gem ที่พร้อมสาธิตแล้ว"""
-    if not db.query_one("SELECT code FROM students WHERE kind = 'sim'"):
+    """นักเรียนจำลองสำหรับ K-Means และสถิติห้อง สร้างเมื่อมี Gem ที่พร้อมสาธิตแล้ว (ผู้ใช้แต่ละคนมีชุดของตัวเอง)"""
+    for owner in [u["username"] for u in users.listing()] or [None]:
+        clause, params = scope.where(owner)
+        if db.query_one(f"SELECT code FROM students WHERE kind = 'sim' AND {clause}", params):
+            continue
+        settings_store.use_keys_of(owner)  # พารามิเตอร์ของกลไกเป็นของเจ้าของนักเรียนจำลอง
         try:
-            demo.seed_cohort()
+            demo.seed_cohort(owner=owner)
         except services.NotFound:
             pass
+    settings_store.use_keys_of(None)

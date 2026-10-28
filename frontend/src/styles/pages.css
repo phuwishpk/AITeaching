@@ -94,6 +94,29 @@
   max-width: 68ch;
 }
 
+/* มีบัญชีผู้ใช้: ข้อความแนะนำทางซ้าย ช่องเข้าสู่ระบบทางขวา (จอแคบเรียงลงมา) */
+.landing-split {
+  display: grid;
+  grid-template-columns: minmax(0, 1.2fr) minmax(0, 440px);
+  align-items: center;
+  gap: clamp(28px, 5vw, 64px);
+}
+
+.signin-card {
+  justify-self: end;
+}
+
+@media (max-width: 860px) {
+  .landing-split {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .signin-card {
+    justify-self: stretch;
+    width: 100%;
+  }
+}
+
 /* ---------- เข้าสู่ระบบ ---------- */
 .login-main {
   flex: 1;

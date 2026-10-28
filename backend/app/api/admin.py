@@ -4,7 +4,7 @@ import time
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 
-from .. import activity, analytics, db, demo, node_info, principles, seed, services, settings_store
+from .. import activity, analytics, db, demo, node_info, principles, scope, seed, services, settings_store, users
 from ..config import PARAM_LABELS
 from ..engine import core as engine
 from ..engine import flow as F
@@ -14,6 +14,7 @@ from ..tutor import service as tutor
 from .deps import require
 
 router = APIRouter(prefix="/api/admin", tags=["admin"])
+# มีผู้ใช้หลายคน: ทุกหน้าเห็นเฉพาะนักเรียน (รวมนักเรียนจำลอง) Gem และค่าตั้งของผู้ใช้ที่ล็อกอิน (scope.py)
 admin = require("admin")
 
 
@@ -53,9 +54,9 @@ class ScrubBody(BaseModel):
     text: str
 
 
-def _demo_subject() -> dict:
+def _demo_subject(auth: dict) -> dict:
     """คลังโจทย์รุ่นปัจจุบันของ Gem ที่ใช้สาธิตหัวข้อ 2–6"""
-    gem = demo.demo_gem()
+    gem = demo.demo_gem(scope.of(auth))
     if gem is None:
         raise HTTPException(404, "ยังไม่มี Gem ที่พร้อมสาธิต ให้ครูสร้าง Gem ก่อน")
     return db.get_subject(gem["subject_id"])
@@ -71,7 +72,7 @@ def flow(auth: dict = Depends(admin)):
         "labels": F.POSITION_LABELS,
         "cards": principles.NODE_CARDS,
         "lanes": node_info.lanes(),
-        "positions": services.all_positions(),
+        "positions": services.all_positions(scope.of(auth)),
         "now": time.time(),
     }
 
@@ -79,7 +80,7 @@ def flow(auth: dict = Depends(admin)):
 @router.get("/flow/nodes/{node_id}")
 def flow_node(node_id: str, auth: dict = Depends(admin)):
     """กล่องหนึ่งในผัง: คืออะไร ทำหน้าที่อะไร ใช้ข้อมูลอะไร ปรับค่าอะไรได้ และใครอยู่ตรงนี้"""
-    info = node_info.describe(node_id, services.all_positions())
+    info = node_info.describe(node_id, services.all_positions(scope.of(auth)))
     if info is None:
         raise HTTPException(404, "ไม่พบขั้นนี้ในผัง")
     return info
@@ -88,7 +89,7 @@ def flow_node(node_id: str, auth: dict = Depends(admin)):
 @router.get("/flow/lanes/{lane_id}")
 def flow_lane(lane_id: str, auth: dict = Depends(admin)):
     """กลุ่มของกล่องในผัง: ดูแลเรื่องอะไร นักเรียนเข้าและออกทางไหน และมีขั้นอะไรบ้างตามลำดับ"""
-    info = node_info.describe_lane(lane_id, services.all_positions())
+    info = node_info.describe_lane(lane_id, services.all_positions(scope.of(auth)))
     if info is None:
         raise HTTPException(404, "ไม่พบกลุ่มนี้ในผัง")
     return info
@@ -96,8 +97,10 @@ def flow_lane(lane_id: str, auth: dict = Depends(admin)):
 
 @router.get("/students")
 def students(auth: dict = Depends(admin)):
-    rows = db.query("SELECT code, kind, persona FROM students WHERE kind != 'test' ORDER BY kind, code")
-    positions = {p["code"]: p for p in services.all_positions()}
+    user = scope.of(auth)
+    clause, params = scope.where(user)
+    rows = db.query(f"SELECT code, kind, persona FROM students WHERE kind != 'test' AND {clause} ORDER BY kind, code", params)
+    positions = {p["code"]: p for p in services.all_positions(user)}
     for row in rows:
         row["position"] = positions.get(row["code"], {}).get("position")
     return rows
@@ -105,6 +108,7 @@ def students(auth: dict = Depends(admin)):
 
 @router.get("/students/{code}")
 def student(code: str, auth: dict = Depends(admin)):
+    scope.student(auth, code)
     views = []
     for state in db.states_for(code):
         content = services.content_for(state["subject_id"], state["set_id"])
@@ -130,25 +134,29 @@ def student(code: str, auth: dict = Depends(admin)):
         "decisions": decisions,
         "traces": traces,
         "features": analytics.features(code),
-        "cluster": analytics.cluster_of(code),
+        "cluster": analytics.cluster_of(code, scope.of(auth)),
     }
 
 
 @router.get("/students/{code}/journey")
 def student_journey(code: str, session: int | None = None, auth: dict = Depends(admin)):
     """ทุกการกระทำใน Session หนึ่งตั้งแต่ต้นจนจบ เรียงเป็นขั้นที่ 1, 2, 3 …"""
+    scope.student(auth, code)
     return activity.journey(code, session)
 
 
 @router.get("/activity")
 def student_activity(code: str | None = None, include_sim: bool = False, limit: int = 40, auth: dict = Depends(admin)):
     """สิ่งที่นักเรียนป้อนเข้ามาแต่ละครั้ง และเส้นทางที่การกระทำนั้นผ่านในผังตรรกะ"""
-    return activity.events(code, include_sim, max(1, min(limit, 150)))
+    if code:
+        scope.student(auth, code)
+    return activity.events(code, include_sim, max(1, min(limit, 150)), scope.of(auth))
 
 
 @router.get("/students/{code}/answers")
 def student_answers(code: str, auth: dict = Depends(admin)):
     """โจทย์ที่กำลังทำ และคำตอบแต่ละครั้งพร้อมตัวโจทย์และคำตอบที่ถูก"""
+    scope.student(auth, code)
     return services.answer_sheet(code)
 
 
@@ -159,9 +167,10 @@ def topics(auth: dict = Depends(admin)):
 
 @router.get("/knowledge-map")
 def knowledge_map(code: str | None = None, auth: dict = Depends(admin)):
-    subject = _demo_subject()
+    subject = _demo_subject(auth)
     mastery = {}
     if code:
+        scope.student(auth, code)
         for state in db.states_for(code):
             content = services.content_for(state["subject_id"], state["set_id"])
             mastery = engine.mastery_map(state, services.make_ctx(content))
@@ -178,7 +187,7 @@ def knowledge_map(code: str | None = None, auth: dict = Depends(admin)):
 @router.get("/sample")
 def sample(auth: dict = Depends(admin)):
     """โจทย์และ Bug Library ของวิชาตัวอย่าง สำหรับเลือกในตัวตรวจ prompt"""
-    subject = _demo_subject()
+    subject = _demo_subject(auth)
     return {
         "id": subject["id"],
         "name": subject["name"],
@@ -191,7 +200,7 @@ def sample(auth: dict = Depends(admin)):
 
 @router.get("/bug-library")
 def bug_library(auth: dict = Depends(admin)):
-    return analytics.bug_hits(_demo_subject())
+    return analytics.bug_hits(_demo_subject(auth), scope.of(auth))
 
 
 # ---------------------------------------------------------------- AI (แท็บ 4)
@@ -211,12 +220,13 @@ def fuzzy_evaluate(body: FuzzyInput, auth: dict = Depends(admin)):
 
 @router.get("/clusters")
 def clusters(force: bool = False, auth: dict = Depends(admin)):
-    return analytics.clusters(force)
+    return analytics.clusters(force, owner=scope.of(auth))
 
 
 @router.get("/ai/logs")
 def ai_logs(limit: int = 30, auth: dict = Depends(admin)):
-    rows = db.query("SELECT * FROM ai_logs ORDER BY ts DESC LIMIT ?", (min(limit, 200),))
+    mine, params = _owned_logs(auth)
+    rows = db.query(f"SELECT * FROM ai_logs WHERE {mine} ORDER BY ts DESC LIMIT ?", (*params, min(limit, 200)))
     for row in rows:
         for key in ("frames", "retrieved", "guard"):
             row[key] = db.loads(row[key])
@@ -225,21 +235,23 @@ def ai_logs(limit: int = 30, auth: dict = Depends(admin)):
 
 @router.get("/ai/stats")
 def ai_stats(auth: dict = Depends(admin)):
+    mine, params = _owned_logs(auth)
     rows = db.query(
         "SELECT provider, COUNT(*) AS calls, SUM(tokens_in) AS tokens_in, SUM(tokens_out) AS tokens_out, "
-        "AVG(latency_ms) AS latency FROM ai_logs GROUP BY provider"
+        f"AVG(latency_ms) AS latency FROM ai_logs WHERE {mine} GROUP BY provider", params
     )
-    blocked = db.query_one("SELECT COUNT(*) AS n FROM ai_logs WHERE guard LIKE '%\"blocked\":true%'")["n"]
+    blocked = db.query_one(f"SELECT COUNT(*) AS n FROM ai_logs WHERE guard LIKE '%\"blocked\":true%' AND {mine}", params)["n"]
     today = time.time() - 86400
     today_rows = db.query(
-        "SELECT provider, SUM(tokens_in + tokens_out) AS tokens FROM ai_logs WHERE ts > ? GROUP BY provider", (today,)
+        f"SELECT provider, SUM(tokens_in + tokens_out) AS tokens FROM ai_logs WHERE ts > ? AND {mine} GROUP BY provider",
+        (today, *params),
     )
     return {"providers": rows, "guard_blocked": blocked, "today": {r["provider"]: r["tokens"] for r in today_rows}}
 
 
 @router.post("/ai/preview")
 async def ai_preview(body: Preview, auth: dict = Depends(admin)):
-    subject = _demo_subject()
+    subject = _demo_subject(auth)
     content = services.content_for(subject["id"], subject["question_sets"][0]["id"])
     if body.item_id not in content.items:
         raise HTTPException(404, "ไม่พบโจทย์นี้")
@@ -255,7 +267,7 @@ async def ai_preview(body: Preview, auth: dict = Depends(admin)):
 
 @router.post("/ai/tokenize")
 def tokenize(body: TokenizeBody, auth: dict = Depends(admin)):
-    subject = _demo_subject()
+    subject = _demo_subject(auth)
     index = rag.get_index((subject.get("gem") or {}).get("id") or subject["id"])
     query_terms, results = (index.search(body.query, 3) if index and body.query else ([], []))
     return {"tokens": rag.tokenize_demo(body.text), "query_terms": query_terms, "results": results}
@@ -265,7 +277,7 @@ def tokenize(body: TokenizeBody, auth: dict = Depends(admin)):
 
 @router.get("/scenarios")
 def scenarios(auth: dict = Depends(admin)):
-    return [{"id": k, "title": v["title"], "description": v["description"], "code": v["code"],
+    return [{"id": k, "title": v["title"], "description": v["description"], "code": demo.scenario_code(k, scope.of(auth)),
              "steps": len(v["steps"])} for k, v in demo.SCENARIOS.items()]
 
 
@@ -273,8 +285,9 @@ def scenarios(auth: dict = Depends(admin)):
 async def run_scenario(name: str, auth: dict = Depends(admin)):
     if name not in demo.SCENARIOS:
         raise HTTPException(404, "ไม่พบสถานการณ์นี้")
-    asyncio.create_task(demo.run_scenario(name))
-    return {"started": name, "code": demo.SCENARIOS[name]["code"]}
+    user = scope.of(auth)
+    asyncio.create_task(demo.run_scenario(name, owner=user))
+    return {"started": name, "code": demo.scenario_code(name, user)}
 
 
 @router.get("/stress")
@@ -286,30 +299,31 @@ def stress_list(auth: dict = Depends(admin)):
 def stress(case: str, auth: dict = Depends(admin)):
     if case not in demo.STRESS_TESTS:
         raise HTTPException(404, "ไม่พบกรณีทดสอบนี้")
-    return demo.run_stress(case)
+    return demo.run_stress(case, scope.of(auth))
 
 
 @router.post("/cohort/tick")
 async def cohort_tick(body: TickBody, auth: dict = Depends(admin)):
-    return {"moved": await demo.cohort_tick(body.students)}
+    return {"moved": await demo.cohort_tick(body.students, scope.of(auth))}
 
 
 @router.post("/cohort/reset")
 def cohort_reset(auth: dict = Depends(admin)):
-    return {"students": _reset_cohort()}
+    return {"students": _reset_cohort(scope.of(auth))}
 
 
-def _reset_cohort() -> int:
-    codes = [r["code"] for r in db.query("SELECT code FROM students WHERE kind = 'sim'")]
+def _reset_cohort(owner: str | None) -> int:
+    """สร้างนักเรียนจำลองของผู้ใช้คนนี้ใหม่ (ของคนอื่นไม่เปลี่ยน)"""
+    clause, params = scope.where(owner)
+    codes = [r["code"] for r in db.query(f"SELECT code FROM students WHERE kind = 'sim' AND {clause}", params)]
     for code in codes:
-        for table in ("states", "decisions", "alerts", "traces", "sessions"):
+        for table in ("states", "decisions", "alerts", "traces", "sessions", "students"):
             db.execute(f"DELETE FROM {table} WHERE code = ?", (code,))
-    db.execute("DELETE FROM students WHERE kind = 'sim'")
     try:
-        count = demo.seed_cohort(seed=int(time.time()) % 10_000)
+        count = demo.seed_cohort(seed=int(time.time()) % 10_000, owner=owner)
     except services.NotFound as error:
         raise HTTPException(400, str(error)) from error
-    analytics.clusters(force=True)
+    analytics.clusters(force=True, owner=owner)
     return count
 
 
@@ -319,7 +333,7 @@ class DemoGem(BaseModel):
 
 @router.get("/demo-gem")
 def demo_gem(auth: dict = Depends(admin)):
-    gem = demo.demo_gem()
+    gem = demo.demo_gem(scope.of(auth))
     return {"gem_id": gem["id"] if gem else None, "name": gem["name"] if gem else None,
             "set_id": gem["set_id"] if gem else None}
 
@@ -327,26 +341,29 @@ def demo_gem(auth: dict = Depends(admin)):
 @router.put("/demo-gem")
 def set_demo_gem(body: DemoGem, auth: dict = Depends(admin)):
     """เลือก Gem ที่ใช้สาธิตหัวข้อ 2–6 แล้วสร้างนักเรียนจำลองใหม่บน Gem นั้น"""
-    gem = db.get_gem(body.gem_id)
+    gem = scope.gem(auth, body.gem_id)
     if not gem or not gem.get("set_id"):
         raise HTTPException(400, "Gem นี้ยังไม่มีคลังโจทย์")
-    db.set_setting(demo.DEMO_GEM_KEY, body.gem_id)
-    return {"gem_id": body.gem_id, "students": _reset_cohort()}
+    user = scope.of(auth)
+    db.set_setting(demo.demo_key(user), body.gem_id)
+    return {"gem_id": body.gem_id, "students": _reset_cohort(user)}
 
 
 # ---------------------------------------------------------------- จริยธรรมและความเป็นส่วนตัว (แท็บ 7)
 
 @router.get("/logs")
 def logs(auth: dict = Depends(admin)):
+    clause, params = scope.where(scope.of(auth))
     return {
-        "overrides": db.query("SELECT * FROM overrides ORDER BY ts DESC LIMIT 100"),
-        "alerts": db.query("SELECT * FROM alerts ORDER BY ts DESC LIMIT 100"),
+        "overrides": db.query(f"SELECT * FROM overrides WHERE {clause} ORDER BY ts DESC LIMIT 100", params),
+        "alerts": db.query(f"SELECT * FROM alerts WHERE {clause} ORDER BY ts DESC LIMIT 100", params),
     }
 
 
 @router.get("/privacy/{code}")
 def privacy(code: str, auth: dict = Depends(admin)):
     """ข้อมูลที่ระบบเก็บของนักเรียนหนึ่งคน ดูจากมุม Admin ซึ่งไม่มีสิทธิ์อ่าน Roster"""
+    scope.student(auth, code)
     counts = {
         table: db.query_one(f"SELECT COUNT(*) AS n FROM {table} WHERE code = ?", (code,))["n"]
         for table in ("traces", "decisions", "sessions", "alerts", "ai_logs")
@@ -376,6 +393,7 @@ def privacy_scrub(body: ScrubBody, auth: dict = Depends(admin)):
 
 @router.get("/anti-labeling/{code}")
 def anti_labeling(code: str, auth: dict = Depends(admin)):
+    scope.student(auth, code)
     states = db.states_for(code)
     if not states:
         raise HTTPException(404, "นักเรียนคนนี้ยังไม่เริ่มเรียน")
@@ -395,13 +413,23 @@ def get_settings(auth: dict = Depends(admin)):
         "params": settings_store.params(),
         "param_labels": PARAM_LABELS,
         "demo": settings_store.demo(),
-        "usage": model_usage(),
+        "usage": model_usage(auth),
+        # ค่าในหน้านี้เป็นของบัญชีนี้เท่านั้น (มีผู้ใช้หลายคน) หน้าเว็บบอกให้รู้ว่าไม่กระทบคนอื่น
+        "account": users.get(scope.of(auth)),
     }
 
 
-def model_usage() -> dict:
+def _owned_logs(auth: dict) -> tuple[str, tuple]:
+    """การเรียก AI ที่คิดกับ API key ของผู้ใช้ (ของ Gem และนักเรียนของตัวเอง หรือที่ผู้ใช้กดเอง)"""
+    user = scope.of(auth)
+    return ("owner = ?", (user,)) if user else ("1 = 1", ())
+
+
+def model_usage(auth: dict) -> dict:
     """โมเดล Gemini ที่ใช้จริงล่าสุดแยกตามงาน และเหตุผลถ้าไม่ใช่ตัวที่ตั้งไว้ (เช่น โควตา Free Tier ของตัวหลักหมด)"""
-    rows = db.query("SELECT ts, purpose, model, error FROM ai_logs WHERE provider = 'gemini' ORDER BY id DESC LIMIT 80")
+    mine, params = _owned_logs(auth)
+    rows = db.query(f"SELECT ts, purpose, model, error FROM ai_logs WHERE provider = 'gemini' AND {mine} "
+                    "ORDER BY id DESC LIMIT 80", params)
     out = {}
     for task, match in (("design", lambda p: p.startswith("gem_")), ("chat", lambda p: not p.startswith("gem_"))):
         mine = [r for r in rows if match(r["purpose"] or "")]

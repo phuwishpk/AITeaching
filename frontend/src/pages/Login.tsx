@@ -1,5 +1,5 @@
 import { useEffect, useState, type FormEvent, type ReactNode } from "react";
-import { Link } from "react-router";
+import { Link, useLocation, useNavigate } from "react-router";
 import { ArrowLeft } from "lucide-react";
 import { api, setAuth, type Role } from "../lib/api";
 import { BrandMark, ThemeToggle } from "../components/Shell";
@@ -73,23 +73,21 @@ export function StudentLogin({ onDone }: { onDone: () => void }) {
   );
 }
 
-// ครูและ Admin: ถ้าเซิร์ฟเวอร์ตั้งรหัสผ่านไว้ (ไฟล์ .env) ให้ใส่รหัสก่อน ไม่ตั้งก็ขอ token แล้วเข้าหน้าเลย
+// ครูและ Admin ที่ยังไม่ได้ล็อกอิน: มีบัญชีผู้ใช้ → กลับไปล็อกอินที่หน้าแรก แล้วพากลับมาหน้านี้
+// โหมดเดิม: ถ้าเซิร์ฟเวอร์ตั้งรหัสผ่านไว้ (ไฟล์ .env) ให้ใส่รหัสก่อน ไม่ตั้งก็ขอ token แล้วเข้าหน้าเลย
 export function StaffEnter({ role, onDone }: { role: Exclude<Role, "student">; onDone: () => void }) {
   const [error, setError] = useState<string | null>(null);
   const [attempt, setAttempt] = useState(0);
   const [needsPassword, setNeedsPassword] = useState<boolean | null>(null);
-  const [needsUser, setNeedsUser] = useState(false);
-  const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
   const [busy, setBusy] = useState(false);
+  const navigate = useNavigate();
+  const location = useLocation();
   const label = role === "teacher" ? "หน้าครู" : "หน้าผู้ดูแลระบบ";
 
   const enter = async (secret?: string) => {
-    const result = await api<{ token: string; code?: string; name?: string }>(null, "/api/auth/staff", {
-      body: { role, username: username.trim() || undefined, password: secret },
-    });
-    // ชื่อผู้ใช้เก็บไว้แสดงบนแถบด้านบน (มีผู้ใช้หลายคนในระบบเดียว)
-    setAuth(role, { token: result.token, code: result.name ?? result.code });
+    const result = await api<{ token: string }>(null, "/api/auth/staff", { body: { role, password: secret } });
+    setAuth(role, { token: result.token });
     onDone();
   };
 
@@ -98,8 +96,11 @@ export function StaffEnter({ role, onDone }: { role: Exclude<Role, "student">; o
     api<Record<string, boolean>>(null, "/api/auth/staff-mode")
       .then(async (mode) => {
         if (!live) return;
+        if (mode.users) {
+          navigate(`/?next=${encodeURIComponent(location.pathname + location.search)}`, { replace: true });
+          return;
+        }
         if (mode[role]) {
-          setNeedsUser(!!mode.users);
           setNeedsPassword(true);
           return;
         }
@@ -132,38 +133,21 @@ export function StaffEnter({ role, onDone }: { role: Exclude<Role, "student">; o
           <div className="stack stack-sm">
             <p className="eyebrow">{role === "teacher" ? "ครู" : "ผู้ดูแลระบบ"}</p>
             <h1 className="title-lg">ใส่รหัสผ่านเพื่อเข้า{label}</h1>
-            <p className="small muted">
-              {needsUser
-                ? "ใช้บัญชีของตัวเอง ทุกคนเห็น Gem และนักเรียนชุดเดียวกัน แต่ AI ของ Gem คิดกับ API key ของเจ้าของ Gem"
-                : `${label}มีข้อมูลนักเรียน จึงต้องใส่รหัสผ่านที่ผู้ดูแลเซิร์ฟเวอร์ตั้งไว้`}
-            </p>
+            <p className="small muted">{label}มีข้อมูลนักเรียน จึงต้องใส่รหัสผ่านที่ผู้ดูแลเซิร์ฟเวอร์ตั้งไว้</p>
           </div>
-          {needsUser && (
-            <Field label="ชื่อผู้ใช้">
-              <input
-                className="input input-lg"
-                value={username}
-                onChange={(e) => setUsername(e.target.value.toLowerCase())}
-                autoFocus
-                autoComplete="username"
-                autoCapitalize="off"
-                spellCheck={false}
-              />
-            </Field>
-          )}
           <Field label="รหัสผ่าน">
             <input
               className="input input-lg"
               type="password"
               value={password}
               onChange={(e) => setPassword(e.target.value)}
-              autoFocus={!needsUser}
+              autoFocus
               autoComplete="current-password"
               aria-invalid={!!error}
             />
           </Field>
           {error && <p className="small" style={{ color: "var(--text-2)" }}>{error}</p>}
-          <Button variant="primary" size="lg" block loading={busy} disabled={!password || (needsUser && !username.trim())} type="submit">
+          <Button variant="primary" size="lg" block loading={busy} disabled={!password} type="submit">
             เข้า{label}
           </Button>
         </form>

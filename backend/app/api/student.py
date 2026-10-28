@@ -1,7 +1,7 @@
 from fastapi import APIRouter, Depends
 from pydantic import BaseModel
 
-from .. import db, services
+from .. import db, scope, services
 from ..gems import builder as gem_builder
 from ..content.readiness import check_set
 from ..engine import core as engine
@@ -40,6 +40,8 @@ def list_sets(auth: dict = Depends(student)):
     result = []
     states = {s["set_id"]: s for s in db.states_for(auth["code"])}
     for subject in db.list_subjects():
+        if not scope.may_learn(auth["code"], subject):
+            continue  # Gem ของครูคนอื่น นักเรียนเห็นเฉพาะ Gem ของครูที่ให้รหัส
         for qs in subject.get("question_sets", []):
             if not qs.get("published") or not check_set(gem_builder.usable(subject), qs["id"])["ok"]:
                 continue

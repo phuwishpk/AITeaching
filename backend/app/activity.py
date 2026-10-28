@@ -5,7 +5,7 @@
 หรือจากครูสั่ง Manual Override
 """
 
-from . import db, rules
+from . import db, rules, scope
 from .gems import versions
 from .engine import flow as F
 
@@ -117,8 +117,9 @@ def _assemble(traces: list[dict], decisions: list[dict]) -> list[dict]:
     return out
 
 
-def events(code: str | None = None, include_sim: bool = False, limit: int = 40) -> list[dict]:
-    where, params = [], []
+def events(code: str | None = None, include_sim: bool = False, limit: int = 40, owner: str | None = None) -> list[dict]:
+    clause, params = scope.where(owner, "x.code")
+    where, params = [clause], list(params)
     if code:
         where.append("x.code = ?")
         params.append(code)

@@ -2,6 +2,7 @@
 
 API key เก็บในไฟล์ runtime/secrets.json (ไม่ขึ้น git) ถ้ามีตัวแปร environment
 ANTHROPIC_API_KEY หรือ GEMINI_API_KEY จะใช้ค่านั้นแทน และหน้าเว็บเห็นแค่ 4 ตัวท้าย
+มีผู้ใช้หลายคน: API key Provider โมเดล พารามิเตอร์ และ Demo Mode เป็นของแต่ละคน ตั้งแล้วไม่กระทบคนอื่น
 """
 
 import json
@@ -98,8 +99,23 @@ def masked(provider: str) -> dict:
     return {"configured": bool(key), "source": source, "last4": key[-4:] if key else None}
 
 
-def ai_settings() -> dict:
-    stored = db.get_setting("ai", {}) or {}
+def _setting_key(name: str, owner: str | None = None) -> str:
+    """ค่าตั้งของผู้ใช้แต่ละคนเก็บชื่อ name:ผู้ใช้ (ผู้ใช้ = เจ้าของงานนี้ เหมือน API key)"""
+    owner = owner or _key_owner.get()
+    return f"{name}:{owner}" if owner and _per_user() else name
+
+
+def _stored(name: str, owner: str | None = None) -> dict:
+    """ค่าที่ผู้ใช้ตั้งไว้ ยังไม่เคยตั้งใช้ค่ากลางเดิม (ก่อนมีผู้ใช้หลายคน)"""
+    key = _setting_key(name, owner)
+    value = db.get_setting(key)
+    if value is None and key != name:
+        value = db.get_setting(name)
+    return value or {}
+
+
+def ai_settings(owner: str | None = None) -> dict:
+    stored = _stored("ai", owner)
     return {
         "active": stored.get("active", "claude"),
         "order": stored.get("order", ["claude", "gemini"]),
@@ -115,26 +131,26 @@ def save_ai_settings(updates: dict) -> dict:
     for key in ("active", "order", "claude_model", "gemini_model", "gemini_design_model"):
         if key in updates and updates[key] is not None:
             current[key] = updates[key]
-    db.set_setting("ai", current)
+    db.set_setting(_setting_key("ai"), current)
     return current
 
 
-def params() -> dict:
-    stored = db.get_setting("params", {}) or {}
+def params(owner: str | None = None) -> dict:
+    stored = _stored("params", owner)
     return {**DEFAULT_PARAMS, **{k: v for k, v in stored.items() if k in DEFAULT_PARAMS}}
 
 
 def save_params(updates: dict) -> dict:
-    stored = db.get_setting("params", {}) or {}
+    stored = dict(_stored("params"))
     for key, value in updates.items():
         if key in DEFAULT_PARAMS and value is not None:
             stored[key] = float(value)
-    db.set_setting("params", stored)
+    db.set_setting(_setting_key("params"), stored)
     return params()
 
 
-def demo() -> dict:
-    stored = db.get_setting("demo", {}) or {}
+def demo(owner: str | None = None) -> dict:
+    stored = _stored("demo", owner)
     return {"enabled": stored.get("enabled", False), "time_scale": stored.get("time_scale", 0.2)}
 
 
@@ -146,6 +162,6 @@ def time_scale() -> float:
 def save_demo(updates: dict) -> dict:
     current = demo()
     current.update({k: v for k, v in updates.items() if k in ("enabled", "time_scale") and v is not None})
-    db.set_setting("demo", current)
+    db.set_setting(_setting_key("demo"), current)
     return current
 

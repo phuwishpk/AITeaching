@@ -9,7 +9,7 @@ import json
 import re
 import time
 
-from .. import db, settings_store
+from .. import db, scope, settings_store
 from . import distress, guard, prompt, providers, rag
 
 LEVEL_FALLBACK = {
@@ -54,9 +54,11 @@ async def _call(system: str, user: str, **options) -> tuple[providers.LLMResult 
 
 def _log(code: str | None, purpose: str, frames: dict | None, retrieved: list | None, result, final_text: str,
          guard_result: dict | None, errors: list[str]) -> int:
+    # เจ้าของบันทึก = คนที่ API key ถูกใช้ (เจ้าของ Gem หรือผู้ใช้ที่กด) ให้แต่ละคนเห็นเฉพาะการเรียก AI ของตัวเอง
+    owner = settings_store.key_owner() or scope.student_owner(code)
     cursor = db.execute(
         "INSERT INTO ai_logs (ts, code, purpose, provider, model, frames, retrieved, output, final_text, guard, "
-        "tokens_in, tokens_out, latency_ms, error) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+        "tokens_in, tokens_out, latency_ms, error, owner) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
         (
             time.time(), code, purpose,
             result.provider if result else "offline",
@@ -65,7 +67,7 @@ def _log(code: str | None, purpose: str, frames: dict | None, retrieved: list | 
             result.text if result else None,
             final_text, db.dumps(guard_result), result.tokens_in if result else 0,
             result.tokens_out if result else 0, result.latency_ms if result else 0,
-            "; ".join(errors) if errors else None,
+            "; ".join(errors) if errors else None, owner,
         ),
     )
     return cursor.lastrowid

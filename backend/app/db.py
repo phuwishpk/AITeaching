@@ -25,7 +25,7 @@ CREATE TABLE IF NOT EXISTS documents (
     chars INTEGER, chunks TEXT, warning TEXT, uploaded_at REAL, reader TEXT
 );
 CREATE TABLE IF NOT EXISTS students (
-    code TEXT PRIMARY KEY, kind TEXT DEFAULT 'real', persona TEXT, created_at REAL
+    code TEXT PRIMARY KEY, kind TEXT DEFAULT 'real', persona TEXT, created_at REAL, owner TEXT
 );
 CREATE TABLE IF NOT EXISTS roster (
     code TEXT PRIMARY KEY, name TEXT NOT NULL
@@ -55,7 +55,7 @@ CREATE TABLE IF NOT EXISTS overrides (
 CREATE TABLE IF NOT EXISTS ai_logs (
     id INTEGER PRIMARY KEY AUTOINCREMENT, ts REAL, code TEXT, purpose TEXT, provider TEXT,
     model TEXT, frames TEXT, retrieved TEXT, output TEXT, final_text TEXT, guard TEXT,
-    tokens_in INTEGER, tokens_out INTEGER, latency_ms INTEGER, error TEXT
+    tokens_in INTEGER, tokens_out INTEGER, latency_ms INTEGER, error TEXT, owner TEXT
 );
 CREATE TABLE IF NOT EXISTS suggested_tags (
     id INTEGER PRIMARY KEY AUTOINCREMENT, ts REAL, code TEXT, item_id TEXT, answer TEXT,
@@ -109,9 +109,32 @@ def connect() -> sqlite3.Connection:
 
 def _migrate(conn: sqlite3.Connection) -> None:
     """คอลัมน์ที่เพิ่มทีหลังในฐานข้อมูลเดิม"""
-    columns = {row["name"] for row in conn.execute("PRAGMA table_info(documents)")}
-    if "reader" not in columns:
-        conn.execute("ALTER TABLE documents ADD COLUMN reader TEXT")
+    for table, column in (("documents", "reader"), ("students", "owner"), ("ai_logs", "owner")):
+        if column not in {row["name"] for row in conn.execute(f"PRAGMA table_info({table})")}:
+            conn.execute(f"ALTER TABLE {table} ADD COLUMN {column} TEXT")
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_students_owner ON students (owner)")
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_ai_logs_owner ON ai_logs (owner, ts)")
+    first = conn.execute("SELECT username FROM staff ORDER BY created_at LIMIT 1").fetchone()
+    if first:
+        adopt_orphans(first["username"], conn)
+
+
+def adopt_orphans(username: str, conn: sqlite3.Connection | None = None) -> int:
+    """ข้อมูลที่เกิดก่อนมีผู้ใช้หลายคน (ยังไม่มีเจ้าของ) เป็นของผู้ใช้คนนี้: Gem นักเรียน และบันทึกการเรียก AI
+    คืนจำนวน Gem ที่ได้เจ้าของ"""
+    conn = conn or connect()
+    adopted = 0
+    with _lock:
+        for row in conn.execute("SELECT id, data FROM gems").fetchall():
+            gem = loads(row["data"])
+            if not gem.get("owner"):
+                gem["owner"] = username
+                conn.execute("UPDATE gems SET data = ? WHERE id = ?", (dumps(gem), row["id"]))
+                adopted += 1
+        conn.execute("UPDATE students SET owner = ? WHERE owner IS NULL", (username,))
+        conn.execute("UPDATE ai_logs SET owner = COALESCE((SELECT s.owner FROM students s WHERE s.code = ai_logs.code), ?) "
+                     "WHERE owner IS NULL", (username,))
+    return adopted
 
 
 def use_memory_db() -> None:
@@ -120,6 +143,7 @@ def use_memory_db() -> None:
     _conn = sqlite3.connect(":memory:", check_same_thread=False, isolation_level=None)
     _conn.row_factory = sqlite3.Row
     _conn.executescript(SCHEMA)
+    _migrate(_conn)
 
 
 def execute(sql: str, params: tuple | list = ()) -> sqlite3.Cursor:

@@ -3,6 +3,7 @@
 นักเรียนจำลองวิ่งผ่าน engine ตัวเดียวกับนักเรียนจริง แต่ใช้นาฬิกาจำลองของตัวเอง
 จึงสร้าง Decision Trace ได้จริงโดยไม่ต้องรอเวลาจริง และไม่เรียก AI (ใช้คำใบ้ต้นฉบับ)
 ทุกอย่างทำงานบน "Gem ที่ใช้สาธิต" ที่ Admin เลือก (ถ้ายังไม่เลือก ใช้ Gem แรกที่สร้างคลังโจทย์เสร็จ)
+มีผู้ใช้หลายคน: แต่ละคนมี Gem ที่ใช้สาธิต นักเรียนจำลอง และนักเรียนสาธิตของตัวเอง (owner = ชื่อผู้ใช้)
 """
 
 import asyncio
@@ -11,7 +12,7 @@ import random
 import time
 from fractions import Fraction
 
-from . import db, services, settings_store
+from . import db, scope, services, settings_store
 from .engine import core as engine
 from .engine import flow as F
 from .engine import widgets
@@ -23,20 +24,24 @@ from .tutor import distress, guard
 DEMO_GEM_KEY = "demo_gem"
 
 
-def demo_gem() -> dict | None:
-    """Gem ที่ใช้สาธิตหัวข้อ 2–6 และนักเรียนจำลอง"""
-    ready = [g for g in db.list_gems() if g.get("set_id") and db.get_subject(g.get("subject_id") or "")]
-    chosen = db.get_setting(DEMO_GEM_KEY)
+def demo_key(owner: str | None) -> str:
+    return f"{DEMO_GEM_KEY}:{owner}" if owner else DEMO_GEM_KEY
+
+
+def demo_gem(owner: str | None = None) -> dict | None:
+    """Gem ที่ใช้สาธิตหัวข้อ 2–6 และนักเรียนจำลอง (เลือกจาก Gem ของผู้ใช้คนนี้เท่านั้น)"""
+    ready = [g for g in scope.gems(owner) if g.get("set_id") and db.get_subject(g.get("subject_id") or "")]
+    chosen = db.get_setting(demo_key(owner)) or db.get_setting(DEMO_GEM_KEY)
     return next((g for g in ready if g["id"] == chosen), None) or min(ready, key=lambda g: g.get("created_at", 0), default=None)
 
 
-def demo_content(standard: bool = False):
+def demo_content(standard: bool = False, owner: str | None = None):
     """(set_id, Content) ของคลังรุ่นปัจจุบันของ Gem ที่ใช้สาธิต
 
     standard = True: ใช้ผังมาตรฐาน แม้ครูจะออกแบบ Flow ของ Gem เอง สถานการณ์สาธิต (หัวข้อ 5)
     และ Stress Test (หัวข้อ 6) อธิบายกฎของแม่แบบมาตรฐาน จึงต้องรันบนแม่แบบมาตรฐานเสมอ (ADR-0004)
     """
-    gem = demo_gem()
+    gem = demo_gem(owner)
     if gem is None:
         raise services.NotFound("ยังไม่มี Gem ที่พร้อมสาธิต ให้ครูสร้าง Gem ก่อน")
     content = services.content_for(gem["subject_id"], gem["set_id"])
@@ -194,8 +199,8 @@ def _persist_all(state: dict, content, fxs: list[Fx], t: float) -> list[dict]:
     return alerts
 
 
-def seed_cohort(per_persona: int = 8, seed: int = 2026) -> int:
-    set_id, content = demo_content()
+def seed_cohort(per_persona: int = 8, seed: int = 2026, owner: str | None = None) -> int:
+    set_id, content = demo_content(owner=owner)
     subject = content.subject
     rng = random.Random(seed)
     now = time.time()
@@ -203,10 +208,10 @@ def seed_cohort(per_persona: int = 8, seed: int = 2026) -> int:
     for key in ("fast", "struggling", "guesser", "bite"):
         persona = PERSONAS[key]
         for _ in range(per_persona):
-            code = f"SIM-{index:02d}"
+            code = scope.code_for(f"SIM-{index:02d}", owner)
             index += 1
-            db.execute("INSERT OR IGNORE INTO students (code, kind, persona, created_at) VALUES (?,?,?,?)",
-                       (code, "sim", key, now))
+            db.execute("INSERT OR IGNORE INTO students (code, kind, persona, created_at, owner) VALUES (?,?,?,?,?)",
+                       (code, "sim", key, now, owner))
             for day in range(rng.randint(2, 4)):
                 start = now - (day + 1) * 86400 - rng.uniform(0, 3600)
                 length = rng.uniform(*persona["session"]) * 60
@@ -227,9 +232,10 @@ def seed_cohort(per_persona: int = 8, seed: int = 2026) -> int:
     return index - 1
 
 
-async def cohort_tick(max_students: int = 10) -> int:
+async def cohort_tick(max_students: int = 10, owner: str | None = None) -> int:
     """ขยับนักเรียนจำลองคนละหนึ่งก้าว ให้ผังในหน้า Admin เคลื่อนไหว"""
-    rows = db.query("SELECT code, persona FROM students WHERE kind = 'sim'")
+    clause, params = scope.where(owner)
+    rows = db.query(f"SELECT code, persona FROM students WHERE kind = 'sim' AND {clause}", params)
     rng = random.Random()
     moved = 0
     for row in rng.sample(rows, min(max_students, len(rows))):
@@ -301,9 +307,13 @@ def _scenario_answer(it: dict, spec: str, tags: dict) -> str:
     return spec
 
 
-def reset_demo_student(code: str):
-    db.execute("INSERT OR IGNORE INTO students (code, kind, persona, created_at) VALUES (?,?,?,?)",
-               (code, "demo", None, time.time()))
+def scenario_code(name: str, owner: str | None = None) -> str:
+    return scope.code_for(SCENARIOS[name]["code"], owner)
+
+
+def reset_demo_student(code: str, owner: str | None = None):
+    db.execute("INSERT OR IGNORE INTO students (code, kind, persona, created_at, owner) VALUES (?,?,?,?,?)",
+               (code, "demo", None, time.time(), owner))
     db.execute("DELETE FROM states WHERE code = ?", (code,))
     db.execute("DELETE FROM decisions WHERE code = ?", (code,))
     db.execute("DELETE FROM alerts WHERE code = ?", (code,))
@@ -311,16 +321,16 @@ def reset_demo_student(code: str):
     db.execute("DELETE FROM sessions WHERE code = ?", (code,))
 
 
-async def run_scenario(name: str, pause: float = 1.4) -> dict:
+async def run_scenario(name: str, pause: float = 1.4, owner: str | None = None) -> dict:
     scenario = SCENARIOS[name]
-    code = scenario["code"]
-    set_id, content = demo_content(standard=True)
+    code = scenario_code(name, owner)
+    set_id, content = demo_content(standard=True, owner=owner)
     subject = content.subject
     total_virtual = sum(step[-1] for step in scenario["steps"] if isinstance(step[-1], (int, float))) + 30
     t = time.time() - total_virtual
     log = []
     async with services.lock(code):
-        reset_demo_student(code)
+        reset_demo_student(code, owner)
         state = engine.new_state(code, subject["id"], set_id, services.new_session(code, set_id, t), t)
         ctx = Ctx(content, settings_store.params(), 1.0, t)
         fx = engine.begin(state, ctx)
@@ -575,9 +585,9 @@ STRESS_TESTS = {
 }
 
 
-def run_stress(case: str) -> dict:
+def run_stress(case: str, owner: str | None = None) -> dict:
     try:
-        _, content = demo_content(standard=True)
+        _, content = demo_content(standard=True, owner=owner)
         return STRESS_TESTS[case](content)
     except Exception as error:  # แสดงข้อผิดพลาดในหน้าทดสอบ แทนการล้มทั้งหน้า
         return _result(case, case, "-", "-", f"เกิดข้อผิดพลาด: {error}", False, [])

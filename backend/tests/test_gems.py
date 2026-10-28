@@ -798,27 +798,36 @@ def test_staff_password_when_the_server_sets_one(monkeypatch):
     assert client.post("/api/auth/staff", json={"role": "admin"}).status_code == 200
 
 
-def test_several_staff_share_one_system_but_not_api_keys(monkeypatch):
-    from app import settings_store, users
+def _two_staff():
+    """บัญชีครูสองคน ล็อกอินจากหน้าแรกครั้งเดียวได้ token ทั้งหน้าครูและหน้า Admin"""
+    from app import users
 
-    alice = users.add("alice", "ครูอลิซ")
-    bob = users.add("bob", "ครูบ็อบ")
+    alice, bob = users.add("alice", "ครูอลิซ"), users.add("bob", "ครูบ็อบ")
     client = TestClient(app)
+
+    def login(name, password):
+        tokens = client.post("/api/auth/login", json={"username": name, "password": password}).json()["tokens"]
+        return {role: {"Authorization": f"Bearer {token}"} for role, token in tokens.items()}
+
+    return client, login("alice", alice), login("bob", bob)
+
+
+def test_each_staff_member_keeps_their_own_api_key_and_ai_settings(monkeypatch):
+    client, a, b = _two_staff()
     assert client.get("/api/auth/staff-mode").json()["users"] is True
-    assert client.post("/api/auth/staff", json={"role": "teacher", "username": "alice", "password": "ผิด"}).status_code == 401
-    login = lambda name, pw, role="teacher": {"Authorization": "Bearer " + client.post(
-        "/api/auth/staff", json={"role": role, "username": name, "password": pw}).json()["token"]}
-    a_admin, b_admin = login("alice", alice, "admin"), login("bob", bob, "admin")
-    # แต่ละคนใส่ key ของตัวเอง เห็นแค่ของตัวเอง
-    client.put("/api/admin/secrets", headers=a_admin, json={"provider": "gemini", "key": "AIza-alice-1111"})
-    assert client.get("/api/admin/settings", headers=a_admin).json()["keys"]["gemini"]["last4"] == "1111"
-    assert client.get("/api/admin/settings", headers=b_admin).json()["keys"]["gemini"]["configured"] is False
-    # Gem ของใครคนนั้นเป็นเจ้าของ ทุกคนเห็น Gem ชุดเดียวกัน
-    a_teacher, b_teacher = login("alice", alice), login("bob", bob)
-    gem = client.post("/api/gems", headers=a_teacher, json={"name": "เศษส่วนของอลิซ"}).json()
+    assert client.post("/api/auth/login", json={"username": "alice", "password": "ผิด"}).status_code == 401
+    # แต่ละคนใส่ key และเลือกโมเดลของตัวเอง เห็นแค่ของตัวเอง ไม่กระทบอีกคน
+    client.put("/api/admin/secrets", headers=a["admin"], json={"provider": "gemini", "key": "AIza-alice-1111"})
+    client.put("/api/admin/settings", headers=a["admin"], json={"ai": {"active": "gemini", "gemini_model": "model-a"},
+                                                                "params": {"rapid_guess_threshold": 2.5}})
+    mine, theirs = (client.get("/api/admin/settings", headers=h["admin"]).json() for h in (a, b))
+    assert mine["keys"]["gemini"]["last4"] == "1111" and theirs["keys"]["gemini"]["configured"] is False
+    assert mine["ai"]["gemini_model"] == "model-a" and theirs["ai"]["gemini_model"] != "model-a"
+    assert mine["params"]["rapid_guess_threshold"] == 2.5 and theirs["params"]["rapid_guess_threshold"] != 2.5
+    assert mine["account"]["username"] == "alice"
+    # งาน AI ของ Gem คิดกับ key ของเจ้าของ Gem เสมอ แม้ context ก่อนหน้าเป็นของคนอื่น
+    gem = client.post("/api/gems", headers=a["teacher"], json={"name": "เศษส่วนของอลิซ"}).json()
     assert gem["owner"] == "alice" and gem["owner_name"] == "ครูอลิซ"
-    assert [g["id"] for g in client.get("/api/gems", headers=b_teacher).json()] == [gem["id"]]
-    # งาน AI ของ Gem คิดกับ key ของเจ้าของ แม้บ็อบเป็นคนกด และระหว่างนักเรียนเรียน
     seen = []
 
     async def fake_call(system, user, **options):
@@ -830,22 +839,101 @@ def test_several_staff_share_one_system_but_not_api_keys(monkeypatch):
     services.bill_to_gem_owner({"gem": {"id": gem["id"]}})
     asyncio.run(service.chat_reply({"id": "x", "name": "คณิต", "gem": {"id": gem["id"]}}, None, "", {}, "ช่วยหน่อย", None, [], "", "S-1"))
     assert seen == ["AIza-alice-1111"]
+    assert db.query_one("SELECT owner FROM ai_logs ORDER BY id DESC LIMIT 1")["owner"] == "alice"
+    assert client.get("/api/teacher/ai-logs", headers=b["teacher"]).json() == []
+    assert len(client.get("/api/admin/ai/logs", headers=a["admin"]).json()) == 1
 
 
-def test_only_the_gem_owner_can_change_or_rebuild_it():
+def test_each_staff_member_sees_only_their_own_gems_and_students():
+    from app import scope
+
+    client, a, b = _two_staff()
+    gem = client.post("/api/gems", headers=a["teacher"], json={"name": "ของอลิซ"}).json()
+    assert [g["id"] for g in client.get("/api/gems", headers=a["admin"]).json()] == [gem["id"]]
+    assert client.get("/api/gems", headers=b["teacher"]).json() == []
+    # Gem ของคนอื่นตอบเหมือนไม่มี ทั้งดู แก้ ลองเรียน สร้างใหม่ และลบ
+    assert client.get(f"/api/gems/{gem['id']}", headers=b["admin"]).status_code == 404
+    assert client.put(f"/api/gems/{gem['id']}", headers=b["teacher"], json={"name": "แก้"}).status_code == 404
+    assert client.post(f"/api/gems/{gem['id']}/build", headers=b["teacher"]).status_code == 404
+    assert client.post(f"/api/gems/{gem['id']}/preview/start", headers=b["teacher"]).status_code == 404
+    assert client.delete(f"/api/gems/{gem['id']}", headers=b["teacher"]).status_code == 404
+    assert client.put(f"/api/gems/{gem['id']}", headers=a["teacher"], json={"name": "แก้โดยเจ้าของ"}).status_code == 200
+    # นักเรียนที่ครูเพิ่มใน Roster เป็นของครูคนนั้น
+    code = client.post("/api/teacher/roster", headers=a["teacher"], json={"name": "นักเรียนของอลิซ"}).json()["code"]
+    assert [r["code"] for r in client.get("/api/teacher/roster", headers=a["teacher"]).json()] == [code]
+    assert client.get("/api/teacher/roster", headers=b["teacher"]).json() == []
+    assert client.post("/api/teacher/roster", headers=b["teacher"], json={"code": code, "name": "ยึด"}).status_code == 400
+    assert client.get(f"/api/teacher/students/{code}", headers=b["teacher"]).status_code == 404
+    assert client.get(f"/api/admin/students/{code}", headers=b["admin"]).status_code == 404
+    assert client.post(f"/api/teacher/students/{code}/messages", headers=b["teacher"], json={"text": "สวัสดี"}).status_code == 404
+    assert [s["code"] for s in client.get("/api/teacher/overview", headers=a["teacher"]).json()["students"]] == [code]
+    assert client.get("/api/teacher/overview", headers=b["teacher"]).json()["students"] == []
+    assert [s["code"] for s in client.get("/api/admin/students", headers=b["admin"]).json()] == []
+    # การแจ้งเตือนและแชตของนักเรียนถึงเฉพาะเจ้าของ
+    db.execute("INSERT INTO alerts (ts, code, level, kind, message) VALUES (1, ?, 'high', 'impasse', 'ติดอยู่')", (code,))
+    alert_id = client.get("/api/teacher/alerts", headers=a["teacher"]).json()[0]["id"]
+    assert client.get("/api/teacher/alerts", headers=b["teacher"]).json() == []
+    assert client.post(f"/api/teacher/alerts/{alert_id}/ack", headers=b["teacher"]).status_code == 404
+    assert client.get("/api/admin/logs", headers=b["admin"]).json()["alerts"] == []
+    asyncio.run(services.post_message(code, None, "student", "ช่วยด้วย"))
+    assert [r["code"] for r in client.get("/api/teacher/inbox", headers=a["teacher"]).json()] == [code]
+    assert client.get("/api/teacher/inbox", headers=b["teacher"]).json() == []
+    # นักเรียนเรียนได้เฉพาะ Gem ของครูที่ให้รหัส
+    other = client.post("/api/gems", headers=b["teacher"], json={"name": "ของบ็อบ"}).json()
+    assert scope.may_learn(code, {"gem": {"id": gem["id"]}})
+    assert not scope.may_learn(code, {"gem": {"id": other["id"]}})
+
+
+def test_live_events_reach_only_the_owner_of_the_student():
+    from app.hub import Hub
+
+    _two_staff()
+    db.execute("INSERT INTO students (code, kind, created_at, owner) VALUES ('S-A', 'real', 0, 'alice')")
+
+    class Socket:
+        def __init__(self):
+            self.sent = []
+
+        async def accept(self):
+            pass
+
+        async def send_text(self, text):
+            self.sent.append(json.loads(text))
+
+    hub, alice, bob = Hub(), Socket(), Socket()
+
+    async def run():
+        await hub.join(alice, "teacher", "alice")
+        await hub.join(bob, "admin", "bob")
+        await hub.to_staff({"type": "update", "code": "S-A"})
+
+    asyncio.run(run())
+    assert [m["code"] for m in alice.sent] == ["S-A"] and bob.sent == []
+
+
+def test_staff_tokens_expire_and_old_tokens_without_an_account_stop_working():
+    from app.api import deps
+
+    client, a, _ = _two_staff()
+    assert client.get("/api/auth/me", headers=a["teacher"]).json()["name"] == "ครูอลิซ"
+    db.execute("UPDATE tokens SET created_at = created_at - ?", (deps.TOKEN_TTL["teacher"] + 60,))
+    assert client.get("/api/teacher/overview", headers=a["teacher"]).status_code == 401
+    legacy = {"Authorization": f"Bearer {issue_token('teacher')}"}
+    assert client.get("/api/teacher/overview", headers=legacy).status_code == 401
+
+
+def test_data_from_before_accounts_belongs_to_the_first_user():
     from app import users
 
-    alice, bob = users.add("alice", "ครูอลิซ"), users.add("bob", "ครูบ็อบ")
-    client = TestClient(app)
-    login = lambda name, pw: {"Authorization": "Bearer " + client.post(
-        "/api/auth/staff", json={"role": "teacher", "username": name, "password": pw}).json()["token"]}
-    a, b = login("alice", alice), login("bob", bob)
-    gem = client.post("/api/gems", headers=a, json={"name": "ของอลิซ"}).json()
-    assert client.put(f"/api/gems/{gem['id']}", headers=b, json={"name": "แก้"}).status_code == 403
-    assert client.post(f"/api/gems/{gem['id']}/build", headers=b).status_code == 403
-    assert client.delete(f"/api/gems/{gem['id']}", headers=b).status_code == 403
-    assert client.get(f"/api/gems/{gem['id']}", headers=b).status_code == 200
-    assert client.put(f"/api/gems/{gem['id']}", headers=a, json={"name": "แก้โดยเจ้าของ"}).status_code == 200
+    gem = manage.create({"name": "ก่อนมีบัญชี"}, "teacher")
+    db.execute("INSERT INTO students (code, kind, created_at) VALUES ('S-70', 'real', 0)")
+    db.execute("INSERT INTO ai_logs (ts, code, purpose) VALUES (1, 'S-70', 'hint_l1')")
+    users.add("first", "ครูคนแรก")
+    users.add("second", "ครูคนที่สอง")
+    assert users.claim("first")[0] == 1
+    assert manage.get(gem["id"])["owner"] == "first"
+    assert db.query_one("SELECT owner FROM students WHERE code = 'S-70'")["owner"] == "first"
+    assert db.query_one("SELECT owner FROM ai_logs")["owner"] == "first"
 
 
 def test_gem_without_a_designed_flow_is_not_offered_to_students(monkeypatch):

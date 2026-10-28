@@ -19,6 +19,8 @@ interface SettingsData {
   params: Record<string, number>;
   param_labels: Record<string, string>;
   demo: { enabled: boolean; time_scale: number };
+  // บัญชีที่ค่าในหน้านี้เป็นของ (null = เซิร์ฟเวอร์ยังไม่มีบัญชีผู้ใช้ ค่าใช้ร่วมกันทั้งระบบ)
+  account: { username: string; name: string } | null;
 }
 
 // Gemini เป็นผู้ให้บริการหลัก (Q26) Claude เป็นตัวสำรองที่พับไว้
@@ -75,8 +77,13 @@ export default function Settings() {
         <h1 className="title-xl">ผู้ให้บริการ AI และพารามิเตอร์ของระบบ</h1>
         <p className="lead">
           ใส่ Gemini API key ที่นี่ ครูต้องใช้ AI สร้างคลังโจทย์ของ Gem ครูผู้ช่วยตอบแชต และสร้างโจทย์สด Claude เป็นตัวสำรองเมื่อ Gemini ล่มหรือติดโควตา
-          เมื่อมีผู้ใช้หลายคน key ที่ใส่ตรงนี้เป็นของคุณคนเดียว ใช้กับ Gem ที่คุณสร้าง คนอื่นไม่เห็นและไม่ได้ใช้
         </p>
+        {s.account && (
+          <p className="small muted">
+            ทุกค่าในหน้านี้ (API key, โมเดล, พารามิเตอร์ และ Demo Mode) เป็นของบัญชี <strong>{s.account.name}</strong> เท่านั้น
+            ใช้กับ Gem และนักเรียนของบัญชีนี้ บัญชีอื่นไม่เห็นและไม่ได้รับผลกระทบ
+          </p>
+        )}
       </header>
 
       <Card>

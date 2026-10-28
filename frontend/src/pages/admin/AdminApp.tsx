@@ -1,7 +1,7 @@
 import { createContext, useCallback, useContext, useEffect, useRef, useState, type ReactNode } from "react";
 import { Link, Navigate, Route, Routes, useLocation, useNavigate } from "react-router";
-import { Activity as ActivityIcon, ArrowLeft, ArrowRight, Gem, ListChecks, Presentation, Settings as SettingsIcon } from "lucide-react";
-import { api, clearAuth, getAuth } from "../../lib/api";
+import { Activity as ActivityIcon, ArrowLeft, ArrowRight, Gem, ListChecks, Presentation, Settings as SettingsIcon, UsersRound } from "lucide-react";
+import { api, clearAuth, getAuth, staffLogout } from "../../lib/api";
 import { useLive } from "../../lib/hooks";
 import type { StaffView } from "../../lib/types";
 import type { FlowEdge, FlowNode, FlowPosition } from "../../components/FlowMap";
@@ -86,13 +86,12 @@ export default function AdminApp() {
   return (
     <AdminShell
       onLogout={() => {
-        // ไม่มี PIN แล้ว อยู่หน้าเดิมจะเข้าใหม่ทันที จึงพากลับหน้าเลือกบทบาท
-        api("admin", "/api/auth/logout", { method: "POST" }).catch(() => {});
-        clearAuth("admin");
+        // ออกจากบัญชีทั้งหน้าครูและหน้าผู้ดูแลระบบ แล้วกลับหน้าแรก (ล็อกอินบัญชีอื่นได้)
+        staffLogout();
         navigate("/");
       }}
       onExpired={() => {
-        // token หมดอายุ (เช่น server เริ่มใหม่): ขอ token ใหม่แล้วอยู่หน้าเดิม
+        // token หมดอายุ: โหมดเดิมขอ token ใหม่แล้วอยู่หน้าเดิม มีบัญชีผู้ใช้กลับไปล็อกอินที่หน้าแรกแล้วพากลับมาหน้านี้
         clearAuth("admin");
         setAuthState(null);
       }}
@@ -197,6 +196,13 @@ function AdminShell({ onLogout, onExpired }: { onLogout: () => void; onExpired: 
           onLogout={onLogout}
           right={
             <>
+              {/* บัญชีเดียวเข้าได้ทั้งสองหน้า สลับได้โดยไม่ต้องล็อกอินใหม่ */}
+              {getAuth("teacher") && (
+                <Link to="/teacher" className="btn btn-ghost btn-sm hide-mobile">
+                  <UsersRound size={16} />
+                  หน้าครู
+                </Link>
+              )}
               <Button
                 variant={present ? "soft" : "ghost"}
                 size="sm"

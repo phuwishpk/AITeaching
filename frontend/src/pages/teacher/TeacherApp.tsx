@@ -1,7 +1,7 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
-import { Route, Routes, useNavigate } from "react-router";
-import { Bell, BellOff, BellRing, Bot, Gem, LayoutDashboard, ListChecks, MessagesSquare, Sparkles, UsersRound } from "lucide-react";
-import { api, clearAuth, getAuth } from "../../lib/api";
+import { Link, Route, Routes, useNavigate } from "react-router";
+import { Bell, BellOff, BellRing, Bot, Gem, LayoutDashboard, ListChecks, MessagesSquare, Network, Sparkles, UsersRound } from "lucide-react";
+import { api, clearAuth, getAuth, staffLogout } from "../../lib/api";
 import { useLive } from "../../lib/hooks";
 import { notifyAlert, notifyEnabled, setNotify } from "../../lib/notify";
 import { Button } from "../../components/ui";
@@ -67,13 +67,12 @@ export default function TeacherApp() {
   return (
     <TeacherShell
       onLogout={() => {
-        // ไม่มี PIN แล้ว อยู่หน้าเดิมจะเข้าใหม่ทันที จึงพากลับหน้าเลือกบทบาท
-        api("teacher", "/api/auth/logout", { method: "POST" }).catch(() => {});
-        clearAuth("teacher");
+        // ออกจากบัญชีทั้งหน้าครูและหน้าผู้ดูแลระบบ แล้วกลับหน้าแรก (ล็อกอินบัญชีอื่นได้)
+        staffLogout();
         navigate("/");
       }}
       onExpired={() => {
-        // token หมดอายุ (เช่น server เริ่มใหม่): ขอ token ใหม่แล้วอยู่หน้าเดิม
+        // token หมดอายุ: โหมดเดิมขอ token ใหม่แล้วอยู่หน้าเดิม มีบัญชีผู้ใช้กลับไปล็อกอินที่หน้าแรกแล้วพากลับมาหน้านี้
         clearAuth("teacher");
         setAuthState(null);
       }}
@@ -183,15 +182,24 @@ function TeacherShell({ onLogout, onExpired }: { onLogout: () => void; onExpired
           role={getAuth("teacher")?.code ? `ครู · ${getAuth("teacher")?.code}` : "ครู"}
           onLogout={onLogout}
           right={
-            <Button
-              variant="ghost"
-              size="sm"
-              icon={sound ? <BellRing size={16} /> : <BellOff size={16} />}
-              onClick={async () => setSound(await setNotify(!sound))}
-              title={sound ? "ปิดเสียงและการแจ้งเตือนของเบราว์เซอร์" : "เปิดเสียงและการแจ้งเตือนของเบราว์เซอร์ เด้งแม้ไม่ได้เปิดหน้านี้อยู่"}
-            >
-              <span className="btn-label">{sound ? "แจ้งเตือนเปิด" : "แจ้งเตือนปิด"}</span>
-            </Button>
+            <>
+              {/* บัญชีเดียวเข้าได้ทั้งสองหน้า สลับได้โดยไม่ต้องล็อกอินใหม่ */}
+              {getAuth("admin") && (
+                <Link to="/admin" className="btn btn-ghost btn-sm hide-mobile">
+                  <Network size={16} />
+                  หน้าผู้ดูแลระบบ
+                </Link>
+              )}
+              <Button
+                variant="ghost"
+                size="sm"
+                icon={sound ? <BellRing size={16} /> : <BellOff size={16} />}
+                onClick={async () => setSound(await setNotify(!sound))}
+                title={sound ? "ปิดเสียงและการแจ้งเตือนของเบราว์เซอร์" : "เปิดเสียงและการแจ้งเตือนของเบราว์เซอร์ เด้งแม้ไม่ได้เปิดหน้านี้อยู่"}
+              >
+                <span className="btn-label">{sound ? "แจ้งเตือนเปิด" : "แจ้งเตือนปิด"}</span>
+              </Button>
+            </>
           }
         />
         <div className="side-layout">

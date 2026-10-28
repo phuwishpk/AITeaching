@@ -8,7 +8,7 @@ import asyncio
 import re
 import time
 
-from . import analytics, db, settings_store
+from . import analytics, db, scope, settings_store
 from .gems import alerts as gem_alerts
 from .gems import builder as gem_builder
 from .engine import core as engine
@@ -368,6 +368,8 @@ async def run_event(code: str, set_id: str, action, *args) -> tuple[dict, Conten
 
 async def start(code: str, set_id: str, restart: bool = False) -> dict:
     subject, qs = find_set(set_id)
+    if not scope.may_learn(code, subject):
+        raise NotFound("ไม่พบชุดคำถามนี้")  # Gem ของครูคนอื่น
     if not has_flow(subject):
         raise NotFound("บทเรียนนี้ยังไม่มี Flow การสอน ครูต้องให้ AI ออกแบบ Flow จากคำสั่งก่อน")
     bill_to_gem_owner(subject)
@@ -578,10 +580,11 @@ async def override(code: str, set_id: str, action: str, params: dict, reason: st
     return staff_payload(state, content, ctx)
 
 
-def staff_overview() -> list[dict]:
+def staff_overview(owner: str | None = None) -> list[dict]:
+    """นักเรียนทุกคนของผู้ใช้ (owner) พร้อมสถานะล่าสุด"""
     result = []
-    states = analytics.latest_states()
-    students = analytics.student_rows()
+    states = analytics.latest_states(owner)
+    students = analytics.student_rows(owner)
     for student in students:
         if student["kind"] == "test":
             continue
@@ -597,14 +600,14 @@ def staff_overview() -> list[dict]:
         ctx = make_ctx(content)
         view = staff_payload(state, content, ctx)
         view["persona"] = student["persona"]
-        view["cluster"] = analytics.cluster_of(student["code"])
+        view["cluster"] = analytics.cluster_of(student["code"], owner)
         result.append(view)
     return result
 
 
-def all_positions() -> list[dict]:
+def all_positions(owner: str | None = None) -> list[dict]:
     positions = []
-    for state in analytics.latest_states().values():
+    for state in analytics.latest_states(owner).values():
         kind = student_kind(state["code"])
         if kind == "test":
             continue
@@ -783,11 +786,12 @@ def log_teacher(code: str, kind: str, detail: dict | None = None) -> None:
                (time.time(), code, kind, db.dumps(detail or {})))
 
 
-def inbox() -> list[dict]:
-    """ทุกคนที่มีบทสนทนา พร้อมข้อความล่าสุด จำนวนร่างที่รอครู และโหมดแชต"""
+def inbox(owner: str | None = None) -> list[dict]:
+    """นักเรียนของผู้ใช้ทุกคนที่มีบทสนทนา พร้อมข้อความล่าสุด จำนวนร่างที่รอครู และโหมดแชต"""
+    clause, params = scope.where(owner, "m.code")
     rows = db.query(
         "SELECT m.* FROM messages m JOIN (SELECT code, MAX(id) AS id FROM messages WHERE sender != 'draft' GROUP BY code) "
-        "latest ON latest.id = m.id ORDER BY m.ts DESC"
+        f"latest ON latest.id = m.id WHERE {clause} ORDER BY m.ts DESC", params
     )
     drafts = {r["code"]: r["n"] for r in db.query(
         "SELECT code, COUNT(*) AS n FROM messages WHERE sender = 'draft' GROUP BY code")}

@@ -266,7 +266,7 @@ def adopt_legacy() -> list[str]:
             continue
         qs = sets[0]
         gem = create({"name": qs["name"], "description": qs.get("description") or subject.get("description", ""),
-                      "icon": "calculator"}, "ระบบ")
+                      "icon": "calculator"}, "ระบบ", owner=subject.get("owner"))
         gem.update(bank_version=1, subject_id=subject["id"], set_id=qs["id"])
         gem["build"] = {"status": "ready", "finished_at": time.time(), "warnings": [], "errors": [],
                         "stats": builder.bank_stats(subject), "adopted": True}
