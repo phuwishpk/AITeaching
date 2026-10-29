@@ -4036,6 +4036,18 @@ button.route-node:hover {
   stroke-dasharray: none;
 }
 
+/* หลายเส้นใช้ทางเดียวกัน: ติดไฟเฉพาะป้ายของเส้นที่ผ่านจริง */
+.spec-flowmap .edge-on .edge-label:not(.is-on) rect,
+.spec-flowmap .edge-trail .edge-label:not(.is-on) rect {
+  stroke: var(--border);
+}
+
+.spec-flowmap .edge-on .edge-label:not(.is-on) text,
+.spec-flowmap .edge-trail .edge-label:not(.is-on) text {
+  fill: var(--text-2);
+  font-weight: 400;
+}
+
 /* เส้นทางของนักเรียน: ครั้งล่าสุดเข้ม (edge-on) ย้อนหลังจาง การขยับที่ไม่มีเส้นในผังเป็นเส้นประ */
 .edge-trail > path:not(.edge-hit) {
   stroke: var(--accent);

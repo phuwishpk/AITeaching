@@ -66,6 +66,8 @@ const GW = 132;
 const GH = 34;
 const GGAP = 12;
 const GROW = GH + 50;
+// ป้ายของเส้นที่ใช้ทางเดียวกัน (หลายเส้นทิศเดียวกันระหว่างกล่องคู่เดียวกัน) เรียงซ้อนกันห่างกันเท่านี้
+const LABEL_STEP = 22;
 const NO_GUARDS: SpecGuard[] = [];
 const NO_POSITIONS: FlowPosition[] = [];
 
@@ -189,18 +191,47 @@ export default function SpecFlowMap({
     return () => clearInterval(id);
   }, [timed]);
   const layout = useMemo(() => {
-    const g = new dagre.graphlib.Graph({ multigraph: true });
-    // บนลงล่าง: ขั้นต่อกันเป็นแถว ความกว้างขึ้นกับจำนวนทางแยก จึงพอดีกับคอลัมน์ของหน้า
-    g.setGraph({ rankdir: "TB", nodesep: compact ? 24 : 40, ranksep: compact ? 44 : 64, edgesep: 16, marginx: 16, marginy: 22 });
-    g.setDefaultEdgeLabel(() => ({}));
-    for (const n of nodes) g.setNode(n.id, { width: W, height: H });
+    // เส้นทิศเดียวกันระหว่างกล่องคู่เดียวกัน (เช่น ผิดครั้ง1 กับ ผิดสะเพร่าครั้ง1 ไปคำใบ้ระดับ 1 ทั้งคู่) ใช้ทางเดียว ป้ายเรียงซ้อนกัน
+    // dagre จัดผังที่มีเส้นซ้ำทิศเดียวกันปนเส้นย้อนกลับไม่ได้ บางผังพังด้วย "Not possible to find intersection inside of the rectangle"
     const ids = new Set(nodes.map((n) => n.id));
+    const groups = new Map<string, SpecEdge[]>();
     for (const e of edges) {
       if (e.source === e.target || !ids.has(e.source) || !ids.has(e.target)) continue;
-      const text = e.label || e.text;
-      g.setEdge(e.source, e.target, { width: compact ? 1 : labelWidth(text), height: compact ? 1 : 20, labelpos: "c" }, e.id);
+      const key = `${e.source}>${e.target}`;
+      groups.set(key, [...(groups.get(key) ?? []), e]);
     }
-    dagre.layout(g);
+    const build = (keep: (list: SpecEdge[]) => boolean) => {
+      const g = new dagre.graphlib.Graph();
+      // บนลงล่าง: ขั้นต่อกันเป็นแถว ความกว้างขึ้นกับจำนวนทางแยก จึงพอดีกับคอลัมน์ของหน้า
+      g.setGraph({ rankdir: "TB", nodesep: compact ? 24 : 40, ranksep: compact ? 44 : 64, edgesep: 16, marginx: 16, marginy: 22 });
+      g.setDefaultEdgeLabel(() => ({}));
+      for (const n of nodes) g.setNode(n.id, { width: W, height: H });
+      for (const list of groups.values()) {
+        if (!keep(list)) continue;
+        const width = compact ? 1 : Math.max(...list.map((e) => labelWidth(e.label || e.text)));
+        g.setEdge(list[0].source, list[0].target, { width, height: compact ? 1 : list.length * LABEL_STEP - 2, labelpos: "c" });
+      }
+      dagre.layout(g);
+      return g;
+    };
+    // ทางสำรองถ้า dagre ยังพังด้วยเหตุอื่น: จัดด้วยเส้นเดียวต่อกล่องคู่ (ไม่สนทิศ) แล้วจึงไม่มีเส้นเลย
+    // เส้นที่ไม่ได้ใช้จัดผังวาดเป็นเส้นโค้งระหว่างกล่อง ผังจึงขึ้นเสมอ ไม่เป็นจอขาว
+    let g: ReturnType<typeof build>;
+    try {
+      g = build(() => true);
+    } catch {
+      const pairs = new Set<string>();
+      try {
+        g = build((list) => {
+          const pair = [list[0].source, list[0].target].sort().join("\u0000");
+          if (pairs.has(pair)) return false;
+          pairs.add(pair);
+          return true;
+        });
+      } catch {
+        g = build(() => false);
+      }
+    }
     const graph = g.graph();
     const graphWidth = (graph.width ?? 400) + 8;
     // เผื่อที่ใต้แถวล่างสุดให้ชิปและป้ายสถานะ
@@ -230,14 +261,20 @@ export default function SpecFlowMap({
         }),
       ),
       guardBoxes,
-      lines: g.edges().map((e) => {
-        const line = g.edge(e) as { points: { x: number; y: number }[]; x: number; y: number };
-        return { id: e.name as string, x: line.x + dx, y: line.y, points: line.points.map((p) => ({ x: p.x + dx, y: p.y })) };
+      lines: [...groups].map(([key, members]) => {
+        const { source, target } = members[0];
+        if (g.hasEdge(source, target)) {
+          const line = g.edge(source, target) as { points: { x: number; y: number }[]; x: number; y: number };
+          return { key, members, x: line.x + dx, y: line.y, d: smooth(line.points.map((p) => ({ x: p.x + dx, y: p.y }))) };
+        }
+        const a = g.node(source) as { x: number; y: number };
+        const b = g.node(target) as { x: number; y: number };
+        const line = connector({ x: a.x + dx, y: a.y, w: W, h: H }, { x: b.x + dx, y: b.y, w: W, h: H });
+        return { key, members, x: line.mid.x, y: line.mid.y, d: line.d };
       }),
     };
   }, [nodes, edges, guards, compact]);
 
-  const byEdge = useMemo(() => new Map(edges.map((e) => [e.id, e])), [edges]);
   const loops = useMemo(() => {
     const map = new Map<string, SpecEdge[]>();
     for (const e of edges) if (e.source === e.target) map.set(e.source, [...(map.get(e.source) ?? []), e]);
@@ -382,38 +419,37 @@ export default function SpecFlowMap({
             </marker>
           </defs>
           {layout.lines.map((line) => {
-            const edge = byEdge.get(line.id);
-            if (!edge) return null;
-            const hit = paths.onEdge.get(edge.id);
-            const on = active.has(edge.id);
+            const lit = line.members.filter((e) => active.has(e.id));
+            const on = lit.length > 0;
             // เส้นทางย้อนหลังที่ไม่ใช่การขยับครั้งล่าสุดเป็นสีจาง
-            const past = on && !!hit && !hit.latest;
-            const text = edge.label || edge.text;
-            const d = smooth(line.points);
-            const width = labelWidth(text);
-            if (hit) badges.push({ key: edge.id, x: line.x, y: line.y - 19, hit });
+            const past = on && lit.every((e) => paths.onEdge.get(e.id) && !paths.onEdge.get(e.id)?.latest);
+            const top = line.y - (line.members.length * LABEL_STEP - 2) / 2;
+            // ป้ายของทุกเส้นที่ใช้ทางนี้ เรียงจากบนลงล่าง ป้ายที่ติดไฟคือเส้นที่ผ่านจริง
+            const labels = line.members.map((e, k) => {
+              const text = e.label || e.text;
+              const width = labelWidth(text);
+              const y = top + k * LABEL_STEP;
+              const hit = paths.onEdge.get(e.id);
+              if (hit) badges.push({ key: e.id, x: line.x + width / 2 + 14, y: y + 10, hit });
+              return (
+                <g key={e.id} className={`edge-label ${active.has(e.id) ? "is-on" : ""}`}>
+                  <rect x={line.x - width / 2} y={y} width={width} height={20} rx={7} />
+                  <text x={line.x} y={y + 14} textAnchor="middle">
+                    {short(text, 26)}
+                  </text>
+                </g>
+              );
+            });
             return (
-              <g key={edge.id} className={`edge ${on ? (past ? "edge-trail" : "edge-on") : ""}`}>
-                <path d={d} markerEnd={on ? (past ? "url(#sf-arrow-trail)" : "url(#sf-arrow-on)") : "url(#sf-arrow)"} />
-                {!compact && (
-                  <g className="edge-label">
-                    <rect x={line.x - width / 2} y={line.y - 10} width={width} height={20} rx={7} />
-                    <text x={line.x} y={line.y + 4} textAnchor="middle">
-                      {short(text, 26)}
-                    </text>
-                  </g>
-                )}
-                <path d={d} className="edge-hit" onMouseEnter={() => setHover(edge.id)} onMouseLeave={() => setHover(null)}>
-                  <title>{`${text}${edge.when ? `\nเงื่อนไข: ${edge.text}` : ""}`}</title>
+              <g key={line.key} className={`edge ${on ? (past ? "edge-trail" : "edge-on") : ""}`}>
+                <path d={line.d} markerEnd={on ? (past ? "url(#sf-arrow-trail)" : "url(#sf-arrow-on)") : "url(#sf-arrow)"} />
+                {!compact && labels}
+                <path d={line.d} className="edge-hit" onMouseEnter={() => setHover(line.key)} onMouseLeave={() => setHover(null)}>
+                  <title>
+                    {line.members.map((e) => `${e.label || e.text}${e.when ? `\nเงื่อนไข: ${e.text}` : ""}`).join("\n\n")}
+                  </title>
                 </path>
-                {compact && hover === edge.id && (
-                  <g className="edge-label">
-                    <rect x={line.x - width / 2} y={line.y - 10} width={width} height={20} rx={7} />
-                    <text x={line.x} y={line.y + 4} textAnchor="middle">
-                      {short(text, 26)}
-                    </text>
-                  </g>
-                )}
+                {compact && hover === line.key && labels}
               </g>
             );
           })}
