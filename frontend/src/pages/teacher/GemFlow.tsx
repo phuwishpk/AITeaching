@@ -12,6 +12,7 @@ import {
   type ChatSpec,
   type FlowCatalog,
   type FlowCheck,
+  type FlowAudit,
   type FlowEdgeSpec,
   type FlowSpec,
   type FlowStepSpec,
@@ -45,6 +46,20 @@ export default function GemFlowPage() {
   useEffect(() => {
     if (flow.data) setDraft(flow.data.spec ? structuredClone(flow.data.spec) : null);
   }, [flow.data]);
+
+  // ผลที่ AI ตรวจแนวทางกับการจำลอง แยกจาก Flow ที่โหลด: ระหว่างรอผลถามแค่สถานะ ไม่โหลด Flow ทั้งชุด สิ่งที่ครูกำลังแก้จึงไม่หาย
+  const [audit, setAudit] = useState<FlowAudit | null>(null);
+  useEffect(() => {
+    if (flow.data) setAudit({ audit: flow.data.audit, auditing: flow.data.auditing, audit_error: flow.data.audit_error });
+  }, [flow.data]);
+  const auditing = !!audit?.auditing;
+  useEffect(() => {
+    if (!auditing) return;
+    const id = setInterval(() => {
+      api<FlowAudit>("teacher", `/api/gems/${gemId}/flow/audit`).then(setAudit).catch(() => {});
+    }, 4000);
+    return () => clearInterval(id);
+  }, [auditing, gemId]);
 
   const dirty = useMemo(() => !!draft && JSON.stringify(stripIds(draft)) !== JSON.stringify(flow.data?.spec ? stripIds(flow.data.spec) : null), [draft, flow.data]);
 
@@ -87,6 +102,13 @@ export default function GemFlowPage() {
     run("design", () => api<GemFlowDetail>("teacher", `/api/gems/${gemId}/flow/design`, { method: "POST" }), "AI ออกแบบ Flow จากคำสั่งแล้ว ตรวจก่อนกดยืนยันนะ");
   const writeWidget = (stepId: string) =>
     run("widget", () => api<GemFlowDetail>("teacher", `/api/gems/${gemId}/flow/widget/${stepId}`, { method: "POST" }), "AI เขียน Widget แล้ว ลองเล่นดูในตัวอย่างหรือแท็บลองเรียน");
+  const rerunAudit = async () => {
+    try {
+      setAudit(await api<FlowAudit>("teacher", `/api/gems/${gemId}/flow/audit`, { method: "POST" }));
+    } catch (err) {
+      toast(err instanceof Error ? err.message : "เริ่มตรวจไม่สำเร็จ", "warning");
+    }
+  };
   const approve = () => run("approve", () => api<GemFlowDetail>("teacher", `/api/gems/${gemId}/flow/approve`, { method: "POST" }), "ยืนยันว่าตรวจ Flow แล้ว");
 
   const update = (change: (spec: FlowSpec) => void) =>
@@ -123,14 +145,25 @@ export default function GemFlowPage() {
         </div>
       </header>
 
-      {!!detail.audit?.length && !dirty && (
+      {detail.mode === "custom" && !dirty && (auditing || !!audit?.audit_error) && (
+        <div className={`callout ${auditing ? "callout-info" : "callout-warning"}`}>
+          {auditing ? <Sparkles size={16} /> : <CircleAlert size={16} />}
+          <span className="small">
+            {auditing
+              ? "AI กำลังตรวจแนวทางของครูกับตารางจำลอง (ราว 1–5 นาที) ผลจะขึ้นที่นี่เมื่อเสร็จ"
+              : `AI ตรวจแนวทางกับการจำลองไม่สำเร็จ: ${audit?.audit_error} กด "ให้ AI ตรวจแนวทางอีกครั้ง" ได้`}
+          </span>
+        </div>
+      )}
+
+      {!!audit?.audit.length && !dirty && (
         <Card>
           <CardHead
-            title={`AI ตรวจแนวทางกับการจำลอง: ผ่าน ${detail.audit.filter((c) => c.ok).length}/${detail.audit.length}`}
-            sub="ตอนออกแบบ AI อีกรอบไล่แนวทางของครูทีละข้อกับตารางในแท็บจำลอง ข้อที่ไม่ผ่านให้ครูตรวจหรือแก้เอง"
+            title={`AI ตรวจแนวทางกับการจำลอง: ผ่าน ${audit.audit.filter((c) => c.ok).length}/${audit.audit.length}`}
+            sub="AI ไล่แนวทางของครูทีละข้อกับตารางในแท็บจำลอง ข้อที่ไม่ผ่านให้ครูตรวจหรือแก้เอง แก้ Flow แล้วกดตรวจอีกครั้งได้"
           />
           <ul className="card-body flow-locked" style={{ paddingTop: 0 }}>
-            {detail.audit.map((c, i) => (
+            {audit.audit.map((c, i) => (
               <li key={i}>
                 {c.ok ? <CircleCheck size={14} /> : <CircleAlert size={14} color="var(--warning)" />}
                 <span className="stack" style={{ gap: 1 }}>
@@ -191,6 +224,18 @@ export default function GemFlowPage() {
         <Button variant={detail.mode === "custom" ? "soft" : "primary"} icon={<Wand2 size={16} />} loading={busy === "design"} disabled={!!busy} onClick={design}>
           {busy === "design" ? "AI กำลังออกแบบ (ราว 20–60 วินาที)" : "ให้ AI ออกแบบใหม่จากคำสั่ง"}
         </Button>
+        {detail.mode === "custom" && (
+          <Button
+            variant="ghost"
+            icon={<CircleCheck size={16} />}
+            loading={auditing}
+            disabled={!!busy || dirty || auditing}
+            title={dirty ? "บันทึก Flow ก่อนจึงให้ AI ตรวจได้" : undefined}
+            onClick={rerunAudit}
+          >
+            {auditing ? "AI กำลังตรวจแนวทาง" : "ให้ AI ตรวจแนวทางอีกครั้ง"}
+          </Button>
+        )}
         <Button variant="ghost" disabled={!!busy} onClick={() => setShowReference(!showReference)}>
           {showReference ? "ซ่อนแม่แบบอ้างอิง" : "ดูแม่แบบอ้างอิง"}
         </Button>

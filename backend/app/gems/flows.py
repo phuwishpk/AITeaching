@@ -5,6 +5,9 @@ AI ออกแบบตอนสร้างคลังโจทย์ หร�
 และบันทึกเป็นเวอร์ชันของ Gem ย้อนกลับได้ ครูเลือกกลับไปใช้ผังมาตรฐานของระบบได้เสมอ
 """
 
+import asyncio
+import logging
+
 from .. import db
 from . import builder, flowspec, manage, simulate, versions
 
@@ -54,8 +57,8 @@ def detail(gem: dict) -> dict:
         "outdated": "instructions_key" in flow and builder.flow_needs_design(gem),
         # คำที่ครูเขียนไว้ใน prompt ให้จับในแชต หน้า Flow ทำเครื่องหมายว่าคำไหนมาจากครู
         "teacher_keywords": flowspec.teacher_keywords(gem.get("instructions", "")),
-        # ผลที่ AI ตรวจทีละแนวทางของครูกับตารางจำลองตอนออกแบบ (ครูแก้เองแล้วผลนี้หายไป)
-        "audit": flow.get("audit") or [],
+        # ผลที่ AI ตรวจทีละแนวทางของครูกับตารางจำลอง (ตอนออกแบบ หรือครูกดตรวจอีกครั้ง ครูแก้เองแล้วผลนี้หายไป)
+        **audit_status(gem),
         # ระบบจำลองว่านักเรียนแต่ละแบบจะไปขั้นไหน ให้ครูเทียบกับคำสั่งของตัวเอง
         "table": simulate.table(checked["spec"]) if checked and checked["spec"] else [],
     }
@@ -111,6 +114,52 @@ async def write_widget(gem_id: str, step_id: str, actor: str) -> dict:
     gem["flow"]["warnings"] = [w for w in gem["flow"].get("warnings") or [] if step.get("label", "") not in w]
     gem["flow"]["reviewed"] = False
     return _store(gem, actor, f"AI เขียน Widget \"{step.get('label', step_id)}\"")
+
+
+# ติวเตอร์ที่ AI กำลังตรวจแนวทางกับการจำลองอยู่ (งานเบื้องหลัง ครูกดจากแท็บ Flow)
+_auditing: set[str] = set()
+log = logging.getLogger(__name__)
+
+
+def audit_status(gem: dict) -> dict:
+    flow = gem.get("flow") or {}
+    return {"auditing": gem["id"] in _auditing, "audit": flow.get("audit") or [], "audit_error": flow.get("audit_error")}
+
+
+def start_audit(gem_id: str) -> dict:
+    """ครูกดให้ AI ตรวจแนวทางกับการจำลองของ Flow ปัจจุบันอีกครั้ง โดยไม่ออกแบบใหม่ ทำเป็นงานเบื้องหลัง
+    เพราะ AI ใช้เวลาเป็นนาที นานกว่าที่ Cloudflare รอคำขอเดียว (100 วินาที) หน้าเว็บถามสถานะจาก audit_status"""
+    gem = manage.get(gem_id)
+    flow = gem.get("flow") or {}
+    if flow.get("mode") != "custom" or not flow.get("spec"):
+        raise manage.GemError("ติวเตอร์นี้ยังไม่มี Flow ที่ออกแบบจากคำสั่ง ให้ AI ออกแบบก่อน")
+    if gem_id not in _auditing:
+        _auditing.add(gem_id)
+        asyncio.create_task(audit(gem_id, flow["spec"]))
+    return audit_status(gem)
+
+
+async def audit(gem_id: str, spec: dict) -> None:
+    try:
+        try:
+            checks, problem = await flowspec.audit_flow(manage.get(gem_id), spec), None
+        except Exception as error:  # noqa: BLE001 งานเบื้องหลังต้องจบด้วยสถานะเสมอ ไม่ค้างที่ "กำลังตรวจ"
+            if not isinstance(error, builder.BuildError):
+                log.exception("AI ตรวจแนวทางของ %s ไม่สำเร็จ", gem_id)
+            checks, problem = None, str(error)
+        gem = manage.get(gem_id)
+        flow = gem.get("flow") or {}
+        if flow.get("spec") != spec:
+            return  # ครูแก้ Flow ระหว่างตรวจ ผลนี้ไม่ตรงกับ Flow ปัจจุบันแล้ว
+        if checks is None:
+            flow["audit_error"] = problem
+        else:
+            flow["audit"] = checks
+            flow.pop("audit_error", None)
+        db.save_gem(gem)
+        manage._sync_bank(gem)
+    finally:
+        _auditing.discard(gem_id)
 
 
 def _store(gem: dict, actor: str, note: str) -> dict:

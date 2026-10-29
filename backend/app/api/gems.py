@@ -281,6 +281,24 @@ async def redesign_flow(gem_id: str, auth: dict = Depends(owner)):
         raise HTTPException(502, str(error)) from error
 
 
+@router.post("/{gem_id}/flow/audit")
+async def rerun_audit(gem_id: str, auth: dict = Depends(owner)):
+    """ให้ AI ตรวจแนวทางของครูกับตารางจำลองของ Flow ปัจจุบันอีกครั้ง (งานเบื้องหลัง ดูสถานะจาก GET)"""
+    _load(gem_id)
+    reason = manage.can_build()
+    if reason:
+        raise HTTPException(400, reason)
+    try:
+        return flows.start_audit(gem_id)
+    except manage.GemError as error:
+        raise HTTPException(400, str(error)) from error
+
+
+@router.get("/{gem_id}/flow/audit")
+def audit_status(gem_id: str, auth: dict = Depends(mine)):
+    return flows.audit_status(_load(gem_id))
+
+
 @router.post("/{gem_id}/items/{item_id}/flag")
 def resolve_flag(gem_id: str, item_id: str, body: FlagBody, auth: dict = Depends(owner)):
     """ครูยืนยันเฉลยของ Flagged Item (keep = true) หรือลบข้อนั้นออกจากคลัง (keep = false)"""

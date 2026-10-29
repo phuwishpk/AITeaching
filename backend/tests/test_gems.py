@@ -53,7 +53,9 @@ def fake_llm(monkeypatch, resolve_wrong: set[int] = frozenset()):
 
     async def fake_call(system, user, **options):
         calls.append(options)
-        if "ออกแบบ Flow การสอน" in user:  # AI ออกแบบ Flow จากคำสั่ง (ในเทสต์ใช้โครงของแม่แบบอ้างอิง)
+        if user.startswith(flowspec.AUDIT[:30]):  # AI ตรวจแนวทางของครูกับตารางจำลอง
+            payload = {"checks": []}
+        elif "ออกแบบ Flow การสอน" in user:  # AI ออกแบบ Flow จากคำสั่ง (ในเทสต์ใช้โครงของแม่แบบอ้างอิง)
             payload = flowspec.standard_template()
         elif "ออกแบบโครงของบทเรียน" in user:
             payload = PLAN
@@ -225,6 +227,52 @@ def test_design_retries_with_less_thinking_when_the_answer_is_cut(monkeypatch):
     monkeypatch.setattr(service, "_call", cut_then_fits)
     assert asyncio.run(builder.ask_json("flow", "ออกแบบ", 32000, thinking="high")) == {"ok": True}
     assert seen == ["high", "medium", "low"]
+
+
+def test_audit_failure_is_shown_and_the_teacher_can_rerun_it(monkeypatch):
+    """เจอบนเซิร์ฟเวอร์จริง: AI ออกแบบ Flow ใหม่ได้ แต่ขั้นตรวจแนวทางกับการจำลองถูกตัดเพราะเกินเพดานโทเคน
+    เดิมลองครั้งเดียวแล้วคืนรายการว่าง การ์ดผลตรวจหายไปเงียบ ๆ ตอนนี้ลองใหม่ บอกครูเมื่อไม่สำเร็จ และครูกดตรวจอีกครั้งได้"""
+    from app.gems import flows
+    from app.tutor import providers
+
+    monkeypatch.setattr(builder, "RETRY_DELAYS", (0, 0))
+    fake_llm(monkeypatch)
+    real = service._call
+    audits = {"answer": None}
+
+    async def audit_cut(system, user, **options):
+        if user.startswith(flowspec.AUDIT[:30]):
+            if audits["answer"] is None:
+                return None, [f"gemini: {providers.TRUNCATED}"]
+            return providers.LLMResult(json.dumps(audits["answer"], ensure_ascii=False), "gemini", "fake", 1, 1, 1), []
+        return await real(system, user, **options)
+
+    monkeypatch.setattr(service, "_call", audit_cut)
+    gem = manage.create({"name": "ตรวจแนวทาง", "instructions": "ถูกหลังใช้คำใบ้ให้ทำข้อคู่ขนาน"}, "teacher")
+    asyncio.run(builder.build(gem["id"]))
+    gem = manage.get(gem["id"])
+    assert gem["build"]["status"] == "ready" and gem["flow"]["mode"] == "custom"
+    status = flows.audit_status(gem)
+    assert status["audit"] == [] and providers.TRUNCATED in status["audit_error"], "บอกครูว่าตรวจไม่สำเร็จ ไม่หายเงียบ"
+
+    audits["answer"] = {"checks": [{"guideline": "ถูกหลังใช้คำใบ้ทำข้อคู่ขนาน", "ok": True, "evidence": "แถว ...", "fix": ""}]}
+    asyncio.run(flows.audit(gem["id"], gem["flow"]["spec"]))
+    status = flows.audit_status(manage.get(gem["id"]))
+    assert [c["guideline"] for c in status["audit"]] == ["ถูกหลังใช้คำใบ้ทำข้อคู่ขนาน"] and status["audit_error"] is None
+    assert not status["auditing"]
+
+    # ครูแก้ Flow ระหว่างที่ AI ตรวจ: ผลตรวจของ Flow เก่าไม่ถูกบันทึกทับ
+    old_spec = manage.get(gem["id"])["flow"]["spec"]
+    flows.save(gem["id"], {**old_spec, "summary": "ครูแก้"}, "teacher")
+    audits["answer"] = {"checks": [{"guideline": "ผลของ Flow เก่า", "ok": False, "evidence": "", "fix": ""}]}
+    asyncio.run(flows.audit(gem["id"], old_spec))
+    assert flows.audit_status(manage.get(gem["id"]))["audit"] == []
+
+    # ยังไม่มี API key: กดตรวจอีกครั้งไม่ได้ และบอกให้ไปใส่ key
+    client = TestClient(app)
+    teacher = {"Authorization": f"Bearer {issue_token('teacher')}"}
+    assert client.post(f"/api/gems/{gem['id']}/flow/audit", headers=teacher).status_code == 400
+    assert client.get(f"/api/gems/{gem['id']}/flow/audit", headers=teacher).json()["auditing"] is False
 
 
 def test_rebuild_resumes_from_finished_steps(monkeypatch):

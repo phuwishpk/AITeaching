@@ -1034,17 +1034,16 @@ AUDIT = ("คุณตรวจ Flow การสอนที่ออกแบ�
 
 
 async def audit_flow(gem: dict, flow_spec: dict) -> list[dict]:
-    """ให้ AI ตรวจทีละแนวทางของครูกับตารางจำลอง (การตรวจง่ายกว่าการออกแบบใหม่ทั้งหมด) เรียกไม่สำเร็จ = ไม่มีผลตรวจ"""
+    """ให้ AI ตรวจทีละแนวทางของครูกับตารางจำลอง (การตรวจง่ายกว่าการออกแบบใหม่ทั้งหมด)
+    เรียกไม่สำเร็จ raise BuildError ให้ผู้เรียกบอกครู (เจอบนเซิร์ฟเวอร์จริง: คำตอบถูกตัด ผลตรวจหายไปเงียบ ๆ)"""
     from . import builder
 
     user = (f"{AUDIT}\n\nคำสั่งของครู:\n\"\"\"\n{gem.get('instructions', '')}\n\"\"\"\n\n"
             f"ขั้นใน Flow: " + ", ".join(f"{s['id']} ({KINDS[s['kind']]['label']}: {s['label']})" for s in flow_spec["steps"])
             + f"\nหลังพักเพราะเครียดไปขั้น: {flow_spec.get('after_stress') or 'กลับขั้นเดิม'}\n\n{await asyncio.to_thread(simulate.table_text, flow_spec)}")
-    try:
-        # โทเคนที่ใช้คิดนับรวมใน max_tokens รอบตรวจที่คิดเต็มที่จึงต้องเผื่อไว้มาก (8000 และ 20000 เคยถูกตัดกลางคำตอบ)
-        raw = await builder.ask_json("flow_check", user, 32000, thinking="high", retry=False)
-    except builder.BuildError:
-        return []
+    # โทเคนที่ใช้คิดนับรวมใน max_tokens รอบตรวจที่คิดเต็มที่จึงต้องเผื่อไว้มาก (8000 และ 20000 เคยถูกตัดกลางคำตอบ)
+    # ถ้ายังถูกตัดหรือรอนานเกิน ask_json ลองใหม่โดยให้คิดน้อยลง
+    raw = await builder.ask_json("flow_check", user, 32000, thinking="high")
     checks = raw.get("checks") if isinstance(raw, dict) else None
     out = []
     for c in checks if isinstance(checks, list) else []:
@@ -1103,7 +1102,10 @@ async def design(gem: dict, memory: dict | None = None, bugs: list[dict] | None 
         best["warnings"] += gaps
     if best is not None:
         # ตรวจทีละแนวทางของครูกับตารางจำลอง ถ้ามีข้อไม่ผ่านให้แก้เฉพาะข้อนั้นหนึ่งรอบ แล้วใช้แบบที่ไม่ผ่านน้อยกว่า
-        audit = await audit_flow(gem, best["spec"])
+        try:
+            audit, audit_error = await audit_flow(gem, best["spec"]), None
+        except builder.BuildError as error:
+            audit, audit_error = [], str(error)
         failing = [c for c in audit if not c["ok"]]
         if failing:
             # แก้เฉพาะข้อที่ไม่ผ่าน ถ้ารอบแก้ไปทำผิดกฎข้ออื่น ให้แก้อีกครั้งหนึ่ง ใช้ผลใหม่เมื่อข้อที่ไม่ผ่านไม่เพิ่มขึ้น
@@ -1114,7 +1116,10 @@ async def design(gem: dict, memory: dict | None = None, bugs: list[dict] | None 
                 raw = await builder.ask_json("flow", design_prompt(gem, fixes, base, memory, bugs), 32000, thinking="high")
                 fixed, problems = await asyncio.to_thread(_checked, raw if isinstance(raw, dict) else {}, bug_ids, keywords)
                 if not problems:
-                    again = await audit_flow(gem, fixed["spec"])
+                    try:
+                        again = await audit_flow(gem, fixed["spec"])
+                    except builder.BuildError:
+                        break  # ตรวจรอบแก้ไม่สำเร็จ: ใช้แบบที่ตรวจแล้ว
                     if sum(not c["ok"] for c in again) <= len(failing):
                         best, audit = fixed, again
                     break
@@ -1130,6 +1135,8 @@ async def design(gem: dict, memory: dict | None = None, bugs: list[dict] | None 
         flow = record(best["spec"], "ai", warnings, reviewed=False)
         if audit:
             flow["audit"] = audit
+        if audit_error:
+            flow["audit_error"] = audit_error
         return flow
     # ผังมาตรฐานเป็นแค่แม่แบบอ้างอิง ไม่ใช้แทน Flow ของ Gem: ออกแบบไม่ผ่านก็แจ้งให้ออกแบบใหม่
     raise builder.BuildError("AI ออกแบบ Flow ที่ตรวจผ่านไม่ได้ 3 รอบ (" + "; ".join(errors or [])[:300] + ") "

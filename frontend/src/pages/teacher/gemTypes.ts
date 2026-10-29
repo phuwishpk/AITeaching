@@ -304,8 +304,20 @@ export interface GemFlowDetail {
   // คำที่ครูเขียนไว้ใน prompt ให้จับในแชต
   teacher_keywords: string[];
   table: FlowTable[];
-  audit: { guideline: string; ok: boolean; evidence: string; fix: string }[];
+  audit: FlowAuditCheck[];
+  // AI กำลังตรวจแนวทางอยู่ (ครูกดตรวจอีกครั้ง) และเหตุผลเมื่อตรวจไม่สำเร็จ
+  auditing: boolean;
+  audit_error: string | null;
 }
+
+export interface FlowAuditCheck {
+  guideline: string;
+  ok: boolean;
+  evidence: string;
+  fix: string;
+}
+
+export type FlowAudit = Pick<GemFlowDetail, "audit" | "auditing" | "audit_error">;
 
 // ระบบจำลองว่านักเรียนแต่ละแบบจะไปขั้นไหน (gems/simulate.py)
 export interface FlowTable {
