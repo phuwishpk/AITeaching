@@ -349,7 +349,12 @@ export default function Activity() {
         </div>
       </div>
       {gemFlow.data?.custom ? (
-        <SpecStepDrawer flow={gemFlow.data} nodeId={inspect} onClose={() => setInspect(null)} />
+        <SpecStepDrawer
+          flow={gemFlow.data}
+          nodeId={inspect}
+          positions={event ? flow.positions.filter((p) => p.code === event.code) : []}
+          onClose={() => setInspect(null)}
+        />
       ) : (
         <NodeInspector nodeId={inspect} onClose={() => setInspect(null)} onNavigate={setInspect} />
       )}

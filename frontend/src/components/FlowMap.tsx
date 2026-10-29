@@ -1,4 +1,5 @@
 import { useMemo, useState } from "react";
+import type { Where } from "../lib/types";
 
 // ผังตรรกะสด: node และ edge มาจาก backend/app/engine/flow.py (ADR-0002)
 // ไฟล์นี้กำหนดแค่ตำแหน่งบนจอ เส้นที่วนกลับไปจุดเริ่ม (ตอบใหม่ / ข้อถัดไป) แสดงเป็นสัญลักษณ์ ↩ ที่ node ต้นทาง
@@ -30,6 +31,8 @@ export interface FlowPosition {
   step?: string | null;
   // อยู่กล่องแชตและ AI กำลังคิดคำตอบ
   thinking?: boolean;
+  // อยู่ส่วนไหนของขั้น (ป้ายใต้ชิปและ drawer ของขั้น)
+  where?: Where | null;
 }
 
 const COL = [84, 268, 452, 636, 820, 1004, 1188, 1372];

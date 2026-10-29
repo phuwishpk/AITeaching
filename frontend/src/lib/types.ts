@@ -10,6 +10,45 @@ export interface Decision {
   item?: string | null;
 }
 
+// Flow ของ Gem: นักเรียนอยู่ส่วนไหนของขั้น (backend/app/engine/gemflow.py where และ preview)
+export interface WhereStatus {
+  key: string;
+  label: string;
+  // กล่องในผังที่เป็นต้นเหตุ (กลไกที่ล็อกไว้หรือแชต) null = เกิดในขั้นนั้นเอง เช่น รอคำใบ้
+  box: string | null;
+  since?: number | null;
+  until?: number | null;
+  thinking?: boolean;
+}
+
+export interface WhereMove {
+  edge: string | null;
+  // ขั้นปลายเส้น และที่ชิปไปหยุดจริงถ้าต่างกัน (ขั้นปลายเส้นผ่านไปทันที เช่น คำใบ้ที่ไม่หน่วง)
+  to: string | null;
+  to_label: string | null;
+  then?: string | null;
+  then_label?: string | null;
+}
+
+export interface Where {
+  // null = ทำขั้นนั้นตามปกติ
+  status: WhereStatus | null;
+  doing: string;
+  brief: string;
+  facts: { label: string; value: string }[];
+  // มาถึงขั้นนี้ยังไง: จากกล่องไหน ผ่านขั้นไหน ด้วยเส้นอะไร
+  came: {
+    ts: number;
+    from: string | null;
+    from_label: string | null;
+    via_labels?: (string | null)[];
+    edge: string | null;
+    label: string;
+  } | null;
+  // ถ้าตอบตอนนี้จะไปเส้นไหน (ตัดสินที่ขั้นทำโจทย์ step) null = ตอนนี้ยังตอบไม่ได้
+  next: { step: string; correct?: WhereMove; wrong?: WhereMove } | null;
+}
+
 export interface StoredDecision {
   id?: number;
   ts: number;
@@ -94,9 +133,10 @@ export interface StaffView {
   end_reason?: string | null;
   last_decision?: Decision | null;
   last_activity?: number;
-  // Flow ของ Gem: กล่องในผังที่นักเรียนอยู่ และ AI กำลังคิดคำตอบแชตอยู่หรือไม่
+  // Flow ของ Gem: กล่องในผังที่ชิปอยู่ AI กำลังคิดคำตอบแชตไหม และอยู่ส่วนไหนของขั้น
   map_node?: string | null;
   chat_thinking?: boolean;
+  where?: Where | null;
   risk?: Risk;
   concept_names?: Record<string, string>;
 }

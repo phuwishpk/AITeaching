@@ -279,7 +279,12 @@ export default function AdminGems() {
         </>
       )}
       {d?.flow.custom ? (
-        <SpecStepDrawer flow={d.flow} nodeId={inspect} onClose={() => setInspect(null)} />
+        <SpecStepDrawer
+          flow={d.flow}
+          nodeId={inspect}
+          positions={flow.positions.filter((p) => d.students.includes(p.code))}
+          onClose={() => setInspect(null)}
+        />
       ) : (
         <NodeInspector nodeId={inspect} onClose={() => setInspect(null)} onNavigate={setInspect} />
       )}

@@ -139,16 +139,32 @@ async def raise_alert(code: str, set_id: str, kind: str, message: str, level: st
         pass
 
 
-def _map_place(state: dict) -> tuple[str | None, bool]:
-    """กล่องในผังของ Gem ที่นักเรียนอยู่ และ AI กำลังคิดคำตอบแชตอยู่หรือไม่"""
+def _place(state: dict) -> dict:
+    """ชิปของนักเรียนบนผังของ Gem: กล่องที่อยู่ AI กำลังคิดคำตอบแชตไหม และอยู่ส่วนไหนของขั้น"""
     try:
         content = content_for(state["subject_id"], state["set_id"])
     except (NotFound, StopIteration):
-        return None, False
+        return {"step": None, "thinking": False, "where": None}
     if not content.spec:
-        return None, False
+        return {"step": None, "thinking": False, "where": None}
     ctx = make_ctx(content)
-    return gemflow.map_node(state, ctx), gemflow.chat_thinking(state, ctx)
+    return {"step": gemflow.chip_node(state, ctx), "thinking": gemflow.chat_thinking(state, ctx),
+            "where": _where(state, content, ctx)}
+
+
+def _where(state: dict, content: Content, ctx: Ctx) -> dict:
+    """นักเรียนอยู่ส่วนไหนของขั้นใน Flow ของ Gem พร้อมพรีวิวว่าถ้าตอบถูกหรือผิดตอนนี้จะไปเส้นไหน"""
+    from . import demo  # demo import services จึง import ตอนเรียก
+
+    info = gemflow.where(state, ctx)
+    item = state.get("item")
+    if item and not state["ended"]:
+        try:
+            it = content.item(item["id"])
+            info["next"] = gemflow.preview(state, ctx, {"correct": demo.correct_raw(it), "wrong": demo.other_wrong(it)})
+        except Exception:  # noqa: BLE001 พรีวิวใช้แสดงผลอย่างเดียว พังแล้วต้องไม่ทำให้การอัปเดตสดของครูหยุด
+            info["next"] = None
+    return info
 
 
 def _gem_of(state: dict) -> dict | None:
@@ -204,6 +220,8 @@ def staff_payload(state: dict, content: Content, ctx: Ctx) -> dict:
     view["set_name"] = content.qs["name"]
     view["target"] = content.target
     view["item_concept_name"] = content.concept_name(view["item"]["concept"]) if view.get("item") else None
+    if content.spec:
+        view["where"] = _where(state, content, ctx)
     if state.get("remedial"):
         view["remedial_concept_name"] = content.concept_name(state["remedial"]["concept"])
     return view
@@ -633,7 +651,7 @@ def all_positions(owner: str | None = None) -> list[dict]:
         kind = student_kind(state["code"])
         if kind == "test":
             continue
-        step, thinking = _map_place(state)
+        place = _place(state)
         positions.append({
             "code": state["code"],
             "kind": kind,
@@ -645,8 +663,10 @@ def all_positions(owner: str | None = None) -> list[dict]:
             "remedial_round": state["remedial"]["round"] if state.get("remedial") else None,
             "last_edges": (state.get("last_decision") or {}).get("edges", []),
             # Flow ของ Gem: กล่องในผังของ Gem ที่นักเรียนอยู่ (ขั้นของ Flow หรือกลไกที่ล็อกไว้)
-            "step": step,
-            "thinking": thinking,
+            "step": place["step"],
+            "thinking": place["thinking"],
+            # อยู่ส่วนไหนของขั้น: กำลังทำอะไร ข้อไหน ผิดกี่ครั้ง มาถึงยังไง และถ้าตอบตอนนี้จะไปเส้นไหน
+            "where": place["where"],
             "last_rule": (state.get("last_decision") or {}).get("rule"),
             "since": state["position_since"],
         })

@@ -230,7 +230,7 @@ export default function Topic3() {
             </span>
           </div>
           {custom ? (
-            <SpecStepDetail flow={custom} nodeId={node} />
+            <SpecStepDetail flow={custom} nodeId={node} positions={positions} />
           ) : card ? (
             <PrincipleCard card={card} />
           ) : (

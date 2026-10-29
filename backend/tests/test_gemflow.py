@@ -920,6 +920,7 @@ def test_every_move_shows_on_the_map_chat_then_stress_then_walkthrough(subject):
     fx = engine.on_distress(state, at(ctx, 1010), "stress", "keyword")
     assert fx.decisions[-1]["detail"]["map_path"] == ["chat", F.CB] and "g_stress" in fx.decisions[-1]["edges"]
     assert gemflow.map_node(state, ctx) == F.CB
+    assert gemflow.chip_node(state, ctx) == F.CB, "ครูกำหนดทางหลังพัก กล่องพักเพราะเครียดเป็นขั้นในผัง ชิปอยู่ที่กล่องนั้น"
     assert not engine.chat_open(state, at(ctx, 1020)).decisions, "พักอยู่ แชตไม่พาชิปออกจากกล่องพัก"
     fx = engine.Fx()
     engine.resolve_timers(state, at(ctx, 1200), fx)
@@ -951,3 +952,39 @@ def test_map_path_keeps_steps_passed_without_stopping_and_leaving_chat(subject):
     assert paths[0] == ["chat", "w"] and fx.decisions[0]["edges"] == ["g_chat_back"]
     assert paths[-1] == ["w", "h", "w"], "ขั้นคำใบ้ที่ผ่านไปทันทีอยู่ในเส้นทาง"
     assert state["flow"]["chat"] is None and state["flow"]["map_at"] == "w"
+
+
+def test_chip_stays_on_its_step_while_paused_and_says_why(subject):
+    """Idle Pause ล็อก Rapid Guess และพักเพราะเครียด (ไม่ได้กำหนดทางหลังพัก) ไม่พาชิปออกจากขั้น บอกเป็นสถานะแทน
+    พรีวิวว่าถ้าตอบตอนนี้จะไปเส้นไหนตรงกับที่ engine ทำจริง"""
+    from app.engine import gemflow
+
+    flow = {"start": "w",
+            "steps": [{"id": "w", "kind": "item", "pick": "main"}, {"id": "h", "kind": "hint", "level": 1},
+                      {"id": "e", "kind": "end"}],
+            "edges": [{"from": "w", "to": "e", "when": "correct and mains_left == 0"},
+                      {"from": "w", "to": "h", "when": "wrong", "label": "ผิดแล้วใบ้"}, {"from": "w", "to": "w", "when": ""},
+                      {"from": "h", "to": "back", "when": ""}]}
+    content = gem_content(subject, flow)
+    state, ctx = start(content)
+    engine.idle(state, at(ctx, 1400))
+    assert gemflow.map_node(state, ctx) == F.IDLE, "เส้นทางยังไปถึงกล่อง Idle Pause"
+    assert gemflow.chip_node(state, ctx) == "w", "แต่ชิปยังอยู่ขั้นทำโจทย์"
+    assert gemflow.status(state, ctx)["key"] == F.IDLE and gemflow.where(state, ctx)["doing"] == "พัก · หน้าจอนิ่ง"
+    engine.resume(state, at(ctx, 1500))
+    assert gemflow.chip_node(state, ctx) == "w" and gemflow.status(state, ctx) is None
+
+    edges = {e["to"]: e["id"] for e in content.spec["edges"] if e["from"] == "w"}
+    it = it_of(content, state)
+    ahead = gemflow.preview(state, ctx, {"correct": demo.correct_raw(it), "wrong": demo.other_wrong(it)})
+    assert ahead["step"] == "w" and ahead["wrong"]["edge"] == edges["h"]
+    assert ahead["wrong"]["to"] == "h" and ahead["wrong"]["then"] == "w", "ผ่านคำใบ้ที่ไม่หน่วงแล้วกลับขั้นทำโจทย์"
+    assert state["item"]["error_count"] == 0 and not state["item"]["attempts"], "พรีวิวไม่แตะ state จริง"
+    engine.submit(state, at(ctx, 1530), demo.other_wrong(it))
+    entered = state["flow"]["entered"]
+    assert state["item"]["hint_level"] == 1 and entered["from"] == "w" and entered["via"] == ["h"], "มาถึงขั้นนี้ผ่านคำใบ้"
+    assert entered["label"] == "ผิดแล้วใบ้"
+
+    engine.on_distress(state, at(ctx, 1540), "stress", "keyword")
+    assert gemflow.chip_node(state, ctx) == "w" and gemflow.status(state, ctx)["box"] == F.CB
+    assert gemflow.status(state, ctx)["until"] == state["timers"]["break_until"]

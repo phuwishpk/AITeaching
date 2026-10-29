@@ -1,11 +1,13 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import dagre from "@dagrejs/dagre";
+import type { Where } from "../lib/types";
 import type { FlowPosition } from "./FlowMap";
 
 // ผังของ Flow ที่ AI ออกแบบจากคำสั่งของครูใน Gem (ADR-0004): ขั้นและเส้นไม่ตายตัว จึงจัดตำแหน่งอัตโนมัติด้วย dagre
 // เส้นที่วนกลับขั้นเดิม (เช่น ตอบถูกได้ข้อถัดไป) แสดงเป็นสัญลักษณ์ ↻ ที่กล่อง กลไกที่ล็อกไว้ทุก Flow เป็นแถวกล่องด้านล่าง
-// ชิปของนักเรียนอยู่กล่องที่นักเรียนอยู่จริง (รวมกล่องแชตและกลไกที่ล็อกไว้) เส้นทางของนักเรียน (trail) วาดตามการขยับจริง
-// พร้อมเลขลำดับ การขยับที่ไม่มีเส้นในผัง (เช่น จากขั้นไหนก็ได้เข้าแชตหรือไปล็อก Rapid Guess) วาดเป็นเส้นโค้งระหว่างกล่อง
+// ชิปของนักเรียนอยู่ที่ขั้นที่นักเรียนอยู่ แชตและกลไกที่พักแล้วกลับขั้นเดิม (Idle Pause, ล็อก Rapid Guess ฯลฯ) ไม่พาชิปออกจากขั้น
+// แต่ขึ้นป้ายสถานะใต้ชิป มีเส้นประโยงไปกล่องที่เป็นต้นเหตุ และชิปจาง ๆ ในกล่องนั้น นักเรียนที่เลือกมีป้ายบอกส่วนของขั้นเสมอ
+// เส้นทางของนักเรียน (trail) วาดตามการขยับจริงพร้อมเลขลำดับ การขยับที่ไม่มีเส้นในผังวาดเป็นเส้นโค้งระหว่างกล่อง
 
 export interface SpecNode {
   id: string;
@@ -63,7 +65,7 @@ const H = 52;
 const GW = 132;
 const GH = 34;
 const GGAP = 12;
-const GROW = GH + 30;
+const GROW = GH + 50;
 const NO_GUARDS: SpecGuard[] = [];
 const NO_POSITIONS: FlowPosition[] = [];
 
@@ -102,6 +104,21 @@ function connector(a: Box, b: Box) {
   const ey = b.y + (down ? -b.h / 2 : b.h / 2);
   const my = (sy + ey) / 2;
   return { d: `M${a.x},${sy} C${a.x},${my} ${b.x},${my} ${b.x},${ey}`, mid: { x: (a.x + b.x) / 2, y: my } };
+}
+
+// เวลาในป้ายสถานะ: ต่ำกว่า 1 นาทีเป็นวินาที
+function span(seconds: number) {
+  const s = Math.max(0, Math.ceil(seconds));
+  return s < 60 ? `${s} วิ` : `${Math.floor(s / 60)}:${String(s % 60).padStart(2, "0")} นาที`;
+}
+
+// ป้ายสถานะ: นับถอยหลังถ้ารู้เวลาจบ ไม่รู้ก็บอกว่าเป็นมานานเท่าไรแล้ว
+export function statusText(where: Where | null | undefined, now: number) {
+  const status = where?.status;
+  if (!status) return "";
+  if (status.until) return `${status.label} · เหลือ ${span(status.until - now)}`;
+  if (status.since && !status.thinking) return `${status.label} · ${span(now - status.since)}`;
+  return status.label;
 }
 
 function labelWidth(text: string) {
@@ -163,6 +180,14 @@ export default function SpecFlowMap({
   compact?: boolean;
 }) {
   const [hover, setHover] = useState<string | null>(null);
+  // ป้ายที่มีเวลาเดินทุกวินาที
+  const timed = positions.some((p) => p.where?.status?.since || p.where?.status?.until);
+  const [now, setNow] = useState(() => Date.now() / 1000);
+  useEffect(() => {
+    if (!timed) return;
+    const id = setInterval(() => setNow(Date.now() / 1000), 1000);
+    return () => clearInterval(id);
+  }, [timed]);
   const layout = useMemo(() => {
     const g = new dagre.graphlib.Graph({ multigraph: true });
     // บนลงล่าง: ขั้นต่อกันเป็นแถว ความกว้างขึ้นกับจำนวนทางแยก จึงพอดีกับคอลัมน์ของหน้า
@@ -178,7 +203,8 @@ export default function SpecFlowMap({
     dagre.layout(g);
     const graph = g.graph();
     const graphWidth = (graph.width ?? 400) + 8;
-    const graphHeight = (graph.height ?? 200) + 8;
+    // เผื่อที่ใต้แถวล่างสุดให้ชิปและป้ายสถานะ
+    const graphHeight = (graph.height ?? 200) + (compact ? 8 : 48);
     // แถวกลไกที่ล็อกไว้ขึ้นบรรทัดใหม่ตามความกว้าง ผังที่แคบกว่าแถวนี้เลื่อนมากึ่งกลาง
     const width = Math.max(graphWidth, guards.length ? 640 : 320);
     const dx = (width - graphWidth) / 2;
@@ -225,6 +251,16 @@ export default function SpecFlowMap({
     }
     return map;
   }, [positions]);
+  // นักเรียนที่ยังอยู่ขั้นของตัวเอง แต่ต้นเหตุของสถานะอยู่อีกกล่อง (แชต หรือกลไกที่ล็อกไว้)
+  const byCause = useMemo(() => {
+    const map = new Map<string, FlowPosition[]>();
+    for (const p of positions) {
+      const box = p.where?.status?.box;
+      if (box && box !== (p.step ?? p.position)) map.set(box, [...(map.get(box) ?? []), p]);
+    }
+    return map;
+  }, [positions]);
+  const nameOf = useMemo(() => new Map([...nodes.map((n) => [n.id, n.label] as const), ...guards.map((g) => [g.id, g.label] as const)]), [nodes, guards]);
   // แต่ละช่วงของเส้นทาง: ใช้เส้นในผังถ้ามี (เส้นที่ engine บันทึกก่อน) ไม่มีก็เป็นเส้นโค้งระหว่างกล่อง
   const paths = useMemo(() => {
     const onEdge = new Map<string, Hit>();
@@ -249,34 +285,80 @@ export default function SpecFlowMap({
   const boxOf = (id: string) => layout.boxes.get(id) ?? layout.guardBoxes.get(id);
   const badges: { key: string; x: number; y: number; hit: Hit }[] = [];
 
-  const chips = (list: FlowPosition[], y: number) =>
-    list.length > 0 && (
-      <g transform={`translate(2, ${y})`}>
-        {list.slice(0, 4).map((p, i) => (
-          <g
-            key={p.code}
-            transform={`translate(${i * 29}, 0)`}
-            className={`chip chip-${p.kind} ${p.code === selectedStudent ? "chip-on" : ""}`}
-            onClick={(e) => {
-              e.stopPropagation();
-              onSelectStudent?.(p.code);
-            }}
-          >
-            <title>{p.thinking ? `${p.code} · AI กำลังคิดคำตอบแชต` : p.code}</title>
-            <rect width={27} height={16} rx={8} />
-            <text x={13.5} y={11.5} textAnchor="middle">
-              {p.code.replace(/^(SIM|DEMO)-/, "").replace(/^S-/, "")}
+  const codeOf = (p: FlowPosition) => p.code.replace(/^(SIM|DEMO)-/, "").replace(/^S-/, "");
+  // ชิปของนักเรียนในกล่อง ต่อด้วยชิปจาง ๆ ของนักเรียนที่อยู่ขั้นอื่นแต่ต้นเหตุอยู่ที่กล่องนี้ (cause)
+  const chips = (list: FlowPosition[], y: number, cause: FlowPosition[] = []) => {
+    const all = [...list.map((p) => ({ p, ghost: false })), ...cause.map((p) => ({ p, ghost: true }))];
+    return (
+      all.length > 0 && (
+        <g transform={`translate(2, ${y})`}>
+          {all.slice(0, 4).map(({ p, ghost }, i) => (
+            <g
+              key={`${p.code}-${ghost}`}
+              transform={`translate(${i * 29}, 0)`}
+              className={`chip chip-${p.kind} ${ghost ? "chip-ghost" : ""} ${p.code === selectedStudent ? "chip-on" : ""}`}
+              onClick={(e) => {
+                e.stopPropagation();
+                onSelectStudent?.(p.code);
+              }}
+            >
+              <title>
+                {ghost
+                  ? `${p.code} · ${p.where?.status?.label ?? ""} (ยังอยู่ขั้น ${nameOf.get(p.step ?? "") ?? p.step})`
+                  : `${p.code} · ${p.where?.doing ?? ""}`}
+              </title>
+              <rect width={27} height={16} rx={8} />
+              <text x={13.5} y={11.5} textAnchor="middle">
+                {codeOf(p)}
+              </text>
+              {p.thinking && <circle cx={26} cy={1} r={3.5} className="chip-think" />}
+            </g>
+          ))}
+          {all.length > 4 && (
+            <text x={4 * 29 + 2} y={12} className="chip-more">
+              +{all.length - 4}
             </text>
-            {p.thinking && <circle cx={26} cy={1} r={3.5} className="chip-think" />}
-          </g>
-        ))}
-        {list.length > 4 && (
-          <text x={4 * 29 + 2} y={12} className="chip-more">
-            +{list.length - 4}
+          )}
+        </g>
+      )
+    );
+  };
+  // ป้ายใต้ชิป: นักเรียนที่เลือกบอกส่วนของขั้นเสมอ คนอื่นบอกเฉพาะตอนสถานะไม่ปกติ (พัก ล็อก คุยกับ AI รอคำใบ้)
+  const notes = (list: FlowPosition[], y: number) => {
+    const shown = list.filter((p) => p.code === selectedStudent || p.where?.status);
+    if (!shown.length) return null;
+    return (
+      <g transform={`translate(0, ${y})`}>
+        {shown.slice(0, 2).map((p, i) => {
+          const text = short(`${codeOf(p)} · ${statusText(p.where, now) || p.where?.brief || p.where?.doing || ""}`, 34);
+          const width = Math.min(230, text.replace(/[ัิ-ฺ็-๎]/g, "").length * 6 + 16);
+          return (
+            <g key={p.code} transform={`translate(0, ${i * 19})`} className={`chip-note ${p.where?.status ? "is-status" : ""}`}>
+              <title>{p.where?.doing ?? p.code}</title>
+              <rect width={width} height={17} rx={8.5} />
+              <text x={8} y={12}>
+                {text}
+              </text>
+            </g>
+          );
+        })}
+        {shown.length > 2 && (
+          <text x={4} y={2 * 19 + 11} className="chip-more">
+            +{shown.length - 2}
           </text>
         )}
       </g>
     );
+  };
+  // เส้นประจากขั้นที่นักเรียนอยู่ไปกล่องที่เป็นต้นเหตุของสถานะ (กล่องละเส้นต่อคู่ขั้น)
+  const causeLines = new Map<string, string>();
+  for (const p of positions) {
+    const box = p.where?.status?.box;
+    const at = p.step ?? p.position;
+    const a = boxOf(at);
+    const b = box ? boxOf(box) : undefined;
+    if (box && box !== at && a && b && !causeLines.has(`${at}>${box}`)) causeLines.set(`${at}>${box}`, connector(a, b).d);
+  }
 
   return (
     <div className="spec-flow">
@@ -348,10 +430,14 @@ export default function SpecFlowMap({
               </g>
             );
           })}
+          {[...causeLines].map(([key, d]) => (
+            <path key={`cause-${key}`} d={d} className="cause-line" />
+          ))}
           {nodes.map((node) => {
             const box = layout.boxes.get(node.id);
             if (!box) return null;
             const students = byNode.get(node.id) ?? [];
+            const cause = byCause.get(node.id) ?? [];
             const selfLoops = loops.get(node.id) ?? [];
             const loopHits = [...selfLoops.map((e) => paths.onEdge.get(e.id)), paths.onLoop.get(node.id)].filter((h): h is Hit => !!h);
             const loopOn = selfLoops.some((e) => active.has(e.id)) || loopHits.length > 0;
@@ -369,6 +455,7 @@ export default function SpecFlowMap({
               selected?.step === node.id ? "has-student" : "",
               paths.passed.has(node.id) ? "is-passed" : "",
               students.length ? "occupied" : "",
+              cause.length ? "is-cause" : "",
             ].join(" ");
             return (
               <g
@@ -409,7 +496,8 @@ export default function SpecFlowMap({
                     <title>{selfLoops.length ? selfLoops.map((e) => `วนที่ขั้นนี้: ${e.label || e.text}`).join("\n") : "วนที่ขั้นนี้"}</title>
                   </g>
                 )}
-                {chips(students, H + 6)}
+                {chips(students, H + 6, cause)}
+                {notes(students, H + 26)}
               </g>
             );
           })}
@@ -423,6 +511,7 @@ export default function SpecFlowMap({
                 const box = layout.guardBoxes.get(guard.id);
                 if (!box) return null;
                 const students = byNode.get(guard.id) ?? [];
+                const cause = byCause.get(guard.id) ?? [];
                 const classes = [
                   "fnode",
                   "sguard",
@@ -430,6 +519,7 @@ export default function SpecFlowMap({
                   selected?.step === guard.id ? "has-student" : "",
                   paths.passed.has(guard.id) ? "is-passed" : "",
                   students.length ? "occupied" : "",
+                  cause.length ? "is-cause" : "",
                 ].join(" ");
                 return (
                   <g
@@ -447,7 +537,8 @@ export default function SpecFlowMap({
                     <text x={GW / 2} y={GH / 2 + 4} textAnchor="middle" className="fnode-text">
                       {short(guard.label, 18)}
                     </text>
-                    {chips(students, GH + 4)}
+                    {chips(students, GH + 4, cause)}
+                    {notes(students, GH + 24)}
                   </g>
                 );
               })}

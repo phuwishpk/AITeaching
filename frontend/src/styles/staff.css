@@ -4079,6 +4079,53 @@ button.route-node:hover {
   fill: var(--on-accent);
 }
 
+/* นักเรียนยังอยู่ขั้นของตัวเอง แต่ต้นเหตุของสถานะอยู่อีกกล่อง: ชิปจางในกล่องนั้น และเส้นประโยงกลับไปขั้นที่นักเรียนอยู่ */
+.chip-ghost rect {
+  fill: var(--surface);
+  stroke: var(--accent);
+  stroke-dasharray: 3 2;
+}
+
+.chip-ghost text {
+  fill: var(--accent-ink);
+}
+
+.fnode.is-cause .fnode-box {
+  stroke: var(--warning);
+  stroke-width: 1.8;
+  stroke-dasharray: 4 3;
+}
+
+.cause-line {
+  fill: none;
+  stroke: var(--warning);
+  stroke-width: 1.4;
+  stroke-dasharray: 3 4;
+  pointer-events: none;
+}
+
+/* ป้ายใต้ชิป: ส่วนของขั้นที่นักเรียนอยู่ (สีเตือนเมื่อสถานะไม่ปกติ) */
+.chip-note rect {
+  fill: var(--surface);
+  stroke: var(--border-strong);
+  stroke-width: 1;
+}
+
+.chip-note text {
+  fill: var(--text-2);
+  font-size: 10.5px;
+}
+
+.chip-note.is-status rect {
+  fill: var(--warning-soft);
+  stroke: var(--warning);
+}
+
+.chip-note.is-status text {
+  fill: var(--warning);
+  font-weight: 600;
+}
+
 /* ชิปในกล่องแชตขณะ AI กำลังคิด */
 .chip-think {
   fill: var(--warning);
@@ -4091,6 +4138,53 @@ button.route-node:hover {
   50% {
     opacity: 0.3;
   }
+}
+
+/* drawer ของขั้น: นักเรียนที่อยู่ขั้นนี้ตอนนี้ อยู่ส่วนไหนของขั้น และถ้าตอบตอนนี้จะไปไหน */
+.here-card {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--surface-2, var(--surface));
+}
+
+.here-status {
+  color: var(--warning);
+  font-weight: 600;
+}
+
+.here-facts {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+  gap: 4px 12px;
+  margin: 0;
+}
+
+.here-facts div {
+  display: flex;
+  flex-direction: column;
+}
+
+.here-facts dt {
+  color: var(--text-3);
+}
+
+.here-facts dd {
+  margin: 0;
+  color: var(--text);
+  font-weight: 500;
+}
+
+.here-next {
+  margin: 0;
+  padding-left: 18px;
+}
+
+.step-list .badge {
+  margin-left: 6px;
 }
 
 /* ---------- แท็บ Flow ของครู ---------- */

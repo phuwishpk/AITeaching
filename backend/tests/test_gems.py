@@ -620,7 +620,12 @@ def test_admin_map_follows_the_student_into_chat_and_back(monkeypatch):
     view = client.post(f"/api/student/sets/{set_id}/start", headers=headers, json={}).json()
     client.post(f"/api/student/sets/{set_id}/chat", headers=headers, json={"message": "ขั้นแรกต้องทำยังไง"})
     staff = next(p for p in services.all_positions() if p["code"] == "S-41")
-    assert staff["step"] == "chat" and staff["position"] == "ANSWERING" and not staff["thinking"], "AI ตอบแล้ว ชิปยังอยู่กล่องแชต"
+    # ชิปอยู่ที่ขั้นทำโจทย์ (ยังอยู่ขั้นนั้น) ป้ายบอกว่ากำลังคุยกับ AI และกล่องแชตเป็นต้นเหตุ
+    assert staff["step"] == "work" and staff["position"] == "ANSWERING" and not staff["thinking"]
+    where = staff["where"]
+    assert where["status"]["key"] == "chat" and where["status"]["box"] == "chat" and where["status"]["label"] == "คุยกับ AI"
+    assert where["came"]["label"].startswith("เริ่ม Flow ที่ครูออกแบบใน Gem") and where["brief"].startswith("ข้อ 1/")
+    assert where["next"]["step"] == "work" and where["next"]["correct"]["to"] == "why", "ตอบถูกตอนนี้ไปอธิบายความคิด"
 
     from app import demo
     state = db.load_state("S-41", set_id)

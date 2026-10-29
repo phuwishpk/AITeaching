@@ -1,10 +1,11 @@
 import { useMemo } from "react";
 import { EyeOff, Lock, Sparkles } from "lucide-react";
 import FlowMap, { type FlowEdge, type FlowNode, type FlowPosition } from "../../components/FlowMap";
-import SpecFlowMap, { KIND_TEXT, type SpecEdge, type SpecGuard, type SpecNode, type TrailHop } from "../../components/SpecFlowMap";
+import SpecFlowMap, { KIND_TEXT, statusText, type SpecEdge, type SpecGuard, type SpecNode, type TrailHop } from "../../components/SpecFlowMap";
 import { Badge, Drawer } from "../../components/ui";
 import { api } from "../../lib/api";
-import { useLoad } from "../../lib/hooks";
+import { ago } from "../../lib/format";
+import { useLoad, useNow } from "../../lib/hooks";
 
 // ผังของ Gem แต่ละตัว ไม่ใช่ผังตายตัว มีสองแบบ
 // 1) ผังมาตรฐาน (backend/app/gems/design.py): กล่องของเครื่องมือที่ครูปิดไม่อยู่ในผัง และเส้นต่อไปยังขั้นที่ engine ใช้จริง
@@ -188,10 +189,75 @@ export function CustomNote({ flow }: { flow: CustomGemFlow }) {
   );
 }
 
+// นักเรียนที่อยู่ขั้นนี้ตอนนี้: กำลังทำอะไร (เวลาเดิน) ข้อไหน ผิดกี่ครั้ง มาถึงยังไง และถ้าตอบตอนนี้จะไปไหน
+function StudentsHere({ flow, list, nodeId }: { flow: CustomGemFlow; list: FlowPosition[]; nodeId: string }) {
+  const now = useNow(1000);
+  const name = (id: string) => flow.nodes.find((n) => n.id === id)?.label ?? id;
+  const edgeName = (id: string | null | undefined) => flow.edges.find((e) => e.id === id)?.label || null;
+  return (
+    <div className="stack stack-sm">
+      <span className="small strong">นักเรียนในขั้นนี้ตอนนี้ ({list.length})</span>
+      {list.map((p) => {
+        const w = p.where;
+        const elsewhere = (p.step ?? p.position) !== nodeId;
+        return (
+          <div key={p.code} className="here-card">
+            <span className="row row-sm">
+              <span className="mono strong">{p.code}</span>
+              <span className={`small ${w?.status ? "here-status" : ""}`}>{statusText(w, now) || w?.doing || p.position}</span>
+            </span>
+            {elsewhere && <span className="xsmall muted">ยังอยู่ขั้น "{name(p.step ?? "")}" ต้นเหตุอยู่ที่กล่องนี้</span>}
+            {w && (
+              <>
+                <dl className="here-facts xsmall">
+                  {w.facts.map((f) => (
+                    <div key={f.label}>
+                      <dt>{f.label}</dt>
+                      <dd>{f.value}</dd>
+                    </div>
+                  ))}
+                </dl>
+                {w.came && (
+                  <span className="xsmall muted">
+                    มาถึงขั้นนี้{w.came.from_label ? `จาก "${w.came.from_label}"` : ""}
+                    {w.came.via_labels?.length ? ` ผ่าน "${w.came.via_labels.join(" → ")}"` : ""}: {w.came.label} · {ago(w.came.ts, now)}
+                  </span>
+                )}
+                {w.next ? (
+                  <ul className="here-next xsmall">
+                    {(["correct", "wrong"] as const).map((k) => {
+                      const move = w.next?.[k];
+                      if (!move) return null;
+                      return (
+                        <li key={k}>
+                          <span className="strong">{k === "correct" ? "ถ้าตอบถูกตอนนี้" : "ถ้าตอบผิดตอนนี้"}</span> → {move.to_label ?? move.to}
+                          {move.then && ` แล้วไปต่อที่ "${move.then_label ?? move.then}"`}
+                          {edgeName(move.edge) && <span className="muted"> (เส้น "{edgeName(move.edge)}")</span>}
+                          {!move.edge && <span className="muted"> (ไม่มีเส้นที่เป็นจริง ใช้ทางของระบบ)</span>}
+                        </li>
+                      );
+                    })}
+                    {w.next.step !== nodeId && <li className="muted">ตัดสินที่ขั้น "{name(w.next.step)}"</li>}
+                  </ul>
+                ) : (
+                  <span className="xsmall muted">ตอนนี้ยังส่งคำตอบไม่ได้</span>
+                )}
+              </>
+            )}
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
 // คำอธิบายขั้นของ Flow ที่ AI ออกแบบ: ทำอะไร เส้นออกพร้อมเงื่อนไข และขั้นที่เข้ามา
-export function SpecStepDetail({ flow, nodeId }: { flow: CustomGemFlow; nodeId: string | null }) {
+// positions: นักเรียนที่อยู่ขั้นนี้ (หรือต้นเหตุของสถานะอยู่ที่กล่องนี้) และเส้นที่แต่ละคนจะไปถ้าตอบตอนนี้
+export function SpecStepDetail({ flow, nodeId, positions = [] }: { flow: CustomGemFlow; nodeId: string | null; positions?: FlowPosition[] }) {
   const node = flow.nodes.find((n) => n.id === nodeId);
   const guard = flow.guards.find((g) => g.id === nodeId);
+  const here = positions.filter((p) => nodeId && ((p.step ?? p.position) === nodeId || p.where?.status?.box === nodeId));
+  const short = (code: string) => code.replace(/^(SIM|DEMO)-/, "").replace(/^S-/, "");
   if (guard) {
     return (
       <div className="stack stack-sm">
@@ -201,6 +267,7 @@ export function SpecStepDetail({ flow, nodeId }: { flow: CustomGemFlow; nodeId: 
           <Badge>ล็อกไว้ทุก Flow</Badge>
         </span>
         <p className="small">{guard.text}</p>
+        {here.length > 0 && nodeId && <StudentsHere flow={flow} list={here} nodeId={nodeId} />}
         <ul className="flow-locked">
           {flow.locked.map((l) => (
             <li key={l.title} className="xsmall">
@@ -218,6 +285,8 @@ export function SpecStepDetail({ flow, nodeId }: { flow: CustomGemFlow; nodeId: 
   const name = (id: string) => flow.nodes.find((n) => n.id === id)?.label ?? id;
   const out = flow.edges.filter((e) => e.source === node.id);
   const incoming = [...new Set(flow.edges.filter((e) => e.target === node.id && e.source !== node.id).map((e) => name(e.source)))];
+  // เส้นที่นักเรียนแต่ละคนจะไปถ้าตอบตอนนี้ (พรีวิวจาก engine ตัดสินที่ขั้นทำโจทย์ของนักเรียนคนนั้น)
+  const deciding = positions.filter((p) => p.where?.next?.step === node.id);
   return (
     <div className="stack stack-sm">
       <span className="row row-sm">
@@ -226,25 +295,38 @@ export function SpecStepDetail({ flow, nodeId }: { flow: CustomGemFlow; nodeId: 
         {node.start && <Badge tone="accent">ขั้นแรก</Badge>}
       </span>
       <p className="small">{node.about}</p>
+      {here.length > 0 && <StudentsHere flow={flow} list={here} nodeId={node.id} />}
       {out.length > 0 && (
         <>
           <span className="small strong">ไปต่อที่ไหน (ตรวจตามลำดับ เส้นแรกที่เป็นจริงชนะ)</span>
           <ol className="step-list">
-            {out.map((e) => (
-              <li key={e.id} className="small">
-                <span className="strong">{e.label || "ไปต่อ"}</span> → {name(e.target)}
-                <br />
-                <span className="xsmall muted">
-                  ถ้า {e.text}
-                  {e.when && (
-                    <>
-                      {" "}
-                      · <span className="mono">{e.when}</span>
-                    </>
-                  )}
-                </span>
-              </li>
-            ))}
+            {out.map((e) => {
+              const tags = deciding.flatMap((p) =>
+                (["correct", "wrong"] as const)
+                  .filter((k) => p.where?.next?.[k]?.edge === e.id)
+                  .map((k) => `${short(p.code)} ถ้า${k === "correct" ? "ถูก" : "ผิด"}`),
+              );
+              return (
+                <li key={e.id} className="small">
+                  <span className="strong">{e.label || "ไปต่อ"}</span> → {name(e.target)}
+                  {tags.map((t) => (
+                    <Badge key={t} tone="warning">
+                      {t}
+                    </Badge>
+                  ))}
+                  <br />
+                  <span className="xsmall muted">
+                    ถ้า {e.text}
+                    {e.when && (
+                      <>
+                        {" "}
+                        · <span className="mono">{e.when}</span>
+                      </>
+                    )}
+                  </span>
+                </li>
+              );
+            })}
           </ol>
         </>
       )}
@@ -253,11 +335,21 @@ export function SpecStepDetail({ flow, nodeId }: { flow: CustomGemFlow; nodeId: 
   );
 }
 
-export function SpecStepDrawer({ flow, nodeId, onClose }: { flow: CustomGemFlow; nodeId: string | null; onClose: () => void }) {
+export function SpecStepDrawer({
+  flow,
+  nodeId,
+  positions,
+  onClose,
+}: {
+  flow: CustomGemFlow;
+  nodeId: string | null;
+  positions?: FlowPosition[];
+  onClose: () => void;
+}) {
   const title = flow.nodes.find((n) => n.id === nodeId)?.label ?? flow.guards.find((g) => g.id === nodeId)?.label ?? "";
   return (
     <Drawer open={!!nodeId} onClose={onClose} title={title}>
-      <SpecStepDetail flow={flow} nodeId={nodeId} />
+      <SpecStepDetail flow={flow} nodeId={nodeId} positions={positions} />
     </Drawer>
   );
 }

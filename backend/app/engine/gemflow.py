@@ -10,6 +10,7 @@ Flow คือกราฟของขั้น (step) จากคลังข�
 นอกจากนี้ผิดข้อเดียวกันครบ STUCK_LIMIT ครั้งจะส่งต่อครู กัน Flow ที่ไม่มีทางออก
 """
 
+import copy
 import re
 
 from ..config import WEIGHTS
@@ -44,6 +45,15 @@ CHAT = "chat"
 WORKING = F.CAN_ANSWER | {F.LESSON, F.REFLECT, F.ACTIVITY, F.WIDGET}
 # AI ตอบแชตนานกว่านี้ถือว่าไม่ได้คิดอยู่แล้ว (กันชิปขึ้น "กำลังคิด" ค้างเมื่อการเรียก AI ล้มกลางทาง)
 THINK_LIMIT = 90.0
+# กลไกที่ล็อกไว้ซึ่งพักแล้วกลับขั้นเดิม: ชิปอยู่ที่ขั้นเดิมพร้อมป้ายนี้ กล่องของกลไกในผังติดไฟ
+# (พักเพราะเครียดที่ครูกำหนดทางหลังพักไว้เป็นกล่องเต็มในผัง ชิปจึงไปอยู่ที่กล่องนั้น)
+STATUS = {
+    F.IDLE: "พัก · หน้าจอนิ่ง",
+    F.LOCK: "ล็อก Rapid Guess",
+    F.LIVE: "รอ AI สร้างโจทย์",
+    F.OUTAGE: "AI ขัดข้อง รอลองใหม่",
+    F.CB: "พักเพราะเครียด",
+}
 
 
 # ---------------------------------------------------------------- ข้อมูลของ Flow
@@ -89,12 +99,122 @@ def map_node(state: dict, ctx: C.Ctx) -> str | None:
     return flow.get("step")
 
 
+def chip_node(state: dict, ctx: C.Ctx) -> str | None:
+    """กล่องที่ชิปของนักเรียนอยู่บนผัง: แชตและกลไกที่พักแล้วกลับขั้นเดิมไม่พาชิปออกจากขั้น (บอกเป็นสถานะแทน)
+    ส่วน map_node คือกล่องที่การขยับไปถึงจริง ใช้วาดเส้นทาง"""
+    node = map_node(state, ctx)
+    if node == CHAT or (node in STATUS and not (node == F.CB and spec(ctx).get("after_stress"))):
+        return fs(state).get("step") or node
+    return node
+
+
+def status(state: dict, ctx: C.Ctx) -> dict | None:
+    """สิ่งที่ทำให้นักเรียนยังไม่ได้ทำขั้นนั้นตามปกติ (ป้ายใต้ชิป): กล่องที่ต้นเหตุอยู่ เวลาเริ่ม และเวลาที่จะจบถ้ามี
+    None = ทำขั้นนั้นตามปกติ"""
+    node = map_node(state, ctx)
+    timers = state["timers"]
+    flow = fs(state)
+    if node == CHAT:
+        thinking = chat_thinking(state, ctx)
+        return {"key": "chat", "label": "คุยกับ AI · กำลังคิด" if thinking else "คุยกับ AI", "box": CHAT,
+                "since": flow["chat"].get("since"), "until": None, "thinking": thinking}
+    if node in STATUS:
+        until = {F.LOCK: timers.get("lock_until"), F.OUTAGE: timers.get("retry_at"), F.CB: timers.get("break_until")}.get(node)
+        return {"key": node, "label": STATUS[node], "box": node, "since": state["position_since"], "until": until}
+    position = state["position"]
+    if position == F.DELAY:
+        return {"key": "delay", "label": "รอคำใบ้", "box": None, "since": state["position_since"], "until": timers.get("delay_until")}
+    if position == F.CB:
+        return {"key": "break", "label": "พักสายตา", "box": None, "since": state["position_since"], "until": timers.get("break_until")}
+    if position == F.ACTIVITY and (flow.get("activity") or {}).get("status") == "pending":
+        return {"key": "activity", "label": "AI กำลังเตรียมกิจกรรม", "box": None, "since": state["position_since"], "until": None}
+    return None
+
+
+def where(state: dict, ctx: C.Ctx) -> dict:
+    """นักเรียนอยู่ส่วนไหนของขั้น: ทำข้อไหน ผิดกี่ครั้ง เห็นคำใบ้ระดับไหน ถามแชตกี่ครั้ง กำลังทำอะไร และมาถึงขั้นนี้ยังไง"""
+    flow = fs(state)
+    item = state.get("item")
+    content = ctx.content
+    facts = []
+    brief = []
+    if item and not state["ended"]:
+        mains = [m["id"] for m in content.main_items()]
+        if item["id"] in mains:
+            which = f"โจทย์หลักข้อ {mains.index(item['id']) + 1} จาก {len(mains)}"
+            brief.append(f"ข้อ {mains.index(item['id']) + 1}/{len(mains)}")
+        else:
+            which = {"isomorphic": "ข้อคู่ขนาน", "remedial": "ข้อทบทวนพื้นฐาน"}.get(item["mode"], "ข้อเพิ่มเติม")
+            brief.append(which)
+        facts.append({"label": "ข้อที่ทำอยู่", "value": f"{which} ({item['id']})"})
+        facts.append({"label": "ผิดในข้อนี้", "value": f"{item['error_count']} ครั้ง"})
+        facts.append({"label": "คำใบ้ที่เห็นแล้ว", "value": f"ระดับ {item['hint_level']}" if item["hint_level"] else "ยังไม่เห็น"})
+        facts.append({"label": "ถามแชตเรื่องข้อนี้", "value": f"{item.get('chat_help', 0)} ครั้ง"})
+        brief += [text for value, text in ((item["error_count"], f"ผิด {item['error_count']}"),
+                                           (item["hint_level"], f"ใบ้ L{item['hint_level']}"),
+                                           (item.get("chat_help", 0), f"แชต {item.get('chat_help', 0)}")) if value]
+    facts.append({"label": "ทำเสร็จแล้วใน Session นี้", "value": f"{state['items_finished']} ข้อ"})
+    mastery = C.mastery_value(state, ctx, content.target)
+    if mastery is not None:
+        facts.append({"label": "Mastery เรื่องเป้าหมาย", "value": f"{mastery:.2f}"})
+    current = status(state, ctx)
+    entered = flow.get("entered") or {}
+    return {
+        "status": current,
+        "doing": current["label"] if current else F.TEACHER_TEXT.get(state["position"], state["position"]),
+        "brief": " · ".join(brief),
+        "facts": facts,
+        "came": {**entered, "from_label": node_label(ctx, entered.get("from")),
+                 "via_labels": [node_label(ctx, n) for n in entered.get("via", [])]} if entered else None,
+        "next": None,
+    }
+
+
+def node_label(ctx: C.Ctx, node: str | None) -> str | None:
+    if node is None:
+        return None
+    if node == CHAT:
+        return "แชตกับ AI"
+    return label(step_of(ctx, node)) or STATUS.get(node) or F.POSITION_LABELS.get(node, node)
+
+
+def preview(state: dict, ctx: C.Ctx, answers: dict[str, str]) -> dict | None:
+    """ถ้านักเรียนตอบตอนนี้ (ด้วยเวลาคิดปกติของข้อ) จะไปเส้นไหน: รัน engine จริงบนสำเนาของ state ผลจึงตรงกับที่จะเกิด
+    answers คือคำตอบตัวอย่างต่อกรณี เช่น {"correct": ..., "wrong": ...}"""
+    item = state.get("item")
+    item_step = fs(state).get("item_step")
+    if item is None or item_step is None or state["position"] not in F.CAN_ANSWER:
+        return None
+    it = ctx.content.item(item["id"])
+    out = {"step": item_step}
+    targets = {e["id"]: e["to"] for e in edges_from(ctx, item_step)}
+    for case, raw in answers.items():
+        trial_state = copy.deepcopy(state)
+        now = max(ctx.now, item["ready_at"] + float(it.get("expected_time", 45)))
+        trial = C.Ctx(ctx.content, ctx.params, ctx.time_scale, now)
+        fx = submit(trial_state, trial, raw)
+        edge = next((e for d in fx.decisions for e in d["edges"] if e in targets), None)
+        # ขั้นปลายเส้น และที่ชิปไปหยุดจริง (ต่างกันเมื่อขั้นปลายเส้นผ่านไปทันที เช่น คำใบ้ที่ไม่หน่วง)
+        end = chip_node(trial_state, trial)
+        to = item_step if edge and targets[edge] == "back" else targets[edge] if edge else end
+        out[case] = {"edge": edge, "to": to, "to_label": node_label(trial, to),
+                     "then": end if end != to else None, "then_label": node_label(trial, end) if end != to else None}
+    return out
+
+
 def track(state: dict, ctx: C.Ctx, fx: C.Fx, decision: dict):
     """เส้นทางบนผังของการย้ายครั้งนี้: กล่องที่ชิปอยู่ก่อน ขั้นที่ผ่าน (รวมขั้นที่ผ่านไปทันที) และกล่องที่ไปอยู่
-    การย้ายตำแหน่งทุกครั้งพาชิปออกจากกล่องแชต"""
+    การย้ายตำแหน่งทุกครั้งพาชิปออกจากกล่องแชต และถ้าเข้าขั้นใหม่ จำไว้ว่ามาจากไหนด้วยเส้นอะไร"""
     flow = fs(state)
     flow["chat"] = None
     path = [n for n in [flow.get("map_at"), *fx.map_steps] if n]
+    if fx.map_steps and fx.map_steps[-1] == flow.get("step"):
+        # เส้นของ Flow ที่การย้ายครั้งนี้ผ่าน (ไม่นับเส้นกลับขั้นทำโจทย์ที่ไม่มีชื่อ) ไม่มีเลยใช้เหตุผลข้อแรกของการตัดสินใจ
+        known = {e["id"]: e for e in spec(ctx)["edges"]}
+        used = [known[e] for e in decision["edges"] if e in known and (known[e].get("label") or known[e]["to"] != "back")]
+        flow["entered"] = {"ts": ctx.now, "from": path[0] if len(path) > 1 else None, "via": path[1:-1],
+                           "edge": used[0]["id"] if used else None,
+                           "label": " → ".join(edge_text(e) for e in used) or decision["rule"].split(" · ")[0]}
     fx.map_steps = []
     to = map_node(state, ctx)
     if to and (not path or path[-1] != to):
@@ -1030,5 +1150,6 @@ def student_extras(state: dict, ctx: C.Ctx) -> dict:
 
 def staff_extras(state: dict, ctx: C.Ctx) -> dict:
     step = flow_step(state, ctx)
+    # map_node ของหน้าเว็บคือกล่องที่ชิปอยู่ (chip_node) ส่วนสิ่งที่ทำอยู่ในขั้นนั้น services เติมเป็น where
     return {"flow_step": {"id": step["id"], "label": label(step), "kind": step["kind"]} if step else None,
-            "map_node": map_node(state, ctx), "chat_thinking": chat_thinking(state, ctx)}
+            "map_node": chip_node(state, ctx), "chat_thinking": chat_thinking(state, ctx)}
