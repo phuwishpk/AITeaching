@@ -37,3 +37,4 @@ dist/
 deploy/cloudflared/
 deploy/gateway/nginx.conf
 deploy/gateway/docker-compose.yml
+*.tsbuildinfo
