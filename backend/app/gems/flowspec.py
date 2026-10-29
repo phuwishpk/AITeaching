@@ -6,6 +6,7 @@ Flow เป็น JSON: ขั้น (steps) จากคลังขั้น�
 สิ่งที่ล็อกไว้ (LOCKED) ไม่อยู่ในกราฟ engine บังคับใช้เองทุก Flow (engine/gemflow.py)
 """
 
+import asyncio
 import json
 import re
 import time
@@ -1040,7 +1041,7 @@ async def audit_flow(gem: dict, flow_spec: dict) -> list[dict]:
 
     user = (f"{AUDIT}\n\nคำสั่งของครู:\n\"\"\"\n{gem.get('instructions', '')}\n\"\"\"\n\n"
             f"ขั้นใน Flow: " + ", ".join(f"{s['id']} ({KINDS[s['kind']]['label']}: {s['label']})" for s in flow_spec["steps"])
-            + f"\nหลังพักเพราะเครียดไปขั้น: {flow_spec.get('after_stress') or 'กลับขั้นเดิม'}\n\n{simulate.table_text(flow_spec)}")
+            + f"\nหลังพักเพราะเครียดไปขั้น: {flow_spec.get('after_stress') or 'กลับขั้นเดิม'}\n\n{await asyncio.to_thread(simulate.table_text, flow_spec)}")
     try:
         # โทเคนที่ใช้คิดนับรวมใน max_tokens รอบตรวจที่คิดเต็มที่จึงต้องเผื่อไว้มาก (8000 และ 20000 เคยถูกตัดกลางคำตอบ)
         raw = await builder.ask_json("flow_check", user, 32000, thinking="high", retry=False)
@@ -1087,7 +1088,8 @@ async def design(gem: dict, memory: dict | None = None, bugs: list[dict] | None 
     for attempt in range(3):
         # ออกแบบ Flow ต้องไล่แนวทางของครูทีละข้อ จึงให้โมเดลคิดเต็มที่ (โทเคนที่ใช้คิดนับรวมใน max_tokens)
         raw = await builder.ask_json("flow", design_prompt(gem, errors, previous, memory, bugs), 32000, thinking="high")
-        best, problems = _checked(raw if isinstance(raw, dict) else {}, bug_ids, keywords)
+        # จำลองทุกกรณีใช้ CPU เป็นวินาที ทำใน thread แยกไม่ให้ทั้งเว็บหยุดรอระหว่างออกแบบ
+        best, problems = await asyncio.to_thread(_checked, raw if isinstance(raw, dict) else {}, bug_ids, keywords)
         gaps = concept_gaps(instructions, best["spec"]) if best else []
         if best and not gaps:
             previous = raw
@@ -1108,11 +1110,11 @@ async def design(gem: dict, memory: dict | None = None, bugs: list[dict] | None 
         if failing:
             # แก้เฉพาะข้อที่ไม่ผ่าน ถ้ารอบแก้ไปทำผิดกฎข้ออื่น ให้แก้อีกครั้งหนึ่ง ใช้ผลใหม่เมื่อข้อที่ไม่ผ่านไม่เพิ่มขึ้น
             fixes = [f"แนวทาง \"{c['guideline']}\" ยังไม่ตรง: {c['fix'] or c['evidence']}" for c in failing]
-            fixes += [REVIEW + simulate.table_text(best["spec"])]
+            fixes += [REVIEW + await asyncio.to_thread(simulate.table_text, best["spec"])]
             base = previous
             for _ in range(2):
                 raw = await builder.ask_json("flow", design_prompt(gem, fixes, base, memory, bugs), 32000, thinking="high")
-                fixed, problems = _checked(raw if isinstance(raw, dict) else {}, bug_ids, keywords)
+                fixed, problems = await asyncio.to_thread(_checked, raw if isinstance(raw, dict) else {}, bug_ids, keywords)
                 if not problems:
                     again = await audit_flow(gem, fixed["spec"])
                     if sum(not c["ok"] for c in again) <= len(failing):

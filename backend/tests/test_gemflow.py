@@ -761,6 +761,36 @@ def test_simulation_finds_dead_edges_and_shows_where_students_go():
     assert "ผิดครั้งที่ 5" not in text and "ผิดครั้งที่ 0" not in text
 
 
+def test_simulation_cache_keeps_only_which_edge_won():
+    """เจอบนเซิร์ฟเวอร์จริง: แคชเก็บค่าตัวแปรของทุกกรณี (ราว 17 MB ต่อขั้น) ครูแก้ Flow และ AI ออกแบบใหม่หลายรอบ
+    จนแอปใช้ RAM เต็ม 700 MB แล้วเว็บค้าง แคชต้องเก็บแค่เลขเส้นที่ชนะ และให้ผลเหมือนเดิม"""
+    import tracemalloc
+
+    from app.gems import simulate
+
+    step = {"id": "q", "kind": "item", "label": "ทำโจทย์"}
+    flow = {"steps": [step], "edges": [
+        {"from": "q", "to": "a", "when": "correct and hint_level == 0 and mastery >= 0.8 and items_done >= 5"},
+        {"from": "q", "to": "b", "when": "correct and mains_left == 0 and streak >= 3"},
+        {"from": "q", "to": "c", "when": "wrong and error_count >= 3 and impasse > 60 and chat_help >= 2"},
+        {"from": "q", "to": "d", "when": "wrong and bug_type == 'misconception' and visits >= 2 and rt_ratio > 1.5"},
+        {"from": "q", "to": "e", "when": "wrong and concept_mastery < 0.4 and solved_here < 2"},
+        {"from": "q", "to": "f", "when": ""}]}
+    simulate._cases.cache_clear()
+    tracemalloc.start()
+    try:
+        before = tracemalloc.get_traced_memory()[0]
+        for _ in simulate.cases(flow, step):
+            pass
+        held = tracemalloc.get_traced_memory()[0] - before
+    finally:
+        tracemalloc.stop()
+    assert held < 1_000_000, f"แคชของขั้นเดียวใช้ {held / 1e6:.1f} MB"
+    reached = {e["to"] for _, e in simulate.cases(flow, step)}
+    assert [e["to"] for e in simulate.dead_in(flow, step)] == sorted(set("abcdef") - reached)
+    assert "f" in reached
+
+
 def test_unreachable_extra_steps_are_pruned_not_fatal(monkeypatch):
     """จาก Gemini จริง: AI สร้างขั้นพักแยกสำหรับความเครียด (ระบบพักให้เองอยู่แล้ว) ขั้นนั้นไม่มีทางเข้า
     ตัดทิ้งแล้วใช้ Flow ได้ ไม่เสียรอบออกแบบจนล้ม"""

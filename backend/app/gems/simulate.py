@@ -8,6 +8,8 @@
 import ast
 import itertools
 import json
+from array import array
+from collections.abc import Iterator
 from functools import lru_cache
 
 from ..engine import conditions
@@ -125,18 +127,35 @@ def _groups(step: dict, edges: list[dict]) -> list[tuple[dict, list[str]]]:
     return groups
 
 
-def cases(flow_spec: dict, step: dict) -> list[tuple[dict, dict | None]]:
+def cases(flow_spec: dict, step: dict) -> Iterator[tuple[dict, dict | None]]:
     """ทุกกรณีของขั้นนี้: (ค่าตัวแปรที่ลอง, เส้นที่ engine เลือก) จำผลไว้ หน้าแก้ Flow ตรวจซ้ำบ่อย"""
+    edges, key = _key(flow_spec, step)
+    for fixed, names, domains, winners in _cases(key):
+        for combo, index in zip(itertools.product(*domains), winners):
+            yield {**fixed, **dict(zip(names, combo))}, edges[index] if index >= 0 else None
+
+
+def _key(flow_spec: dict, step: dict) -> tuple[list[dict], str]:
     edges = [e for e in flow_spec["edges"] if e["from"] == step["id"]]
-    key = json.dumps([step["id"], step["kind"], [[e["to"], e.get("when") or ""] for e in edges]], ensure_ascii=False)
-    return [(values, edges[index] if index is not None else None) for values, index in _cases(key)]
+    return edges, json.dumps([step["id"], step["kind"], [[e["to"], e.get("when") or ""] for e in edges]], ensure_ascii=False)
+
+
+def _unused(flow_spec: dict, step: dict) -> list[dict]:
+    """เส้นของขั้นนี้ที่ไม่มีกรณีไหนไปถึง อ่านจากเลขเส้นที่จำไว้ ไม่ต้องสร้างค่าตัวแปรของทุกกรณีใหม่"""
+    edges, key = _key(flow_spec, step)
+    used = set()
+    for *_, winners in _cases(key):
+        used.update(winners)
+    return [e for i, e in enumerate(edges) if i not in used]
 
 
 @lru_cache(maxsize=256)
 def _cases(key: str) -> tuple:
+    """จำแบบย่อ: ต่อกลุ่มเก็บค่าคงที่ ชื่อตัวแปร โดเมน และเลขเส้นที่ชนะของทุกกรณีตามลำดับ itertools.product (-1 = ไม่มีเส้น)
+    ไม่เก็บ dict ของทุกกรณี ขั้นหนึ่งมีได้ราว 40,000 กรณี (ราว 17 MB ถ้าเก็บทั้งหมด) แคช 256 ขั้นเคยทำ RAM ของเซิร์ฟเวอร์เต็มจนเว็บค้าง"""
     step_id, kind, pairs = json.loads(key)
     edges = [{"to": to, "when": when, "index": i} for i, (to, when) in enumerate(pairs)]
-    return tuple((values, (edge or {}).get("index")) for values, edge in _enumerate({"id": step_id, "kind": kind}, edges))
+    return tuple(_enumerate({"id": step_id, "kind": kind}, edges))
 
 
 def _enumerate(step: dict, edges: list[dict]):
@@ -151,9 +170,11 @@ def _enumerate(step: dict, edges: list[dict]):
             # ตัดจากโดเมนที่ยาวที่สุดทีละค่าท้าย (ค่า ±1 ของตัวเลขในเงื่อนไข) ครั้งที่ผิด 1–4 ไม่ตัด
             longest = max(range(len(domains)), key=lambda i: len(domains[i]) - (10 if names[i] == "error_count" else 0))
             domains[longest] = domains[longest][:-1]
-        for combo in itertools.product(*domains) if names else [()]:
-            values = _consistent({**BASE, **fixed, **dict(zip(names, combo))})
-            yield {**fixed, **dict(zip(names, combo))}, _winner(parsed, values, {})
+        winners = array("h")
+        for combo in itertools.product(*domains):
+            edge = _winner(parsed, _consistent({**BASE, **fixed, **dict(zip(names, combo))}), {})
+            winners.append(edge["index"] if edge is not None else -1)
+        yield fixed, tuple(names), tuple(map(tuple, domains)), winners
 
 
 def _product(domains: list[list]) -> int:
@@ -167,8 +188,7 @@ def dead_in(flow_spec: dict, step: dict) -> list[dict]:
     edges = [e for e in flow_spec["edges"] if e["from"] == step["id"]]
     if len(edges) < 2:
         return []
-    used = {id(edge) for _, edge in cases(flow_spec, step) if edge is not None}
-    return [e for e in edges if id(e) not in used]
+    return _unused(flow_spec, step)
 
 
 def reorder_dead(flow_spec: dict) -> list[str]:
@@ -202,11 +222,9 @@ def dead_edges(flow_spec: dict) -> list[str]:
         edges = [e for e in flow_spec["edges"] if e["from"] == step["id"]]
         if len(edges) < 2:
             continue
-        used = {id(edge) for _, edge in cases(flow_spec, step) if edge is not None}
-        for edge in edges:
-            if id(edge) not in used:
-                notes.append(f"{DEAD}จาก \"{step['label']}\" เส้น \"{edge.get('label') or edge.get('when') or 'ทุกกรณี'}\" "
-                             f"({edge.get('when') or 'ทุกกรณี'}) เพราะเส้นก่อนหน้าดักทุกกรณีไว้แล้ว ย้ายเส้นนี้ขึ้นไปหรือแก้เงื่อนไข")
+        for edge in _unused(flow_spec, step):
+            notes.append(f"{DEAD}จาก \"{step['label']}\" เส้น \"{edge.get('label') or edge.get('when') or 'ทุกกรณี'}\" "
+                         f"({edge.get('when') or 'ทุกกรณี'}) เพราะเส้นก่อนหน้าดักทุกกรณีไว้แล้ว ย้ายเส้นนี้ขึ้นไปหรือแก้เงื่อนไข")
     return notes
 
 
