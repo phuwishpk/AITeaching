@@ -228,15 +228,8 @@ function AdminShell({ onLogout, onExpired }: { onLogout: () => void; onExpired: 
         <div className="side-layout">
           <SideNav
             label="เมนูผู้ดูแลระบบ"
+            // หัวข้อ 1–7 ตามลำดับสไลด์ไม่อยู่ในเมนูแล้ว (ผู้ใช้ขอซ่อน) ยังเปิดจากลิงก์ เช่น หน้ากฎ → หัวข้อ 6 ได้
             sections={[
-              {
-                title: "นำเสนอตามลำดับสไลด์",
-                items: TOPICS.map((topic) => ({
-                  to: `/admin/${topic.id}`,
-                  label: topic.menu,
-                  icon: <span className="nav-num">{topic.id}</span>,
-                })),
-              },
               {
                 title: "ดูระบบทำงานจริง",
                 items: [
@@ -257,7 +250,7 @@ function AdminShell({ onLogout, onExpired }: { onLogout: () => void; onExpired: 
           />
           <main className="side-main">
             <Routes>
-              <Route index element={<Navigate to="1" replace />} />
+              <Route index element={<Navigate to="gems" replace />} />
               <Route path="1" element={<Topic1 />} />
               <Route path="2" element={<Topic2 />} />
               <Route path="3" element={<Topic3 />} />
@@ -269,7 +262,7 @@ function AdminShell({ onLogout, onExpired }: { onLogout: () => void; onExpired: 
               <Route path="rules" element={<RulesPage role="admin" />} />
               <Route path="activity" element={<Activity />} />
               <Route path="gems" element={<AdminGems />} />
-              <Route path="*" element={<Navigate to="1" replace />} />
+              <Route path="*" element={<Navigate to="gems" replace />} />
             </Routes>
             <TopicPager />
           </main>
