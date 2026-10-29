@@ -145,6 +145,13 @@ def student_journey(code: str, session: int | None = None, auth: dict = Depends(
     return activity.journey(code, session)
 
 
+@router.get("/students/{code}/trail")
+def student_trail(code: str, auth: dict = Depends(admin)):
+    """การขยับบนผังของ Gem ทั้ง Session ล่าสุด (กล่อง → กล่อง) ให้ผังวาดเส้นทางพร้อมเลขลำดับ"""
+    scope.student(auth, code)
+    return activity.trail(code)
+
+
 @router.get("/activity")
 def student_activity(code: str | None = None, include_sim: bool = False, limit: int = 40, auth: dict = Depends(admin)):
     """สิ่งที่นักเรียนป้อนเข้ามาแต่ละครั้ง และเส้นทางที่การกระทำนั้นผ่านในผังตรรกะ"""

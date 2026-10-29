@@ -578,8 +578,9 @@ def catalog() -> dict:
     }
 
 
-def map_view(spec: dict) -> dict:
-    """กล่องและเส้นสำหรับวาดผังของ Gem (หน้าเว็บจัดตำแหน่งเองด้วย dagre)"""
+def map_view(spec: dict, chat_tool: bool = False) -> dict:
+    """กล่องและเส้นสำหรับวาดผังของ Gem (หน้าเว็บจัดตำแหน่งเองด้วย dagre)
+    chat_tool: Gem เปิดแชตไว้ ผังมีกล่องแชตแม้ครูไม่ได้กำหนดแนวทางแชต (นักเรียนที่กำลังคุยกับ AI อยู่ที่กล่องนี้)"""
     nodes = [{"id": s["id"], "label": s["label"], "kind": s["kind"], "lane": KINDS[s["kind"]]["lane"],
               "about": describe_step(s) + (" · มาที่ขั้นนี้หลังพักเพราะเครียด (Circuit Breaker)"
                                            if s["id"] == spec.get("after_stress") else ""),
@@ -589,13 +590,29 @@ def map_view(spec: dict) -> dict:
               "label": e.get("label") or ("กลับขั้นทำโจทย์เดิม" if e["to"] == BACK else ""),
               "when": e.get("when") or "", "text": conditions.describe(e.get("when"))} for e in spec["edges"]]
     chat = spec.get("chat")
-    if chat:
+    if chat or chat_tool:
         # แชตอยู่ข้างจอตลอด จึงเป็นกล่องลอย เส้นจากแชตคือสิ่งที่นักเรียนพิมพ์แล้วระบบพาไปขั้นนั้น
-        nodes.append({"id": CHAT, "label": "แชตกับ AI", "kind": CHAT, "lane": "help", "about": describe_chat(chat), "start": False})
+        # เส้นเข้าและกลับจากขั้นที่นักเรียนทำอยู่ หน้าเว็บวาดตามการขยับจริง (เข้าได้จากทุกขั้น)
+        nodes.append({"id": CHAT, "label": "แชตกับ AI", "kind": CHAT, "lane": "help", "start": False,
+                      "about": describe_chat(chat) if chat else "ตอบแบบอัตโนมัติ ครูไม่ได้กำหนดแนวทางแชต"})
         edges += [{"id": f"chat_{i['id']}", "source": CHAT, "target": i["goto"], "label": i["label"],
                    "when": " / ".join(i["keywords"][:4]), "text": "นักเรียนพิมพ์ " + ", ".join(i["keywords"][:6])}
-                  for i in chat["intents"] if i["goto"]]
-    return {"nodes": nodes, "edges": edges, "guards": GUARDS}
+                  for i in (chat or {}).get("intents", []) if i["goto"]]
+    guards = GUARDS
+    after = spec.get("after_stress")
+    if after:
+        # ครูกำหนดทางหลังพักเพราะเครียด: การพักเป็นส่วนหนึ่งของเส้นทาง จึงเป็นกล่องเต็มในผังพร้อมเส้นของมัน
+        # (id ของเส้นตรงกับที่ engine บันทึก เส้นจึงติดไฟเมื่อนักเรียนผ่าน)
+        stress_box = next(g for g in GUARDS if g["id"] == F.CB)
+        nodes.append({"id": F.CB, "label": stress_box["label"], "kind": "guard", "lane": "care", "start": False,
+                      "about": "พิมพ์ข้อความเครียดหรือท้อ พักสายตาตามเวลาของระบบ แล้วไปขั้นที่ครูกำหนด · ล็อกไว้ทุก Flow"})
+        if chat or chat_tool:
+            edges.append({"id": "g_stress", "source": CHAT, "target": F.CB, "label": "พิมพ์ว่าเครียดหรือท้อ", "when": "",
+                          "text": "นักเรียนพิมพ์ข้อความเครียดหรือท้อในแชต"})
+        edges.append({"id": "g_stress_back", "source": F.CB, "target": after, "label": "พักครบ", "when": "",
+                      "text": "พักครบเวลา ไปขั้นที่ครูกำหนดหลังพักเพราะเครียด"})
+        guards = [g for g in GUARDS if g["id"] != F.CB]
+    return {"nodes": nodes, "edges": edges, "guards": guards}
 
 
 # บรรทัดที่พูดถึงสิ่งที่นักเรียนพิมพ์ (ไม่ใช้ "คำว่า" หรือ "แชต" อย่างเดียว เพราะเจอในโจทย์เติมคำและบุคลิก เช่น เรียกว่า "พี่")

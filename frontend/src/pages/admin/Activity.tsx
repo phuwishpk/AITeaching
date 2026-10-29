@@ -9,7 +9,7 @@ import { useAdmin } from "./AdminApp";
 import { useStudentPicker } from "./Topic2";
 import { CodePicker } from "./shared";
 import NodeInspector from "./NodeInspector";
-import { GemFlowMap, SpecStepDrawer, type GemFlow } from "./gemFlow";
+import { eventTrail, GemFlowMap, SpecStepDrawer, type GemFlow } from "./gemFlow";
 import { answerText, ItemView, type ItemBrief } from "../../components/AnswerSheet";
 
 interface ActivityInput {
@@ -28,6 +28,8 @@ interface ActivityDecision {
   edges: string[];
   path: string[];
   path_labels: string[];
+  // Flow ของ Gem: map_path คือกล่องในผังที่การตัดสินใจนี้พาผ่าน
+  detail?: Record<string, unknown>;
 }
 
 interface ActivityEvent {
@@ -340,6 +342,7 @@ export default function Activity() {
               selectedStudent={event?.code}
               selectedNode={gemFlow.data?.custom ? event?.step : event?.position}
               highlightEdges={event?.edges ?? []}
+              trail={gemFlow.data?.custom && event ? eventTrail(event.decisions) : undefined}
               onSelectNode={setInspect}
             />
           </Card>

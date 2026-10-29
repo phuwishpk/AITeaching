@@ -4008,52 +4008,89 @@ button.route-node:hover {
   fill: var(--on-accent);
 }
 
-.spec-guards {
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-  overflow-x: auto;
-  padding-top: 8px;
-  border-top: 1px dashed var(--border);
+/* กลไกที่ล็อกไว้ทุก Flow: แถวกล่องด้านล่างของผัง ชิปของนักเรียนอยู่ในกล่องได้และเส้นทางลากถึงได้ */
+.sguard-rule {
+  stroke: var(--border);
+  stroke-dasharray: 4 4;
 }
 
-.spec-guard-list {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 6px;
+.sguard-title {
+  fill: var(--text-3);
+  font-size: 11px;
+  font-weight: 600;
 }
 
-.spec-guard {
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-  padding: 4px 10px;
-  border: 1px dashed var(--border-strong);
-  border-radius: 999px;
-  background: var(--surface);
-  color: var(--text-2);
-  font: inherit;
-  cursor: pointer;
+.sguard .fnode-box,
+.snode-guard .fnode-box {
+  fill: var(--surface);
+  stroke-dasharray: 4 3;
 }
 
-.spec-guard.on,
-.spec-guard.occupied {
-  border-style: solid;
-  border-color: var(--accent);
+.sguard .fnode-text {
+  font-size: 11.5px;
+  fill: var(--text-2);
 }
 
-.spec-guard-chip {
-  padding: 0 6px;
-  border-radius: 8px;
-  background: var(--surface-3);
+.sguard.occupied .fnode-box {
+  stroke: var(--accent);
+  stroke-dasharray: none;
+}
+
+/* เส้นทางของนักเรียน: ครั้งล่าสุดเข้ม (edge-on) ย้อนหลังจาง การขยับที่ไม่มีเส้นในผังเป็นเส้นประ */
+.edge-trail > path:not(.edge-hit) {
+  stroke: var(--accent);
+  stroke-width: 1.8;
+  opacity: 0.45;
+}
+
+.edge-free > path {
+  fill: none;
+  stroke-dasharray: 6 4;
+}
+
+.arrow-head-trail {
+  fill: var(--accent);
+  opacity: 0.45;
+}
+
+.fnode.is-passed .fnode-box {
+  stroke: var(--accent);
+  stroke-width: 1.8;
+}
+
+.trail-badge rect {
+  fill: var(--surface);
+  stroke: var(--accent);
+  stroke-width: 1;
+}
+
+.trail-badge text {
+  fill: var(--accent-ink);
   font-family: var(--font-mono);
   font-size: 10px;
   font-weight: 600;
 }
 
-.spec-guard-chip.on {
-  background: var(--accent);
-  color: var(--on-accent);
+.trail-badge.latest rect {
+  fill: var(--accent);
+}
+
+.trail-badge.latest text {
+  fill: var(--on-accent);
+}
+
+/* ชิปในกล่องแชตขณะ AI กำลังคิด */
+.chip-think {
+  fill: var(--warning);
+  stroke: var(--chart-surface);
+  stroke-width: 1.5;
+  animation: chip-think 1.2s ease-in-out infinite;
+}
+
+@keyframes chip-think {
+  50% {
+    opacity: 0.3;
+  }
 }
 
 /* ---------- แท็บ Flow ของครู ---------- */

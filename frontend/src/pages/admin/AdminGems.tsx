@@ -10,7 +10,7 @@ import { Badge, Button, Card, CardHead, Empty, Spinner, useToast } from "../../c
 import { STATUS_TEXT, TOOL_LABELS, type GemDetail, type GemSummary } from "../teacher/gemTypes";
 import { FeatureList } from "../teacher/GemEditor";
 import { useAdmin } from "./AdminApp";
-import { GemFlowMap, SpecStepDrawer, type GemFlow } from "./gemFlow";
+import { GemFlowMap, SpecStepDrawer, useTrail, type GemFlow } from "./gemFlow";
 import NodeInspector from "./NodeInspector";
 
 // Flow ที่ครูออกแบบใน Gem (Q24): ผังตรรกะจริงที่ปรับตามเครื่องมือและ Alert Rule ของ Gem ที่เลือก
@@ -29,12 +29,16 @@ interface GemDesign extends Omit<GemDetail, "locked_constraints" | "options"> {
 const LEVEL_TEXT: Record<string, string> = { urgent: "ด่วน", normal: "ปกติ", silent: "เงียบ" };
 
 export default function AdminGems() {
-  const { flow } = useAdmin();
+  const { flow, lastEvent } = useAdmin();
   const [params, setParams] = useSearchParams();
   const gems = useLoad(() => api<GemSummary[]>("admin", "/api/gems"));
   const selected = params.get("gem") ?? gems.data?.[0]?.id ?? null;
   const design = useLoad(() => (selected ? api<GemDesign>("admin", `/api/gems/${selected}/design`) : Promise.resolve(null)), [selected]);
   const [inspect, setInspect] = useState<string | null>(null);
+  // กดชิปของนักเรียน: ผังวาดเส้นทางทั้ง Session ของคนนั้น กดซ้ำเพื่อเลิกเลือก
+  const [student, setStudent] = useState<string | null>(null);
+  const trail = useTrail(student, lastEvent);
+  useEffect(() => setStudent(null), [selected]);
   const now = useNow(30000);
   const toast = useToast();
   const demoGem = useLoad(() => api<{ gem_id: string | null }>("admin", "/api/admin/demo-gem"));
@@ -113,7 +117,7 @@ export default function AdminGems() {
                 )}
               </span>
               <ul className="flow-legend xsmall muted">
-                {d.flow.custom ? <li>↻ วนที่ขั้นเดิม · เส้นประด้านล่างคือกลไกที่ล็อกไว้</li> : (
+                {d.flow.custom ? <li>↻ วนที่ขั้นเดิม · กดชิปนักเรียนเพื่อดูเส้นทางทั้ง Session (เลขบนเส้นคือลำดับ)</li> : (
                   <>
                     <li>🔔 แจ้งครู</li>
                     <li>✋ หยุดรอครูอนุมัติ</li>
@@ -131,6 +135,9 @@ export default function AdminGems() {
               flow={d.flow}
               allNodes={flow.nodes}
               positions={flow.positions.filter((p) => d.students.includes(p.code))}
+              selectedStudent={student}
+              onSelectStudent={(code) => setStudent((current) => (current === code ? null : code))}
+              trail={d.flow.custom ? trail : undefined}
               onSelectNode={setInspect}
             />
           </Card>

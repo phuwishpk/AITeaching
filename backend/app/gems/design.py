@@ -88,7 +88,8 @@ def custom_flow(gem: dict) -> dict | None:
         return None
     spec = flow["spec"]
     return {
-        "custom": True, **flowspec.map_view(spec),
+        # ผังของ Admin มีกล่องแชตเมื่อ Gem เปิดแชต นักเรียนที่กำลังคุยกับ AI จะอยู่ที่กล่องนี้
+        "custom": True, **flowspec.map_view(spec, chat_tool=bool((gem.get("tools") or {}).get("chat", True))),
         "summary": spec.get("summary", ""), "source": flow.get("source"), "reviewed": bool(flow.get("reviewed")),
         "guidelines": spec.get("guidelines", []),
         "warnings": flow.get("warnings") or [], "locked": flowspec.LOCKED,

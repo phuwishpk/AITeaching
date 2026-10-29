@@ -94,6 +94,9 @@ export interface StaffView {
   end_reason?: string | null;
   last_decision?: Decision | null;
   last_activity?: number;
+  // Flow ของ Gem: กล่องในผังที่นักเรียนอยู่ และ AI กำลังคิดคำตอบแชตอยู่หรือไม่
+  map_node?: string | null;
+  chat_thinking?: boolean;
   risk?: Risk;
   concept_names?: Record<string, string>;
 }

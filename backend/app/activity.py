@@ -6,18 +6,22 @@
 """
 
 from . import db, rules, scope
-from .gems import versions
+from .gems import flowspec, versions
 from .engine import flow as F
 
 EDGES = {e["id"]: e for e in F.EDGES}
 NODE_LABELS = {n["id"]: n["label"].replace("\n", " ") for n in F.NODES}
 RULE_TITLES = {r["id"]: r["title"] for g in rules.GROUPS for r in g["rules"]}
+# กล่องในผังของ Gem ที่ไม่ใช่ขั้นของ Flow: กลไกที่ล็อกไว้และกล่องแชต
+MAP_LABELS = {**{g["id"]: g["label"] for g in flowspec.GUARDS}, flowspec.CHAT: "แชตกับ AI"}
 RULES_BY_EDGE: dict[str, list[str]] = {}
 for _rule_id, _edges in rules.RULE_EDGES.items():
     for _edge in _edges:
         RULES_BY_EDGE.setdefault(_edge, []).append(_rule_id)
 
 SUBMIT = ["e_submit", "e_clean_ok", "e_clean_reject"]
+# การขยับบนผังของ Gem ที่ Flow Position ไม่เปลี่ยน (เข้าและออกกล่องแชต) ไม่นับเป็นการย้ายตำแหน่ง
+SHIFT_EDGES = {"g_chat_in", "g_chat_back"}
 
 # การกระทำที่ไม่ได้ย้ายตำแหน่งในผัง: บอกว่าไปจบที่ขั้นไหนและกฎข้อไหน (ขั้น, กฎ, เส้นในผัง)
 HINT_ROUTES = {
@@ -100,7 +104,8 @@ def _assemble(traces: list[dict], decisions: list[dict]) -> list[dict]:
                 item["item"] = item_brief(items.get(item["target"]))
         event["decisions"].sort(key=lambda d: d["id"])
         edges = [e for d in event["decisions"] for e in d["edges"]]
-        steps, rule_ids, route_edges = ([], [], []) if event["decisions"] else _input_route(event["inputs"])
+        moved = [d for d in event["decisions"] if not set(d["edges"]) <= SHIFT_EDGES]
+        steps, rule_ids, route_edges = ([], [], []) if moved else _input_route(event["inputs"])
         event["edges"] = edges or route_edges
         event["steps"] = steps
         event["rules"] = _related_rules(edges, rule_ids)
@@ -109,10 +114,13 @@ def _assemble(traces: list[dict], decisions: list[dict]) -> list[dict]:
             or "g_teacher" in d["edges"]
             or d["rule"].startswith("ครู") for d in event["decisions"]) else "system")
         event["position"] = event["decisions"][-1]["to"] if event["decisions"] else None
-        # Flow ที่ครูออกแบบใน Gem: ขั้นของ Flow ที่นักเรียนไปอยู่ต่อ (ผังของ Gem วาดตามขั้น ไม่ใช่ตำแหน่งมาตรฐาน)
+        # Flow ที่ครูออกแบบใน Gem: กล่องในผังที่นักเรียนไปอยู่ต่อ (ผังของ Gem วาดตามขั้น ไม่ใช่ตำแหน่งมาตรฐาน)
+        # map_path บอกกล่องจริงรวมกลไกที่ล็อกไว้และกล่องแชต การตัดสินใจเก่าที่ไม่มี map_path ใช้ขั้นของ Flow
         last_detail = event["decisions"][-1]["detail"] if event["decisions"] else {}
-        event["step"] = last_detail.get("step")
-        event["step_label"] = last_detail.get("step_label")
+        path = last_detail.get("map_path") or []
+        event["step"] = path[-1] if path else last_detail.get("step")
+        event["step_label"] = (MAP_LABELS[event["step"]] if event["step"] in MAP_LABELS
+                               else last_detail.get("step_label"))
         out.append(event)
     return out
 
@@ -224,6 +232,26 @@ def journey(code: str, session_id: int | None = None) -> dict:
             "responses": sum(1 for t in teacher if t.get("after_alert") is not None),
         },
     }
+
+
+def trail(code: str) -> dict:
+    """การขยับบนผังของ Gem ทั้ง Session ล่าสุด เรียงตามลำดับ แต่ละช่วงคือจากกล่องไหนไปกล่องไหน (ใช้วาดเลขลำดับบนผัง)"""
+    runs = _runs(code)
+    if not runs:
+        return {"session": None, "hops": []}
+    run = runs[-1]
+    window = "code = ? AND ts >= ?" + (" AND ts <= ?" if run["until"] is not None else "")
+    params = (code, run["started"] - 0.001) + ((run["until"],) if run["until"] is not None else ())
+    rows = db.query(f"SELECT id, ts, set_id, edges, rule, detail FROM decisions WHERE {window} ORDER BY ts, id", params)
+    hops = []
+    for row in rows:
+        if row["set_id"] != run["set_id"]:
+            continue
+        path = db.loads(row["detail"], {}).get("map_path") or []
+        for a, b in zip(path, path[1:]):
+            hops.append({"n": len(hops) + 1, "from": a, "to": b, "decision": row["id"], "ts": row["ts"],
+                         "rule": row["rule"], "edges": db.loads(row["edges"], [])})
+    return {"session": run["id"], "hops": hops}
 
 
 # ---------------------------------------------------------------- การทำงานของครูต่อนักเรียนหนึ่งคน (Q4)

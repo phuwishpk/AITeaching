@@ -12,7 +12,7 @@ import { TopicHeader, useAdmin } from "./AdminApp";
 import { useStudentPicker } from "./Topic2";
 import { CodePicker, Section, TopicLink } from "./shared";
 import NodeInspector from "./NodeInspector";
-import { GemFlowMap, HiddenNote, SpecStepDetail, type GemFlow } from "./gemFlow";
+import { GemFlowMap, HiddenNote, SpecStepDetail, useTrail, type GemFlow } from "./gemFlow";
 import LaneInspector from "./LaneInspector";
 import AnswerSheet from "../../components/AnswerSheet";
 import { Button } from "../../components/ui";
@@ -97,6 +97,8 @@ export default function Topic3() {
     [flow?.positions, kinds, gemFlow.data],
   );
   const selected = flow?.positions.find((p) => p.code === code);
+  // Flow ของ Gem: เส้นทางทั้ง Session ของนักเรียนที่เลือก วาดบนผังพร้อมเลขลำดับ
+  const trail = useTrail(custom ? code : null, lastEvent);
   const atNode = positions.filter((p) => (custom ? p.step === node : p.position === node));
   const card = flow?.cards[node];
   const nodeInfo = flow?.nodes.find((n) => n.id === node);
@@ -190,6 +192,7 @@ export default function Topic3() {
             flow={custom}
             allNodes={flow.nodes}
             positions={positions}
+            trail={trail}
             selectedNode={node}
             selectedStudent={code}
             onSelectNode={openNode}

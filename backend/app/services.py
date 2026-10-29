@@ -139,12 +139,16 @@ async def raise_alert(code: str, set_id: str, kind: str, message: str, level: st
         pass
 
 
-def _map_node(state: dict) -> str | None:
+def _map_place(state: dict) -> tuple[str | None, bool]:
+    """กล่องในผังของ Gem ที่นักเรียนอยู่ และ AI กำลังคิดคำตอบแชตอยู่หรือไม่"""
     try:
         content = content_for(state["subject_id"], state["set_id"])
     except (NotFound, StopIteration):
-        return None
-    return gemflow.map_node(state, make_ctx(content)) if content.spec else None
+        return None, False
+    if not content.spec:
+        return None, False
+    ctx = make_ctx(content)
+    return gemflow.map_node(state, ctx), gemflow.chat_thinking(state, ctx)
 
 
 def _gem_of(state: dict) -> dict | None:
@@ -410,13 +414,23 @@ def _resolve_only(state: dict, ctx: Ctx) -> Fx:
     return fx
 
 
+def on_screen(action):
+    """การกระทำบนจอหลักของนักเรียน: ถ้าชิปบนผังของ Gem อยู่ที่กล่องแชต ให้กลับขั้นที่ทำอยู่ก่อน แล้วจึงทำการกระทำนั้น"""
+    def run(state: dict, ctx: Ctx, *args) -> Fx:
+        back = engine.leave_chat(state, ctx)
+        fx = action(state, ctx, *args)
+        fx.decisions[:0] = back.decisions
+        return fx
+    return run
+
+
 async def submit(code: str, set_id: str, answer) -> dict:
-    state, content, ctx, fx = await run_event(code, set_id, engine.submit, answer)
+    state, content, ctx, fx = await run_event(code, set_id, on_screen(engine.submit), answer)
     return {"result": fx.result, "view": engine.student_view(state, ctx)}
 
 
 async def hint(code: str, set_id: str) -> dict:
-    state, content, ctx, fx = await run_event(code, set_id, engine.request_hint)
+    state, content, ctx, fx = await run_event(code, set_id, on_screen(engine.request_hint))
     return {"result": fx.result, "view": engine.student_view(state, ctx)}
 
 
@@ -459,7 +473,8 @@ async def chat(code: str, set_id: str, message: str) -> dict:
             raise NotFound("ยังไม่ได้เริ่มชุดคำถามนี้")
         content = content_for(state["subject_id"], set_id)
         ctx = make_ctx(content)
-        fx = Fx()
+        # ชิปบนผังของ Gem ย้ายไปกล่องแชตและขึ้นว่า AI กำลังคิด จนกว่านักเรียนจะกลับมาทำบนจอหลัก
+        fx = engine.chat_open(state, ctx)
         fx.trace("chat", state["item"]["id"] if state.get("item") else None,
                  {"message": scrubbed, "pii_removed": found}, ctx.now)
         fallback = engine.next_socratic(state, ctx) if state.get("item") else "ตอนนี้ยังไม่มีโจทย์ ลองเริ่มชุดคำถามก่อนนะ"
@@ -471,7 +486,8 @@ async def chat(code: str, set_id: str, message: str) -> dict:
         ] if item_state else []
         tag = content.tag(item_state.get("last_tag")) if item_state else None
         student = _student_vars(state)
-        persist(state, fx, ctx.now)
+        alerts = persist(state, fx, ctx.now)
+    await broadcast(state, content, ctx, fx, alerts)
     # แนวทางการตอบแชตที่ครูกำหนดใน Flow (ไม่มี = แบบอัตโนมัติ) และสิ่งที่นักเรียนพิมพ์ที่ครูให้รับมือเป็นพิเศษ
     chat_spec = (content.spec or {}).get("chat")
     intent = gemflow.chat_intent(content.spec, scrubbed)
@@ -490,6 +506,8 @@ async def chat(code: str, set_id: str, message: str) -> dict:
                                        chat_spec, intent)
     else:
         reply = {"text": fallback, "source": "authored"}
+    if content.spec:
+        state, content, ctx, _ = await run_event(code, set_id, engine.chat_replied)
     if ai_failed(reply):
         await raise_alert(code, set_id, "ai_outage", f"AI ขัดข้องตอนตอบแชต: {'; '.join(reply['errors'])}")
     teacher_here = chat_mode(code) == "teacher" and teacher_watching(code)
@@ -551,18 +569,22 @@ async def reflect(code: str, set_id: str, text: str) -> dict:
             verdict = {"pass": None, "score": None, "reason": "AI ปิดอยู่ ครูตรวจคำอธิบายเอง"}
         if verdict.get("error"):
             await raise_alert(code, set_id, "ai_outage", f"AI ขัดข้องตอนประเมินคำอธิบาย: {verdict['error']}")
-    state, content, ctx, fx = await run_event(code, set_id, engine.reflect, scrubbed, verdict)
+    state, content, ctx, fx = await run_event(code, set_id, on_screen(engine.reflect), scrubbed, verdict)
     return {"result": fx.result, "view": engine.student_view(state, ctx)}
 
 
 async def widget(code: str, set_id: str, response: dict) -> dict:
     """ขั้น Widget ของ Flow ใน Gem: ตรวจด้วยกฎ (engine/widgets.py) ไม่ใช้ AI"""
-    state, content, ctx, fx = await run_event(code, set_id, engine.widget, response if isinstance(response, dict) else {})
+    state, content, ctx, fx = await run_event(code, set_id, on_screen(engine.widget), response if isinstance(response, dict) else {})
     return {"result": fx.result, "view": engine.student_view(state, ctx)}
 
 
 def _distress_with_trace(state: dict, ctx: Ctx, detected: dict, scrubbed: str, found: list) -> Fx:
+    # บนผังของ Gem: ขั้นที่ทำอยู่ → แชตกับ AI → กลไกที่ข้อความนั้นพาไป (พักเพราะเครียด เลือกทางต่อ หยุดเพื่อความปลอดภัย)
+    opened = engine.chat_open(state, ctx)
     fx = engine.on_distress(state, ctx, detected["level"], "keyword")
+    engine.chat_replied(state, ctx)
+    fx.decisions[:0] = opened.decisions
     fx.trace("chat", state["item"]["id"] if state.get("item") else None,
              {"message": scrubbed, "pii_removed": found, "distress": detected}, ctx.now)
     return fx
@@ -611,6 +633,7 @@ def all_positions(owner: str | None = None) -> list[dict]:
         kind = student_kind(state["code"])
         if kind == "test":
             continue
+        step, thinking = _map_place(state)
         positions.append({
             "code": state["code"],
             "kind": kind,
@@ -622,7 +645,8 @@ def all_positions(owner: str | None = None) -> list[dict]:
             "remedial_round": state["remedial"]["round"] if state.get("remedial") else None,
             "last_edges": (state.get("last_decision") or {}).get("edges", []),
             # Flow ของ Gem: กล่องในผังของ Gem ที่นักเรียนอยู่ (ขั้นของ Flow หรือกลไกที่ล็อกไว้)
-            "step": _map_node(state),
+            "step": step,
+            "thinking": thinking,
             "last_rule": (state.get("last_decision") or {}).get("rule"),
             "since": state["position_since"],
         })

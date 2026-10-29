@@ -38,6 +38,12 @@ PICK_SHORT = {"adaptive": "ตาม Mastery", "main": "โจทย์หลั
 
 # ตำแหน่งของกลไกที่ล็อกไว้ ใช้บอกว่านักเรียนอยู่ที่กล่องไหนในผังของ Gem
 GUARD_POSITIONS = {F.LOCK, F.IDLE, F.SAFETY, F.CHOOSE, F.LIVE, F.OUTAGE}
+# กล่องแชตในผังของ Gem (flowspec.CHAT): ชิปอยู่ที่นี่ตั้งแต่ส่งข้อความจนกลับมาทำบนจอหลัก
+CHAT = "chat"
+# ตำแหน่งที่นักเรียนกำลังทำขั้นหนึ่งอยู่ (ไม่ได้พัก หยุดรอครู หรือจบแล้ว) แชตจึงย้ายชิปไปกล่องแชตได้
+WORKING = F.CAN_ANSWER | {F.LESSON, F.REFLECT, F.ACTIVITY, F.WIDGET}
+# AI ตอบแชตนานกว่านี้ถือว่าไม่ได้คิดอยู่แล้ว (กันชิปขึ้น "กำลังคิด" ค้างเมื่อการเรียก AI ล้มกลางทาง)
+THINK_LIMIT = 90.0
 
 
 # ---------------------------------------------------------------- ข้อมูลของ Flow
@@ -78,7 +84,36 @@ def map_node(state: dict, ctx: C.Ctx) -> str | None:
         return F.DEADLOCK
     if position == F.ENDED and state.get("end_reason") in ("cap", "no_items", "teacher_end", "student_stop"):
         return F.ENDED
+    if flow.get("chat"):
+        return CHAT
     return flow.get("step")
+
+
+def track(state: dict, ctx: C.Ctx, fx: C.Fx, decision: dict):
+    """เส้นทางบนผังของการย้ายครั้งนี้: กล่องที่ชิปอยู่ก่อน ขั้นที่ผ่าน (รวมขั้นที่ผ่านไปทันที) และกล่องที่ไปอยู่
+    การย้ายตำแหน่งทุกครั้งพาชิปออกจากกล่องแชต"""
+    flow = fs(state)
+    flow["chat"] = None
+    path = [n for n in [flow.get("map_at"), *fx.map_steps] if n]
+    fx.map_steps = []
+    to = map_node(state, ctx)
+    if to and (not path or path[-1] != to):
+        path.append(to)
+    flow["map_at"] = path[-1] if path else None
+    decision["detail"]["map_path"] = path
+
+
+def shift(state: dict, ctx: C.Ctx, fx: C.Fx, edges: list[str], rule: str):
+    """ชิปขยับบนผังโดย Flow Position ไม่เปลี่ยน (เข้าและออกจากกล่องแชต) บันทึกเป็น Decision Trace เหมือนการย้าย"""
+    flow = fs(state)
+    to = map_node(state, ctx)
+    path = [n for n in (flow.get("map_at"), to) if n]
+    flow["map_at"] = to
+    decision = {"ts": ctx.now, "from": state["position"], "to": state["position"], "edges": edges, "rule": rule,
+                "detail": {"step": flow.get("step"), "step_label": label(step_of(ctx, flow.get("step"))), "map_path": path},
+                "item": state["item"]["id"] if state.get("item") else None}
+    state["last_decision"] = decision
+    fx.decisions.append(decision)
 
 
 def label(step: dict | None) -> str:
@@ -235,6 +270,7 @@ def enter(state: dict, ctx: C.Ctx, fx: C.Fx, step_id: str, edges: list[str], not
     previous = flow.get("step")
     flow["step"] = step_id
     flow["visits"][step_id] = flow["visits"].get(step_id, 0) + 1
+    fx.map_steps.append(step_id)
     kind = step["kind"]
     tools = ctx.content.tool
 
@@ -754,8 +790,44 @@ def chat_goto(state: dict, ctx: C.Ctx, intent: dict) -> C.Fx:
     if step is None or state["position"] not in F.CAN_ANSWER:
         return fx
     fx.trace("chat_intent", step["id"], {"intent": intent["id"], "label": intent["label"]}, ctx.now)
-    enter(state, ctx, fx, step["id"], ["g_chat"], [f"นักเรียนพิมพ์ในแชต: {intent['label']} → {label(step)}"])
+    # chat_<id> คือเส้นจากกล่องแชตในผัง (flowspec.map_view) ให้เส้นนั้นติดไฟ
+    enter(state, ctx, fx, step["id"], ["g_chat", f"chat_{intent['id']}"],
+          [f"นักเรียนพิมพ์ในแชต: {intent['label']} → {label(step)}"])
     return fx
+
+
+def chat_open(state: dict, ctx: C.Ctx) -> C.Fx:
+    """นักเรียนส่งข้อความในแชต: ชิปบนผังย้ายไปกล่องแชตและขึ้นว่า AI กำลังคิด อยู่ที่นั่นจนกลับมาทำบนจอหลัก
+    Flow Position ไม่เปลี่ยน (ยังตอบโจทย์ได้ ตรรกะเดิมไม่ต้องรู้จักแชต) ถ้าอยู่ในกลไกที่ล็อกไว้ เช่น พักหรือหยุดรอครู ชิปอยู่ที่เดิม"""
+    fx = C.Fx()
+    flow = fs(state)
+    node = map_node(state, ctx)
+    if state["position"] not in WORKING or (node != CHAT and node not in ctx.content.steps):
+        return fx
+    flow["chat"] = {"since": ctx.now, "thinking": True}
+    if node != CHAT:
+        shift(state, ctx, fx, ["g_chat_in"], f"นักเรียนพิมพ์ถามครูผู้ช่วย AI ระหว่างขั้น \"{label(step_of(ctx, node))}\"")
+    return fx
+
+
+def chat_replied(state: dict, ctx: C.Ctx) -> C.Fx:
+    chat = fs(state).get("chat")
+    if chat:
+        chat["thinking"] = False
+    return C.Fx()
+
+
+def leave_chat(state: dict, ctx: C.Ctx, fx: C.Fx):
+    """นักเรียนกลับมาทำบนจอหลัก (ส่งคำตอบ กดคำใบ้ อ่านจบ ฯลฯ): ชิปออกจากกล่องแชตกลับขั้นที่ทำอยู่"""
+    flow = fs(state)
+    if flow.get("chat"):
+        flow["chat"] = None
+        shift(state, ctx, fx, ["g_chat_back"], f"กลับมาทำต่อที่ขั้น \"{label(flow_step(state, ctx))}\"")
+
+
+def chat_thinking(state: dict, ctx: C.Ctx) -> bool:
+    chat = fs(state).get("chat") or {}
+    return bool(chat.get("thinking")) and ctx.now - chat.get("since", 0) < THINK_LIMIT
 
 
 def judged(step: dict | None) -> bool:
@@ -959,4 +1031,4 @@ def student_extras(state: dict, ctx: C.Ctx) -> dict:
 def staff_extras(state: dict, ctx: C.Ctx) -> dict:
     step = flow_step(state, ctx)
     return {"flow_step": {"id": step["id"], "label": label(step), "kind": step["kind"]} if step else None,
-            "map_node": map_node(state, ctx)}
+            "map_node": map_node(state, ctx), "chat_thinking": chat_thinking(state, ctx)}

@@ -26,8 +26,10 @@ export interface FlowPosition {
   item: string | null;
   last_edges: string[];
   last_rule?: string | null;
-  // Flow ที่ครูออกแบบใน Gem: กล่องในผังของ Gem ที่นักเรียนอยู่ (ขั้นของ Flow หรือกลไกที่ล็อกไว้)
+  // Flow ที่ครูออกแบบใน Gem: กล่องในผังของ Gem ที่นักเรียนอยู่ (ขั้นของ Flow กล่องแชต หรือกลไกที่ล็อกไว้)
   step?: string | null;
+  // อยู่กล่องแชตและ AI กำลังคิดคำตอบ
+  thinking?: boolean;
 }
 
 const COL = [84, 268, 452, 636, 820, 1004, 1188, 1372];

@@ -581,7 +581,8 @@ def test_build_designs_the_flow_from_the_teacher_prompt(monkeypatch):
     client = TestClient(app)
     admin = {"Authorization": f"Bearer {issue_token('admin')}"}
     design = client.get(f"/api/gems/{gem['id']}/design", headers=admin).json()
-    assert design["flow"]["custom"] and {n["id"] for n in design["flow"]["nodes"]} == {"work", "why", "tell", "end"}
+    # Gem เปิดแชตไว้ (ค่าเริ่มต้น) ผังของ Admin จึงมีกล่องแชตให้นักเรียนที่กำลังคุยกับ AI อยู่
+    assert design["flow"]["custom"] and {n["id"] for n in design["flow"]["nodes"]} == {"work", "why", "tell", "end", "chat"}
     assert len(design["flow"]["locked"]) == 4 and design["flow"]["guards"]
     # คำสั่งเดิมสร้างคลังใหม่ ไม่ออกแบบ Flow ซ้ำ
     assert not builder.flow_needs_design(gem)
@@ -607,6 +608,33 @@ def test_student_runs_the_designed_flow_with_ai_judge(monkeypatch):
     assert db.loads(trace["data"])["judge"]["pass"] is True
     staff = services.all_positions()
     assert next(p for p in staff if p["code"] == "S-40")["step"] == "work"
+
+
+def test_admin_map_follows_the_student_into_chat_and_back(monkeypatch):
+    """ทุกการขยับขึ้นในผังของ Admin: ส่งข้อความแชต ชิปไปกล่องแชต ตอบโจทย์แล้วกลับขั้นทำโจทย์ และเส้นทางทั้ง Session มีลำดับ"""
+    gem = _flow_gem(monkeypatch)
+    db.execute("INSERT INTO students (code, kind, persona, created_at) VALUES ('S-41', 'real', NULL, 0)")
+    client = TestClient(app)
+    headers = {"Authorization": f"Bearer {issue_token('student', 'S-41')}"}
+    set_id = gem["set_id"]
+    view = client.post(f"/api/student/sets/{set_id}/start", headers=headers, json={}).json()
+    client.post(f"/api/student/sets/{set_id}/chat", headers=headers, json={"message": "ขั้นแรกต้องทำยังไง"})
+    staff = next(p for p in services.all_positions() if p["code"] == "S-41")
+    assert staff["step"] == "chat" and staff["position"] == "ANSWERING" and not staff["thinking"], "AI ตอบแล้ว ชิปยังอยู่กล่องแชต"
+
+    from app import demo
+    state = db.load_state("S-41", set_id)
+    state["item"]["ready_at"] -= 30
+    db.save_state(state)
+    item = services.content_for(gem["subject_id"], set_id).item(view["item"]["id"])
+    client.post(f"/api/student/sets/{set_id}/answer", headers=headers, json={"answer": demo.correct_raw(item)})
+    assert next(p for p in services.all_positions() if p["code"] == "S-41")["step"] == "why"
+    admin = {"Authorization": f"Bearer {issue_token('admin')}"}
+    trail = client.get("/api/admin/students/S-41/trail", headers=admin).json()
+    assert [(h["n"], h["from"], h["to"]) for h in trail["hops"]] == [(1, "work", "chat"), (2, "chat", "work"), (3, "work", "why")]
+    feed = client.get("/api/admin/activity?code=S-41", headers=admin).json()
+    chat = next(e for e in feed if e["step"] == "chat")
+    assert chat["step_label"] == "แชตกับ AI" and chat["steps"], "ยังเห็นขั้นของแชต (ตรวจข้อความทุกข์ใจ ลบข้อมูลส่วนตัว AI ตอบ)"
 
 
 def test_teacher_reviews_and_edits_the_flow(monkeypatch):

@@ -229,7 +229,7 @@ Learning Path ปกติตามลำดับใน Knowledge Map
 Learning Path ที่ลดความยากลงหนึ่งขั้นเมื่อ Mastery ต่ำ
 
 **Flow Position** (ตำแหน่งในผัง):
-สถานะปัจจุบันของนักเรียนหนึ่งคนในตรรกะของระบบ มีชื่อเรียกชัดเจน เช่น Deliberate Delay, Remedial Loop รอบ 1 หรือ Circuit Breaker นักเรียนหนึ่งคนอยู่ได้ทีละตำแหน่ง
+สถานะปัจจุบันของนักเรียนหนึ่งคนในตรรกะของระบบ มีชื่อเรียกชัดเจน เช่น Deliberate Delay, Remedial Loop รอบ 1 หรือ Circuit Breaker นักเรียนหนึ่งคนอยู่ได้ทีละตำแหน่ง ในผังของ Gem ชิปของนักเรียนอยู่ที่กล่องในผัง ซึ่งเป็นขั้นของ Flow กลไกที่ล็อกไว้ หรือกล่องแชตระหว่างคุยกับ AI (ตอนอยู่กล่องแชต Flow Position ไม่เปลี่ยน)
 _Avoid_: Flow State (ชนกับทฤษฎี Flow ของ Csikszentmihalyi), Status, Stage
 
 **Decision Trace** (ร่องรอยการตัดสินใจ):

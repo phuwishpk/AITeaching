@@ -892,3 +892,62 @@ def test_ai_cannot_switch_off_counting_chat_as_hints(monkeypatch):
     assert flow["spec"]["chat"]["count_as_hint"] is True
     flow = asyncio.run(flowspec.design({"name": "x", "instructions": "การถามในแชตไม่นับเป็นคำใบ้"}))
     assert flow["spec"]["chat"]["count_as_hint"] is False
+
+
+def test_every_move_shows_on_the_map_chat_then_stress_then_walkthrough(subject):
+    """ทุกการขยับขึ้นในผังของ Gem: ทำโจทย์ → แชตกับ AI → พักเพราะเครียด → ดูตัวอย่างทีละขั้น (ตามที่ครูสั่ง)
+    ชิปอยู่กล่องที่นักเรียนอยู่จริงตลอด และเส้นที่ engine บันทึกตรงกับเส้นในผัง"""
+    from app.engine import gemflow
+
+    flow = {"start": "w", "after_stress": "walk",
+            "steps": [{"id": "w", "kind": "item", "pick": "main"}, {"id": "walk", "kind": "lesson", "walkthrough": True},
+                      {"id": "e", "kind": "end"}],
+            "edges": [{"from": "w", "to": "e", "when": "correct and mains_left == 0"},
+                      {"from": "w", "to": "walk", "when": "error_count >= 4"}, {"from": "w", "to": "w", "when": ""},
+                      {"from": "walk", "to": "back", "when": ""}]}
+    content = gem_content(subject, flow)
+    state, ctx = start(content)
+    assert gemflow.map_node(state, ctx) == "w"
+
+    fx = engine.chat_open(state, at(ctx, 1005))
+    assert gemflow.map_node(state, ctx) == "chat" and gemflow.chat_thinking(state, ctx)
+    assert state["position"] == F.ANSWERING, "อยู่กล่องแชตแต่ยังตอบโจทย์ได้ Flow Position ไม่เปลี่ยน"
+    assert fx.decisions[-1]["detail"]["map_path"] == ["w", "chat"] and fx.decisions[-1]["edges"] == ["g_chat_in"]
+    engine.chat_replied(state, ctx)
+    assert gemflow.map_node(state, ctx) == "chat" and not gemflow.chat_thinking(state, ctx), "AI ตอบแล้วยังอยู่กล่องแชต"
+    assert not engine.chat_open(state, at(ctx, 1007)).decisions, "ส่งข้อความต่อในแชต ชิปไม่ขยับซ้ำ"
+
+    fx = engine.on_distress(state, at(ctx, 1010), "stress", "keyword")
+    assert fx.decisions[-1]["detail"]["map_path"] == ["chat", F.CB] and "g_stress" in fx.decisions[-1]["edges"]
+    assert gemflow.map_node(state, ctx) == F.CB
+    assert not engine.chat_open(state, at(ctx, 1020)).decisions, "พักอยู่ แชตไม่พาชิปออกจากกล่องพัก"
+    fx = engine.Fx()
+    engine.resolve_timers(state, at(ctx, 1200), fx)
+    assert fx.decisions[-1]["detail"]["map_path"] == [F.CB, "walk"] and "g_stress_back" in fx.decisions[-1]["edges"]
+    assert gemflow.map_node(state, ctx) == "walk"
+
+    view = flowspec.map_view(content.spec, chat_tool=True)
+    edges = {e["id"]: (e["source"], e["target"]) for e in view["edges"]}
+    assert edges["g_stress"] == ("chat", F.CB) and edges["g_stress_back"] == (F.CB, "walk")
+    assert F.CB in {n["id"] for n in view["nodes"]} and F.CB not in {g["id"] for g in view["guards"]}
+    assert "chat" not in {n["id"] for n in flowspec.map_view(content.spec)["nodes"]}, "ไม่ได้เปิดแชตและไม่มีแนวทางแชต"
+
+
+def test_map_path_keeps_steps_passed_without_stopping_and_leaving_chat(subject):
+    """คำใบ้ที่ไม่หน่วงเวลาผ่านไปทันที แต่ยังอยู่ในเส้นทางบนผัง และกลับมาตอบจากกล่องแชตเป็นการขยับหนึ่งช่วง"""
+    from app import services
+
+    flow = {"start": "w",
+            "steps": [{"id": "w", "kind": "item", "pick": "main"}, {"id": "h", "kind": "hint", "level": 1},
+                      {"id": "e", "kind": "end"}],
+            "edges": [{"from": "w", "to": "e", "when": "correct and mains_left == 0"},
+                      {"from": "w", "to": "h", "when": "wrong"}, {"from": "w", "to": "w", "when": ""},
+                      {"from": "h", "to": "back", "when": ""}]}
+    content = gem_content(subject, flow)
+    state, ctx = start(content)
+    engine.chat_open(state, at(ctx, 1005))
+    fx = services.on_screen(engine.submit)(state, at(ctx, 1030), demo.other_wrong(it_of(content, state)))
+    paths = [d["detail"]["map_path"] for d in fx.decisions]
+    assert paths[0] == ["chat", "w"] and fx.decisions[0]["edges"] == ["g_chat_back"]
+    assert paths[-1] == ["w", "h", "w"], "ขั้นคำใบ้ที่ผ่านไปทันทีอยู่ในเส้นทาง"
+    assert state["flow"]["chat"] is None and state["flow"]["map_at"] == "w"

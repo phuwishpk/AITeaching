@@ -85,17 +85,17 @@ async def hint(set_id: str, auth: dict = Depends(student)):
 @router.post("/sets/{set_id}/retry")
 async def retry(set_id: str, auth: dict = Depends(student)):
     """AI ขัดข้องตอนสร้างโจทย์สด: นักเรียนกดลองอีกครั้ง"""
-    return await services.simple(auth["code"], set_id, engine.retry_live)
+    return await services.simple(auth["code"], set_id, services.on_screen(engine.retry_live))
 
 
 @router.post("/sets/{set_id}/undo")
 async def undo(set_id: str, auth: dict = Depends(student)):
-    return await services.simple(auth["code"], set_id, engine.undo)
+    return await services.simple(auth["code"], set_id, services.on_screen(engine.undo))
 
 
 @router.post("/sets/{set_id}/restart-item")
 async def restart_item(set_id: str, auth: dict = Depends(student)):
-    return await services.simple(auth["code"], set_id, engine.restart_item)
+    return await services.simple(auth["code"], set_id, services.on_screen(engine.restart_item))
 
 
 @router.post("/sets/{set_id}/idle")
@@ -115,7 +115,7 @@ async def resume(set_id: str, auth: dict = Depends(student)):
 
 @router.post("/sets/{set_id}/walkthrough-done")
 async def walkthrough_done(set_id: str, auth: dict = Depends(student)):
-    return await services.simple(auth["code"], set_id, engine.walkthrough_done)
+    return await services.simple(auth["code"], set_id, services.on_screen(engine.walkthrough_done))
 
 
 @router.post("/sets/{set_id}/reflect")
@@ -132,7 +132,7 @@ async def widget(set_id: str, body: WidgetAnswer, auth: dict = Depends(student))
 
 @router.post("/sets/{set_id}/choose")
 async def choose(set_id: str, body: Choice, auth: dict = Depends(student)):
-    return await services.simple(auth["code"], set_id, engine.choose, body.option)
+    return await services.simple(auth["code"], set_id, services.on_screen(engine.choose), body.option)
 
 
 @router.post("/sets/{set_id}/chat")
@@ -162,4 +162,4 @@ async def notes(set_id: str, auth: dict = Depends(student)):
 
 @router.post("/sets/{set_id}/revisit")
 async def revisit(set_id: str, body: Revisit, auth: dict = Depends(student)):
-    return await services.simple(auth["code"], set_id, engine.revisit, body.concept)
+    return await services.simple(auth["code"], set_id, services.on_screen(engine.revisit), body.concept)

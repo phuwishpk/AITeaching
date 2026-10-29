@@ -1,7 +1,10 @@
+import { useMemo } from "react";
 import { EyeOff, Lock, Sparkles } from "lucide-react";
 import FlowMap, { type FlowEdge, type FlowNode, type FlowPosition } from "../../components/FlowMap";
-import SpecFlowMap, { KIND_TEXT, type SpecEdge, type SpecGuard, type SpecNode } from "../../components/SpecFlowMap";
+import SpecFlowMap, { KIND_TEXT, type SpecEdge, type SpecGuard, type SpecNode, type TrailHop } from "../../components/SpecFlowMap";
 import { Badge, Drawer } from "../../components/ui";
+import { api } from "../../lib/api";
+import { useLoad } from "../../lib/hooks";
 
 // ผังของ Gem แต่ละตัว ไม่ใช่ผังตายตัว มีสองแบบ
 // 1) ผังมาตรฐาน (backend/app/gems/design.py): กล่องของเครื่องมือที่ครูปิดไม่อยู่ในผัง และเส้นต่อไปยังขั้นที่ engine ใช้จริง
@@ -58,11 +61,42 @@ export function HiddenNote({ disabled, allNodes }: { disabled: Record<string, st
   );
 }
 
+// เส้นทางบนผังของ Gem ทั้ง Session ล่าสุดของนักเรียนที่เลือก (การขยับครั้งล่าสุดเข้มที่สุด)
+// โหลดใหม่ทุกครั้งที่นักเรียนคนนั้นขยับ (lastEvent มาจากเหตุการณ์สดของหน้า Admin)
+export function useTrail(code: string | null | undefined, lastEvent: { code: string; n: number } | null) {
+  const moved = code && lastEvent?.code === code ? lastEvent.n : 0;
+  const { data } = useLoad(
+    () =>
+      code
+        ? api<{ hops: (TrailHop & { decision: number })[] }>("admin", `/api/admin/students/${encodeURIComponent(code)}/trail`).then(
+            (d) => ({ code, hops: d.hops }),
+          )
+        : Promise.resolve(null),
+    [code, moved],
+  );
+  return useMemo(() => {
+    if (!code || data?.code !== code) return undefined;
+    const last = data.hops[data.hops.length - 1]?.decision;
+    return data.hops.map((h) => ({ ...h, latest: h.decision === last }));
+  }, [code, data]);
+}
+
+// เส้นทางของการกระทำหนึ่งครั้ง (หน้ากิจกรรมสด) จาก map_path ของการตัดสินใจ ไม่มี (ข้อมูลเก่า) = ใช้เส้นที่ engine บันทึกแทน
+export function eventTrail(decisions: { edges: string[]; detail?: Record<string, unknown> }[]): TrailHop[] | undefined {
+  const hops: TrailHop[] = [];
+  for (const d of decisions) {
+    const path = (d.detail?.map_path as string[] | undefined) ?? [];
+    for (let i = 0; i < path.length - 1; i++) hops.push({ n: hops.length + 1, from: path[i], to: path[i + 1], edges: d.edges, latest: true });
+  }
+  return hops.length ? hops : undefined;
+}
+
 // ผังของ Gem ที่เลือก ใช้ในหน้า Gem ของ Admin หัวข้อ 3 และกิจกรรมสด
 export function GemFlowMap({
   flow,
   allNodes,
   positions,
+  trail,
   selectedNode,
   selectedStudent,
   onSelectNode,
@@ -74,6 +108,8 @@ export function GemFlowMap({
   flow: GemFlow;
   allNodes: FlowNode[];
   positions: FlowPosition[];
+  // เส้นทางที่จะวาดบนผังของ Gem (useTrail หรือ eventTrail)
+  trail?: TrailHop[];
   selectedNode?: string | null;
   selectedStudent?: string | null;
   onSelectNode?: (id: string) => void;
@@ -91,6 +127,7 @@ export function GemFlowMap({
           edges={flow.edges}
           guards={flow.guards}
           positions={positions}
+          trail={trail}
           selectedNode={selectedNode}
           selectedStudent={selectedStudent}
           onSelectNode={onSelectNode}

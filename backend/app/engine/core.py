@@ -157,6 +157,8 @@ class Fx:
         self.generate: dict | None = None
         # คำขอให้ services ให้ AI สร้างเนื้อหาของขั้น "กิจกรรม" ใน Flow ของ Gem
         self.activity: dict | None = None
+        # ขั้นของ Flow ใน Gem ที่ผ่านตั้งแต่การย้ายครั้งก่อน (รวมขั้นที่ผ่านไปทันที เช่น คำใบ้ที่ไม่หน่วง) ใช้วาดเส้นทางบนผัง
+        self.map_steps: list[str] = []
 
     def trace(self, action: str, target: str | None, data: dict | None = None, ts: float = 0.0):
         self.traces.append({"action": action, "target": target, "data": data or {}, "ts": ts})
@@ -270,6 +272,8 @@ def move(state: dict, ctx: Ctx, fx: Fx, to: str, edges: list[str], rule: str, de
     state["position_since"] = ctx.now
     state["last_decision"] = decision
     fx.decisions.append(decision)
+    if ctx.content.spec:
+        gemflow.track(state, ctx, fx, decision)
 
 
 def alert(fx: Fx, state: dict, level: str, kind: str, message: str, dedupe: bool = True):
@@ -1505,6 +1509,24 @@ def chat_help(state: dict, ctx: Ctx) -> Fx:
 def chat_goto(state: dict, ctx: Ctx, intent: dict) -> Fx:
     """แชตพาไปขั้นใน Flow ตามแนวทางแชตของครู (เฉพาะ Gem ที่มี Flow)"""
     return gemflow.chat_goto(state, ctx, intent) if ctx.content.spec else Fx()
+
+
+def chat_open(state: dict, ctx: Ctx) -> Fx:
+    """นักเรียนส่งข้อความในแชต: ชิปบนผังของ Gem ย้ายไปกล่องแชต (Flow Position ไม่เปลี่ยน)"""
+    return gemflow.chat_open(state, ctx) if ctx.content.spec else Fx()
+
+
+def chat_replied(state: dict, ctx: Ctx) -> Fx:
+    """AI ตอบแชตแล้ว: ชิปในกล่องแชตเลิกขึ้นว่ากำลังคิด"""
+    return gemflow.chat_replied(state, ctx) if ctx.content.spec else Fx()
+
+
+def leave_chat(state: dict, ctx: Ctx) -> Fx:
+    """นักเรียนกลับมาทำบนจอหลัก: ชิปออกจากกล่องแชตกลับขั้นที่ทำอยู่"""
+    fx = Fx()
+    if ctx.content.spec:
+        gemflow.leave_chat(state, ctx, fx)
+    return fx
 
 
 def widget(state: dict, ctx: Ctx, response: dict) -> Fx:

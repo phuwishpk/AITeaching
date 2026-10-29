@@ -171,6 +171,9 @@ function AdminShell({ onLogout, onExpired }: { onLogout: () => void; onExpired: 
           hint_level: view.item?.hint_level ?? 0,
           remedial_round: view.remedial?.round ?? null,
           last_edges: view.last_decision?.edges ?? [],
+          // กล่องในผังของ Gem ที่นักเรียนอยู่ ไม่ส่งต่อแล้วชิปจะหายจากผังทุกครั้งที่อัปเดตสด
+          step: view.map_node ?? null,
+          thinking: !!view.chat_thinking,
           last_rule: view.last_decision?.rule ?? null,
           since: view.position_since ?? Date.now() / 1000,
         };
