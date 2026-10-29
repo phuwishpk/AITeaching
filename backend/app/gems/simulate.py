@@ -27,11 +27,14 @@ DOMAINS = {
     "impasse": [0.0, 80.0], "rt": [20.0, 60.0], "rt_ratio": [1.0, 2.0], "judge_score": [90, 30],
     "bug_type": ["", "slip", "misconception"],
 }
-# เพดานกรณีต่อกลุ่มหลังตัดค่าที่ให้ผลเหมือนกันแล้ว (Flow จริงที่ใช้ตัวแปรมากสุดเหลือราว 83,000 กรณี ใช้ไม่ถึง 2 วินาที)
-MAX_CASES = 200_000
-# ตัวแปรที่ _consistent คิดจากตัวแปรอื่น เงื่อนไขที่ใช้ตัวเหล่านี้ทำให้ตัวแปรต้นทางต้องลองทุกค่า
-SOURCES = {"wrong": {"correct"}, "slip": {"bug_type", "correct"}, "misconception": {"bug_type", "correct"},
-           "first_try": {"correct", "hint_level", "error_count"}, "judge_pass": {"judge_score"}}
+# เพดานจำนวนครั้งที่ค้นต่อกลุ่ม เกินแล้วถือว่าเส้นที่ยังพิสูจน์ไม่ได้ไปถึงได้ (ไม่รายงานปัญหาที่ไม่แน่ใจ)
+# Flow จริงที่หนักสุดที่เจอ (20 เส้น ตัวแปร 15 ตัว) ใช้ไม่กี่พันครั้ง
+MAX_STEPS = 200_000
+# ตัวแปรที่ _consistent คิดหรือเขียนทับจากตัวแปรอื่น (ต้องตรงกับ _consistent) เงื่อนไขที่ใช้ตัวเหล่านี้ทำให้ตัวแปรต้นทางต้องลองทุกค่า
+SOURCES = {"wrong": {"correct"}, "bug": {"correct"}, "bug_type": {"correct"}, "slip": {"bug_type", "correct"},
+           "misconception": {"bug_type", "correct"}, "first_try": {"correct", "hint_level", "error_count"},
+           "judge_pass": {"judge_score"}}
+UNKNOWN = object()
 # กรณีทดสอบมาตรฐานของขั้นทำโจทย์ ลองเสมอแม้ Flow ไม่ได้ใช้ตัวแปรนั้น ตารางจึงเห็นแนวทางที่ AI ลืมใส่
 # เช่น ผิดครั้งที่ 3 แล้วติดหล่ม แต่ยังได้คำใบ้ระดับ 3 (ตัวแปรที่ไม่ได้ใช้ไม่ทำให้ engine เลือกต่างกัน แค่โผล่ในตาราง)
 PROBES = {"wrong": ["bug_type", "impasse", "has_prerequisite", "rounds", "chat_help"],
@@ -130,10 +133,10 @@ def _groups(step: dict, edges: list[dict]) -> list[tuple[dict, list[str]]]:
     return groups
 
 
-def reached(flow_spec: dict, step: dict) -> list[tuple[dict, list[dict | None]]]:
-    """ต่อกลุ่มกรณี (ค่าคงที่ของกลุ่ม เช่น ตอบผิด): เส้นที่ engine เลือกได้ เรียงตามกรณีแรกที่ไปเส้นนั้น (None = ไม่มีเส้นไหนเป็นจริง)"""
+def reached(flow_spec: dict, step: dict) -> list[tuple[dict, list[dict]]]:
+    """ต่อกลุ่มกรณี (ค่าคงที่ของกลุ่ม เช่น ตอบผิด): เส้นที่ engine เลือกได้ เรียงตามลำดับเส้น"""
     edges, key = _key(flow_spec, step)
-    return [(fixed, [edges[i] if i >= 0 else None for i in firsts]) for fixed, firsts in _cases(key)]
+    return [(fixed, [edges[i] for i in found]) for fixed, found in _cases(key)]
 
 
 def _key(flow_spec: dict, step: dict) -> tuple[list[dict], str]:
@@ -144,13 +147,13 @@ def _key(flow_spec: dict, step: dict) -> tuple[list[dict], str]:
 def _unused(flow_spec: dict, step: dict) -> list[dict]:
     """เส้นของขั้นนี้ที่ไม่มีกรณีไหนไปถึง"""
     edges, key = _key(flow_spec, step)
-    used = {i for _, firsts in _cases(key) for i in firsts}
+    used = {i for _, found in _cases(key) for i in found}
     return [e for i, e in enumerate(edges) if i not in used]
 
 
 @lru_cache(maxsize=256)
 def _cases(key: str) -> tuple:
-    """จำแค่เลขเส้นที่ชนะ (-1 = ไม่มีเส้น) ตามลำดับกรณีแรกที่ไปถึง ไม่เก็บค่าตัวแปรของทุกกรณี
+    """จำแค่เลขเส้นที่ไปถึงได้ของแต่ละกลุ่ม ไม่เก็บค่าตัวแปรของทุกกรณี
     (เดิมเก็บทุกกรณี ราว 17 MB ต่อขั้น แคช 256 ขั้นเคยทำ RAM ของเซิร์ฟเวอร์เต็มจนเว็บค้าง)"""
     step_id, kind, pairs = json.loads(key)
     edges = [{"to": to, "when": when, "index": i} for i, (to, when) in enumerate(pairs)]
@@ -166,25 +169,96 @@ def _enumerate(step: dict, edges: list[dict]):
     used = set().union(*(conditions.names(e.get("when")) for e in edges))
     sources = set().union(*(SOURCES.get(n, set()) for n in used))
     tests, tangled = _tests(parsed)
+    # ลองตัวแปรของเส้นต้น ๆ ก่อน เส้นต้น ๆ จึงรู้ผลเร็วและตัดกิ่งได้เร็ว
+    first = {}
+    for index, edge in enumerate(edges):
+        for name in conditions.names(edge.get("when")):
+            for n in {name} | SOURCES.get(name, set()):
+                first.setdefault(n, index)
     for fixed, names in _groups(step, edges):
         # ตัวแปรที่เงื่อนไขไม่ได้ใช้ (ใส่ไว้ให้ตารางแสดง) ไม่เปลี่ยนเส้นที่ engine เลือก จึงไม่ต้องลอง
-        names = [n for n in names if n in used or n in sources]
+        names = sorted((n for n in names if n in used or n in sources), key=lambda n: first.get(n, len(edges)))
         domains = [_distinct(n, _domain(n, extra.get(n, set())), None if n in tangled or n in sources else tests.get(n, []))
                    for n in names]
-        while names and _product(domains) > MAX_CASES:
-            # ตัดจากโดเมนที่ยาวที่สุดทีละค่าท้าย (ค่า ±1 ของตัวเลขในเงื่อนไข) ครั้งที่ผิด 1–4 ไม่ตัด
-            longest = max(range(len(domains)), key=lambda i: len(domains[i]) - (10 if names[i] == "error_count" else 0))
-            domains[longest] = domains[longest][:-1]
-        firsts, seen = [], set()
-        for combo in itertools.product(*domains):
-            edge = _winner(parsed, _consistent({**BASE, **fixed, **dict(zip(names, combo))}), {})
-            index = edge["index"] if edge is not None else -1
-            if index not in seen:
-                seen.add(index)
-                firsts.append(index)
-                if len(seen - {-1}) == len(edges):
-                    break  # ทุกเส้นมีกรณีไปถึงแล้ว ลองต่อไม่ได้อะไรเพิ่ม
-        yield fixed, tuple(firsts)
+        yield fixed, tuple(sorted(_search(parsed, fixed, names, domains)))
+
+
+class _TooMany(Exception):
+    pass
+
+
+def _search(parsed: list[tuple[dict, ast.AST | None]], fixed: dict, names: list[str], domains: list[list]) -> set[int]:
+    """เส้นที่ engine เลือกได้ในกลุ่มนี้ ผลเท่ากับลองทุกกรณี แต่กำหนดค่าตัวแปรทีละตัวแล้วข้ามกิ่ง
+    ที่เงื่อนไขซึ่งรู้ผลแล้วบอกว่าไม่มีทางได้เส้นที่ยังไม่เจอ (ขั้นที่มีเป็นแสนกรณีเหลือไม่กี่พันครั้ง)"""
+    every = {edge["index"] for edge, _ in parsed}
+    values = {**BASE, **fixed, **{n: UNKNOWN for n in names}}
+    found: set[int] = set()
+    steps = 0
+
+    def walk(depth: int):
+        nonlocal steps
+        steps += 1
+        if steps > MAX_STEPS:
+            raise _TooMany
+        if depth == len(names):
+            # รู้ค่าครบแล้ว ใช้ตัวเลือกเส้นชุดเดียวกับ engine
+            edge = _winner(parsed, _consistent(values), {})
+            if edge is not None:
+                found.add(edge["index"])
+            return
+        if _possible(parsed, _settle(values)) <= found:
+            return
+        for value in domains[depth]:
+            values[names[depth]] = value
+            walk(depth + 1)
+            if found >= every:
+                break
+        values[names[depth]] = UNKNOWN
+
+    try:
+        walk(0)
+    except _TooMany:
+        return every
+    return found
+
+
+def _possible(parsed: list[tuple[dict, ast.AST | None]], values: dict) -> set[int]:
+    """เส้นที่ยังอาจชนะได้เมื่อรู้ค่าตัวแปรแค่บางตัว: ไล่ตามลำดับ เส้นแรกที่เป็นจริงแน่ ๆ ปิดเส้นที่เหลือ"""
+    out = set()
+    for edge, tree in parsed:
+        answer = _maybe(tree, values)
+        if answer is True:
+            return out | {edge["index"]}
+        if answer is None:
+            out.add(edge["index"])
+    return out
+
+
+def _settle(values: dict) -> dict:
+    """_consistent เมื่อยังไม่รู้ค่าบางตัว: ตัวที่ยังไม่รู้ และตัวที่คิดจากตัวที่ยังไม่รู้ เป็น UNKNOWN"""
+    unknown = {n for n, v in values.items() if v is UNKNOWN}
+    out = _consistent({n: BASE.get(n) if v is UNKNOWN else v for n, v in values.items()})
+    for name in unknown | {n for n, from_ in SOURCES.items() if from_ & unknown}:
+        out[name] = UNKNOWN
+    return out
+
+
+def _maybe(node: ast.AST | None, values: dict) -> bool | None:
+    """เงื่อนไขเป็นจริงไหม: True False หรือ None (ยังบอกไม่ได้) ส่วนที่รู้ค่าครบใช้ตัวตรวจของ engine ตรง ๆ
+    and or not รวมผลแบบสามค่า (and มีเท็จแน่ = เท็จ, or มีจริงแน่ = จริง)"""
+    if node is None:
+        return True
+    if isinstance(node, ast.BoolOp):
+        parts = [_maybe(v, values) for v in node.values]
+        if isinstance(node.op, ast.And):
+            return False if False in parts else None if None in parts else True
+        return True if True in parts else None if None in parts else False
+    if isinstance(node, ast.UnaryOp) and isinstance(node.op, ast.Not):
+        part = _maybe(node.operand, values)
+        return None if part is None else not part
+    if any(values.get(n.id) is UNKNOWN for n in ast.walk(node) if isinstance(n, ast.Name)):
+        return None
+    return bool(conditions._value(node, values))
 
 
 def _atoms(node: ast.AST):
@@ -224,13 +298,6 @@ def _distinct(name: str, values: list, tests: list | None) -> list:
             seen.add(mark)
             kept.append(value)
     return kept
-
-
-def _product(domains: list[list]) -> int:
-    total = 1
-    for d in domains:
-        total *= max(len(d), 1)
-    return total
 
 
 def dead_in(flow_spec: dict, step: dict) -> list[dict]:

@@ -809,6 +809,26 @@ def test_many_variables_do_not_hide_reachable_edges():
     assert rows[-3:] == [text for text, _ in simulate.COMBOS], "แถวเข้าเกณฑ์จบชุดอยู่ท้ายตารางเสมอแม้แถวเกินเพดาน"
 
 
+def test_flow_check_searches_instead_of_trying_every_case(monkeypatch):
+    """เจอบนเซิร์ฟเวอร์จริง: AI ออกแบบขั้นโจทย์หลัก 20 เส้น ตัวแปร 15 ตัว การลองทีละกรณีใช้ CPU เต็มราว 10 นาทีต่อรอบออกแบบ
+    ขั้นนี้มีกว่า 800 ล้านกรณี การค้นแบบตัดกิ่งต้องหาเส้นที่ใช้ไม่ได้ครบภายใน 500 ครั้งต่อกลุ่ม"""
+    from app.gems import simulate
+
+    monkeypatch.setattr(simulate, "MAX_STEPS", 500)
+    simulate._cases.cache_clear()
+    step = {"id": "q", "kind": "item", "label": "โจทย์หลัก"}
+    whens = ["correct and items_done >= 3 and mastery >= 0.8 and streak >= 2",
+             "correct and hint_level >= 1 and concept_mastery < 0.5", "correct and items_done >= 3 and concept_mastery < 0.5",
+             "correct and rt_ratio > 1.5 and slow", "correct", "wrong and bug_type == 'misconception' and error_count >= 2",
+             "wrong and error_count == 1 and impasse > 60", "wrong and error_count == 1", "wrong and error_count == 2 and chat_help >= 2",
+             "wrong and error_count >= 3 and has_prerequisite and rounds < 2", "wrong and error_count >= 3 and judge_score < 50",
+             "wrong", "correct and items_done >= 5", ""]
+    flow = {"steps": [step], "edges": [{"from": "q", "to": f"s{i}", "when": w} for i, w in enumerate(whens)]}
+    # เกินเพดานจะถือว่าทุกเส้นไปถึงได้ ถ้าการตัดกิ่งเสีย สองเส้นนี้จะไม่ถูกรายงาน
+    assert [e["when"] for e in simulate.dead_in(flow, step)] == ["correct and items_done >= 5", ""]
+    simulate._cases.cache_clear()
+
+
 def test_unreachable_extra_steps_are_pruned_not_fatal(monkeypatch):
     """จาก Gemini จริง: AI สร้างขั้นพักแยกสำหรับความเครียด (ระบบพักให้เองอยู่แล้ว) ขั้นนั้นไม่มีทางเข้า
     ตัดทิ้งแล้วใช้ Flow ได้ ไม่เสียรอบออกแบบจนล้ม"""
