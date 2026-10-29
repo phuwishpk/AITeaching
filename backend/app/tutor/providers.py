@@ -20,6 +20,11 @@ TIMEOUT = 25.0
 GEMINI_BACKUPS = ("gemini-3.5-flash-lite", "gemini-2.5-flash")
 
 
+# คำตอบยาวเกินเพดานโทเคน (โทเคนที่โมเดลใช้คิดนับรวมด้วย) และรอนานเกินไป ผู้เรียกลองใหม่โดยให้คิดน้อยลงได้
+TRUNCATED = "คำตอบของ Gemini ถูกตัดเพราะเกินจำนวนโทเคน"
+TOO_SLOW = "เชื่อมต่อ Gemini ไม่ได้ หรือรอนานเกินไป"
+
+
 class ProviderError(Exception):
     pass
 
@@ -117,7 +122,7 @@ async def _post_gemini(url: str, body: dict, api_key: str, timeout: float = TIME
             async with httpx.AsyncClient(timeout=timeout) as client:
                 response = await client.post(url, json=body, headers={"x-goog-api-key": api_key})
         except httpx.HTTPError as error:
-            raise ProviderError("เชื่อมต่อ Gemini ไม่ได้ หรือรอนานเกินไป") from error
+            raise ProviderError(TOO_SLOW) from error
         if response.status_code not in (429, 500, 503) or attempt == 1:
             return response
         await asyncio.sleep(1.0)
@@ -182,7 +187,7 @@ async def _call_gemini_once(api_key: str, model: str, system: str, user: str, ma
         raise ProviderError(f"Gemini ไม่ได้ตอบ: {reason}")
     if candidates[0].get("finishReason") == "MAX_TOKENS":
         # คำตอบถูกตัดกลางประโยค ไม่ส่งให้นักเรียน ใช้คำใบ้ต้นฉบับแทน
-        raise ProviderError("คำตอบของ Gemini ถูกตัดเพราะเกินจำนวนโทเคน")
+        raise ProviderError(TRUNCATED)
     parts = (candidates[0].get("content") or {}).get("parts") or []
     text = "".join(p.get("text", "") for p in parts if not p.get("thought")).strip()
     if not text:

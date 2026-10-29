@@ -11,7 +11,7 @@ import json
 from collections.abc import Iterator
 from functools import lru_cache
 
-from ..engine import conditions
+from ..engine import conditions, gemflow
 
 BASE = {"correct": False, "wrong": False, "misconception": False, "slip": False, "first_try": False,
         "rt": 20.0, "rt_ratio": 1.0, "slow": False, "judge_pass": None, "judge_score": None, "error_count": 0,
@@ -47,6 +47,15 @@ COMBOS = [("ตอบถูก · ไม่ใช้คำใบ้ · โจท
           ("ตอบถูก · หลังใช้คำใบ้ · โจทย์หลักครบ · Mastery 0.9", {"correct": True, "hint_level": 1, "mains_left": 0, "mastery": 0.9}),
           ("ตอบผิด · ผิดครั้งที่ 2 · โจทย์หลักครบ · Mastery 0.9 · ทำโจทย์ท้าทายได้",
            {"wrong": True, "error_count": 2, "mains_left": 0, "mastery": 0.9, "challenge_done": True})]
+def _combos() -> list[tuple[str, dict]]:
+    """COMBOS ที่ใช้จำนวนข้อที่ทำถูกจริงของคนที่ทำโจทย์หลักครบ (อย่างน้อยเท่าจำนวนโจทย์หลักในคลัง) ไม่ใช่ 1 ข้อของกรณีทั่วไป
+    เจอใน Flow จริง: เกณฑ์จบของครูมี "ทำถูกแล้วอย่างน้อย 3 ข้อ" แถวนี้จึงไม่จบ AI ที่ตรวจเลยรายงานว่าเกณฑ์จบไม่ผ่าน"""
+    from .builder import bank_sizes  # builder import ไฟล์นี้ผ่าน flowspec จึง import ตอนใช้
+    mains = bank_sizes()["main"]
+    return [(text.replace("โจทย์หลักครบ", f"โจทย์หลักครบ (ทำถูกแล้ว {mains} ข้อ)"), {**combo, "items_done": mains})
+            for text, combo in COMBOS]
+
+
 FLOOR = {"": 0, "slip": 1, "misconception": 2}
 DEAD = "เส้นที่ไม่มีวันถูกใช้: "
 
@@ -307,30 +316,6 @@ def dead_in(flow_spec: dict, step: dict) -> list[dict]:
     return _unused(flow_spec, step)
 
 
-def reorder_dead(flow_spec: dict) -> list[str]:
-    """ย้ายเส้นที่ไม่มีวันถูกใช้ขึ้นไปก่อนเส้นที่ดักมันไว้ (ตำแหน่งต่ำสุดที่เส้นนั้นถูกใช้ได้และไม่ทำให้เส้นอื่นเสีย)
-    แก้ลำดับเส้นด้วยกฎ ไม่ต้องให้ AI แก้ซ้ำ (เจอจาก Gemini จริง: เส้นถามแชตเกิน 3 ครั้งอยู่ใต้เส้นคำใบ้ที่ดักทุกกรณี)"""
-    notes = []
-    for step in flow_spec["steps"]:
-        for edge in dead_in(flow_spec, step):
-            own = [i for i, e in enumerate(flow_spec["edges"]) if e["from"] == step["id"]]
-            at = own.index(next(i for i in own if flow_spec["edges"][i] is edge))
-            before = len(dead_in(flow_spec, step))
-            for slot in range(at - 1, -1, -1):
-                trial = list(flow_spec["edges"])
-                trial.remove(edge)
-                trial.insert(trial.index(flow_spec["edges"][own[slot]]), edge)
-                candidate = {**flow_spec, "edges": trial}
-                dead = dead_in(candidate, step)
-                if edge not in dead and len(dead) < before:
-                    above = flow_spec["edges"][own[slot]]
-                    flow_spec["edges"] = trial
-                    notes.append(f"ระบบย้ายเส้น \"{edge.get('label') or edge['when']}\" ของขั้น \"{step['label']}\" "
-                                 f"ขึ้นไปก่อน \"{above.get('label') or above['when'] or 'ทุกกรณี'}\" เพราะเส้นนั้นดักไว้ทุกกรณี")
-                    break
-    return notes
-
-
 def dead_edges(flow_spec: dict) -> list[str]:
     """เส้นที่ไม่มีกรณีไหนไปถึง เพราะเส้นก่อนหน้าดักไว้หมด (แนวทางของครูบนเส้นนั้นจะไม่เกิดเลย)"""
     notes = []
@@ -340,7 +325,8 @@ def dead_edges(flow_spec: dict) -> list[str]:
             continue
         for edge in _unused(flow_spec, step):
             notes.append(f"{DEAD}จาก \"{step['label']}\" เส้น \"{edge.get('label') or edge.get('when') or 'ทุกกรณี'}\" "
-                         f"({edge.get('when') or 'ทุกกรณี'}) เพราะเส้นก่อนหน้าดักทุกกรณีไว้แล้ว ย้ายเส้นนี้ขึ้นไปหรือแก้เงื่อนไข")
+                         f"({edge.get('when') or 'ทุกกรณี'}) เพราะเส้นก่อนหน้าดักทุกกรณีไว้แล้ว ระบบไม่สลับลำดับเส้นให้เอง "
+                         "ถ้าลำดับนี้ตรงกับที่ครูเขียน แนวทางบนเส้นนี้จะไม่เกิด ครูแก้เงื่อนไขหรือลำดับเส้นได้ในแท็บ Flow")
     return notes
 
 
@@ -368,7 +354,7 @@ def _say(name: str, value) -> str | None:
 KEY_VARS = ("correct", "wrong", "error_count", "bug_type", "hint_level")
 
 
-def _table_cases(step: dict, edges: list[dict]) -> Iterator[tuple[dict, dict | None]]:
+def _table_cases(step: dict, edges: list[dict], steps: dict) -> Iterator[tuple[dict, dict | None, list[dict]]]:
     """กรณีที่ตารางใช้: ตัวแปรหลัก (ผลการตอบ ครั้งที่ผิด ชนิดข้อผิดพลาด คำใบ้) ทุกค่า ตัวแปรอื่นเป็นค่าแรกหรือเปลี่ยนทีละตัว
     เรียงตามลำดับเดียวกับการไล่ทุกกรณี (itertools.product) โดยไม่ต้องไล่ทุกกรณีจริง ขั้นหนึ่งมีได้เป็นล้านกรณี"""
     try:
@@ -390,7 +376,17 @@ def _table_cases(step: dict, edges: list[dict]) -> Iterator[tuple[dict, dict | N
                 picks.update(tuple(base[:i] + [at] + base[i + 1:]) for at in range(1, len(domains[i])))
         for pick in sorted(picks):
             values = {**fixed, **{n: domains[i][at] for i, (n, at) in enumerate(zip(names, pick))}}
-            yield values, _winner(parsed, _consistent({**BASE, **values}), {})
+            current = _consistent({**BASE, **values})
+            edge = _winner(parsed, current, {})
+            yield values, edge, _then(step, edges, steps, edge, current)
+
+
+def _then(step: dict, edges: list[dict], steps: dict, edge: dict | None, values: dict) -> list[dict]:
+    """เส้นที่ engine จำไว้ทำต่อเมื่อกลับมาที่ขั้นทำโจทย์ (กฎชุดเดียวกับ gemflow.queued) เช่น ข้อคู่ขนานก่อน แล้วจึงจบชุด"""
+    if edge is None or step["kind"] != "item":
+        return []
+    return gemflow.queued(edges, edge, step["id"], lambda s: steps.get(s, {}).get("kind"),
+                          lambda e: conditions.evaluate(e.get("when"), values))
 
 
 def table(flow_spec: dict, limit: int = 40) -> list[dict]:
@@ -402,12 +398,12 @@ def table(flow_spec: dict, limit: int = 40) -> list[dict]:
         if len(edges) < 2:
             continue
         baseline, variants = {}, []
-        tried = list(_shown(_table_cases(step, edges)))
-        for values, edge in tried:
+        tried = list(_shown(_table_cases(step, edges, steps)))
+        for values, edge, then in tried:
             # กรณีทั่วไป = ทุกตัวแปรเป็นค่าแรก นอกจากผลการตอบ ครั้งที่ผิด ชนิดข้อผิดพลาด และการใช้คำใบ้
             changed = [n for n, v in values.items() if n not in KEY_VARS and v != _domain(n, set())[0]]
             key = tuple(values.get(n) for n in KEY_VARS)
-            target = _target(steps, edge, values)
+            target = _target(steps, edge, values, then)
             if not changed:
                 baseline[key] = target
             elif len(changed) == 1:
@@ -419,7 +415,7 @@ def table(flow_spec: dict, limit: int = 40) -> list[dict]:
             words += [w for n in ("error_count", "bug_type", "hint_level") if n in values for w in [_say(n, values[n])] if w]
             rows.append({"case": " · ".join(w for w in words + [extra or ""] if w), "to": target})
 
-        for values, _ in tried:
+        for values, *_ in tried:
             key = tuple(values.get(n) for n in KEY_VARS)
             # ครั้งที่ผิดเกิน 4 ผลเหมือน "ตั้งแต่ครั้งที่ 4" ไม่ต้องแสดงซ้ำ
             if (values.get("error_count") or 0) > 4:
@@ -444,9 +440,10 @@ def table(flow_spec: dict, limit: int = 40) -> list[dict]:
         combos = []
         if step["kind"] == "item":
             parsed = [(e, conditions.parse(e.get("when"))) for e in edges]
-            for text, combo in COMBOS:
+            for text, combo in _combos():
                 values = _consistent({**BASE, **combo})
-                combos.append({"case": text, "to": _target(steps, _winner(parsed, values, {}), values)})
+                edge = _winner(parsed, values, {})
+                combos.append({"case": text, "to": _target(steps, edge, values, _then(step, edges, steps, edge, values))})
         # แถวเข้าเกณฑ์จบชุดอยู่ในตารางเสมอแม้แถวอื่นเกินเพดาน AI ใช้ตารางนี้ตรวจเกณฑ์จบของครู
         out.append({"step": step["id"], "label": step["label"], "rows": rows[:limit - len(combos)] + combos})
     return out
@@ -459,7 +456,7 @@ BASELINE = ("กรณีทั่วไปในตาราง: Mastery 0.6 �
 
 def _shown(rows):
     """กรณีที่แสดงในตาราง: ตอบถูกไม่สนครั้งที่ผิดและชนิดข้อผิดพลาด ตอบผิดไม่สนการใช้คำใบ้ (ไม่ต้องแสดงซ้ำ)"""
-    for values, edge in rows:
+    for values, *rest in rows:
         if values.get("correct") and (values.get("error_count", 1) != 1 or values.get("bug_type", "")):
             continue
         if values.get("wrong") and values.get("hint_level", 0):
@@ -470,11 +467,14 @@ def _shown(rows):
             shown.pop("bug_type", None)
         if shown.get("wrong"):
             shown.pop("hint_level", None)
-        yield shown, edge
+        yield shown, *rest
 
 
-def _target(steps: dict, edge: dict | None, values: dict) -> str:
-    """ปลายทางที่อ่านแล้วตรงกับที่ engine ทำ: ขั้นคำใบ้บอกระดับที่นักเรียนได้จริง (auto คิดจากครั้งที่ผิดและชนิดข้อผิดพลาด)"""
+def _target(steps: dict, edge: dict | None, values: dict, then: list[dict] = ()) -> str:
+    """ปลายทางที่อ่านแล้วตรงกับที่ engine ทำ: ขั้นคำใบ้บอกระดับที่นักเรียนได้จริง (auto คิดจากครั้งที่ผิดและชนิดข้อผิดพลาด)
+    และแนวทางที่ทำต่อเมื่อกลับมา (then) เช่น "ข้อคู่ขนาน แล้วต่อด้วย จบชุด" """
+    if then:
+        return _target(steps, edge, values) + "".join(f" แล้วต่อด้วย {_target(steps, e, values)}" for e in then)
     if edge is None:
         return "ไม่มีเส้น ระบบใช้ทางเริ่มต้น"
     if edge["to"] == "back":

@@ -344,25 +344,29 @@ def follow(state: dict, ctx: C.Ctx, fx: C.Fx, from_step: str, edges: list[str], 
 
 
 def follow_ups(state: dict, ctx: C.Ctx, step_id: str, chosen: dict) -> list[dict]:
+    current = values(state, ctx, step_id)
+    return queued(edges_from(ctx, step_id), chosen, step_id, lambda s: (step_of(ctx, s) or {}).get("kind"),
+                  lambda edge: evaluate(edge["when"], edge_values(state, current, edge)))
+
+
+def queued(edges: list[dict], chosen: dict, step_id: str, kind_of, holds) -> list[dict]:
     """เส้นตอบถูกเส้นอื่นที่เป็นจริงพร้อมกับเส้นที่เลือก และเป็นแนวทางคนละเรื่อง (ใช้ตัวแปรคนละตัว)
     เช่น ถูกหลังใช้คำใบ้ → ข้อคู่ขนาน กับ ครบ 2 ข้อ → อธิบายความคิด ทำเส้นแรกก่อน แล้วพาไปทำเส้นที่เหลือต่อ
-    ไม่ให้แนวทางของครูหายไปเงียบ ๆ เพราะเส้นแรกที่เป็นจริงชนะ"""
+    ไม่ให้แนวทางของครูหายไปเงียบ ๆ เพราะเส้นแรกที่เป็นจริงชนะ รวมเกณฑ์จบชุดด้วย ("ผ่านข้อคู่ขนานแล้วจึงเช็กเกณฑ์จบ")
+    kind_of(ขั้น) = ชนิดของขั้น holds(เส้น) = เงื่อนไขเป็นจริงไหม (ตารางจำลองใช้กฎชุดเดียวกันนี้)"""
     picked = names(chosen.get("when")) - {"correct"}
-    target = step_of(ctx, chosen["to"])
-    if "correct" not in names(chosen.get("when")) or "wrong" in picked or not picked or (target and target["kind"] == "end"):
+    if "correct" not in names(chosen.get("when")) or "wrong" in picked or not picked or kind_of(chosen["to"]) == "end":
         return []
-    current = values(state, ctx, step_id)
     out, after = [], False
-    for edge in edges_from(ctx, step_id):
+    for edge in edges:
         if edge is chosen:
             after = True
             continue
         used = names(edge.get("when"))
         other = used - {"correct"}
-        goal = step_of(ctx, edge["to"])
-        if (after and "correct" in used and "wrong" not in used and other and goal and goal["kind"] != "end"
+        if (after and "correct" in used and "wrong" not in used and other and kind_of(edge["to"])
                 and edge["to"] not in (step_id, chosen["to"]) and not other <= picked and not picked <= other
-                and evaluate(edge["when"], edge_values(state, current, edge))):
+                and holds(edge)):
             out.append(edge)
     return out
 
@@ -380,9 +384,16 @@ def enter(state: dict, ctx: C.Ctx, fx: C.Fx, step_id: str, edges: list[str], not
     if queue and step_id == queue[0]["origin"]:
         # กลับมาที่ขั้นทำโจทย์ที่มีแนวทางค้างไว้ (เส้นตอบถูกอีกเส้นที่เป็นจริงพร้อมกัน): ทำแนวทางนั้นก่อนได้ข้อใหม่
         pending = queue.pop(0)
-        notes.append(f"ต่อด้วยแนวทางที่ค้างไว้: {pending['label']}")
-        edges = edges + [pending["edge"]]
-        step_id = pending["to"]
+        edge = next((e for e in edges_from(ctx, step_id) if e["id"] == pending["edge"]), None)
+        goal = step_of(ctx, pending["to"])
+        # เกณฑ์จบเช็กใหม่ด้วยค่าตอนกลับมา (ผ่านแนวทางก่อนหน้าแล้วจึงเช็ก) แนวทางอื่นทำต่อตามที่จำไว้
+        if goal and goal["kind"] == "end" and (
+                edge is None or not evaluate(edge["when"], edge_values(state, values(state, ctx, step_id), edge))):
+            notes.append(f"แนวทางที่ค้างไว้ไม่เข้าเงื่อนไขแล้ว: {pending['label']}")
+        else:
+            notes.append(f"ต่อด้วยแนวทางที่ค้างไว้: {pending['label']}")
+            edges = edges + [pending["edge"]]
+            step_id = pending["to"]
     step = step_of(ctx, step_id)
     if hops > MAX_HOPS or step is None:
         stuck(state, ctx, fx, edges, notes + ["Flow วนผ่านขั้นที่ไม่หยุดรอนานเกินไป ส่งต่อครู"])

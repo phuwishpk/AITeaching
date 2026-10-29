@@ -206,6 +206,27 @@ def test_gem_api_roles_and_requirements():
     assert client.get(f"/api/gems/{created['id']}", headers=teacher).status_code == 404
 
 
+def test_design_retries_with_less_thinking_when_the_answer_is_cut(monkeypatch):
+    """เจอบนเซิร์ฟเวอร์จริง: รอบแก้ Flow ใหญ่ Gemini คิดจนโทเคนเต็มเพดาน คำตอบถูกตัดทุกครั้ง Flow ใหม่จึงไม่ถูกใช้
+    รอบที่ลองใหม่หลังคำตอบถูกตัดหรือรอนานเกิน ต้องให้คิดน้อยลง คำตอบจึงมีที่พอ"""
+    from app.tutor import providers
+
+    monkeypatch.setattr(builder, "RETRY_DELAYS", (0, 0))
+    seen = []
+
+    async def cut_then_fits(system, user, **options):
+        seen.append(options["thinking"])
+        if len(seen) == 1:
+            return None, [f"gemini: {providers.TOO_SLOW}"]
+        if len(seen) == 2:
+            return None, [f"gemini: {providers.TRUNCATED}"]
+        return providers.LLMResult('{"ok": true}', "gemini", "fake", 10, 10, 1), []
+
+    monkeypatch.setattr(service, "_call", cut_then_fits)
+    assert asyncio.run(builder.ask_json("flow", "ออกแบบ", 32000, thinking="high")) == {"ok": True}
+    assert seen == ["high", "medium", "low"]
+
+
 def test_rebuild_resumes_from_finished_steps(monkeypatch):
     monkeypatch.setattr(builder, "RETRY_DELAYS", (0, 0))
     calls = fake_llm(monkeypatch)

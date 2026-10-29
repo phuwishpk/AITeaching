@@ -532,6 +532,35 @@ def test_simultaneous_success_guidelines_both_run(subject):
     assert step(state) == "w" and state["position"] == F.ANSWERING and not state["flow"]["queue"]
 
 
+def test_end_after_the_guideline_the_teacher_ordered_first(subject):
+    """เจอใน Flow จริง: ครูสั่ง "ถูกหลังใช้คำใบ้ทำข้อคู่ขนานก่อน ผ่านแล้วจึงเช็กเกณฑ์จบ" เรียงเส้นตามนั้นแล้วเกณฑ์จบหายไป
+    เพราะเส้นจบชุดไม่ถูกจำไว้ทำต่อ AI ที่ตรวจจึงแนะนำให้สลับลำดับ ซึ่งขัดกับคำสั่งของครู"""
+    flow = {"start": "w",
+            "steps": [{"id": "w", "kind": "item", "pick": "main"}, {"id": "h", "kind": "hint", "level": 1},
+                      {"id": "iso", "kind": "item", "label": "ข้อคู่ขนาน", "pick": "isomorphic"},
+                      {"id": "e", "kind": "end", "label": "จบชุด", "result": "completed"}],
+            "edges": [{"from": "w", "to": "iso", "when": "correct and hint_level > 0", "label": "ถูกหลังใช้คำใบ้"},
+                      {"from": "w", "to": "e", "when": "correct and items_done >= 2", "label": "ถึงเกณฑ์จบ"},
+                      {"from": "w", "to": "w", "when": "correct"}, {"from": "w", "to": "h", "when": "wrong"},
+                      {"from": "w", "to": "w", "when": ""}, {"from": "h", "to": "back", "when": ""},
+                      {"from": "iso", "to": "w", "when": "correct"}, {"from": "iso", "to": "iso", "when": ""}]}
+    content = gem_content(subject, flow)
+    state, ctx = start(content)
+    engine.submit(state, at(ctx, 1030), demo.correct_raw(it_of(content, state)))
+    engine.submit(state, at(ctx, 1060), demo.other_wrong(it_of(content, state)))
+    engine.submit(state, at(ctx, 1090), demo.correct_raw(it_of(content, state)))
+    assert step(state) == "iso", "ข้อคู่ขนานก่อนตามลำดับที่ครูเขียน"
+    engine.submit(state, at(ctx, 1120), demo.correct_raw(it_of(content, state)))
+    assert state["position"] == F.DONE and state["end_reason"] == "completed", "ผ่านข้อคู่ขนานแล้วจึงเช็กเกณฑ์จบ"
+
+    from app.gems import simulate
+    text = simulate.table_text(flowspec.validate(flow)["spec"])
+    assert "ตอบถูก · หลังใช้คำใบ้ · จำนวนข้อที่ทำถูกแล้วใน Session นี้ = 2 → ข้อคู่ขนาน แล้วต่อด้วย จบชุด" in text, \
+        "ตารางจำลองบอกว่าทำข้อคู่ขนานแล้วจึงจบ AI ที่ตรวจจะได้ไม่สลับลำดับ"
+    assert "ตอบถูก · หลังใช้คำใบ้ · โจทย์หลักครบ (ทำถูกแล้ว 8 ข้อ) · Mastery 0.9 → ข้อคู่ขนาน แล้วต่อด้วย จบชุด" in text, \
+        "แถวเกณฑ์จบใช้จำนวนข้อที่ทำถูกจริงของคนที่ทำโจทย์หลักครบ ไม่ใช่ 1 ข้อ"
+
+
 def test_second_round_findings_are_fixed(monkeypatch):
     """รอบสองของการทดสอบ Flow ครบทุกฟีเจอร์: รหัสตัดวงจรหลุดถึงนักเรียน และ Guard บล็อก Widget ผิดเพราะตัวเลขใน CSS"""
     import asyncio
@@ -735,7 +764,7 @@ def gemflow_values(state, ctx):
 
 def test_simulation_finds_dead_edges_and_shows_where_students_go():
     """จาก Gemini จริง: ผิดครั้งแรกแบบไม่ตรง Bug Library ถูกส่งไปทบทวนพื้นฐานทันที ตารางจำลองทำให้เห็น
-    และเส้นที่ถูกเส้นก่อนหน้าดักไว้หมดเป็นข้อผิดพลาดที่ AI ต้องแก้"""
+    และเส้นที่ถูกเส้นก่อนหน้าดักไว้หมดเป็นคำเตือนถึงครู"""
     from app.gems import simulate
 
     flow = {"start": "w",
@@ -753,11 +782,11 @@ def test_simulation_finds_dead_edges_and_shows_where_students_go():
     checked = flowspec.validate(flow)
     dead = [w for w in checked["warnings"] if w.startswith(simulate.DEAD)]
     assert len(dead) == 1 and "ทบทวนครบ 2 รอบ" in dead[0]
-    assert flowspec.design_problems(checked, []) == dead
+    assert flowspec.design_problems(checked, []) == [], "เส้นที่ไม่มีวันถูกใช้เป็นคำเตือนถึงครู ไม่ให้ AI แก้ด้วยการสลับลำดับ"
     text = simulate.table_text(checked["spec"])
     assert "ตอบผิด · ผิดครั้งที่ 1 · ไม่ตรง Bug Library → ทบทวน" in text
     assert 'ตอบผิด · ผิดครั้งที่ 1 · สะเพร่า → คำใบ้ระดับ 1 (ขั้น "คำใบ้ 1")' in text, "ชื่อขั้นไม่ได้บอกระดับ จึงบอกชื่อขั้นด้วย"
-    assert "ตอบถูก · ไม่ใช้คำใบ้ · โจทย์หลักครบ · Mastery 0.9 → " in text, "แถวเข้าเกณฑ์จบชุดแสดงเสมอ"
+    assert "ตอบถูก · ไม่ใช้คำใบ้ · โจทย์หลักครบ (ทำถูกแล้ว 8 ข้อ) · Mastery 0.9 → " in text, "แถวเข้าเกณฑ์จบชุดแสดงเสมอ"
     assert "ผิดครั้งที่ 5" not in text and "ผิดครั้งที่ 0" not in text
 
 
@@ -806,7 +835,7 @@ def test_many_variables_do_not_hide_reachable_edges():
     assert simulate.dead_in(flow, step) == []
     assert flowspec.ending_on_wrong(flow), "items_done >= 6 จบชุดได้แม้ตอบผิด ต้องจับได้"
     rows = [r["case"] for t in simulate.table(flow) for r in t["rows"]]
-    assert rows[-3:] == [text for text, _ in simulate.COMBOS], "แถวเข้าเกณฑ์จบชุดอยู่ท้ายตารางเสมอแม้แถวเกินเพดาน"
+    assert rows[-3:] == [text for text, _ in simulate._combos()], "แถวเข้าเกณฑ์จบชุดอยู่ท้ายตารางเสมอแม้แถวเกินเพดาน"
 
 
 def test_flow_check_searches_instead_of_trying_every_case(monkeypatch):
@@ -913,8 +942,10 @@ def test_asking_the_chat_counts_as_using_a_hint(subject):
     assert flowspec.concept_gaps("ถามในแชตไม่นับเป็นคำใบ้", flowspec.validate({**flow, "chat": None})["spec"])
 
 
-def test_dead_edges_are_moved_up_by_rule():
-    """จาก Gemini จริง: "ถามแชตเกิน 3 ครั้งแล้วตอบผิด" อยู่ใต้เส้นคำใบ้ที่ดักทุกกรณีตอบผิด ระบบย้ายขึ้นให้เอง"""
+def test_dead_edges_are_reported_to_the_teacher_not_moved():
+    """จาก Gemini จริง: "ถามแชตเกิน 3 ครั้งแล้วตอบผิด" อยู่ใต้เส้นคำใบ้ที่ดักทุกกรณีตอบผิด เดิมระบบย้ายขึ้นให้เอง
+    ครูขอให้ลำดับเส้นตรงกับลำดับการตรวจที่ครูเขียนเสมอ ระบบจึงไม่สลับลำดับเอง แจ้งครูเป็นคำเตือนแทน
+    และไม่ใช่ปัญหาที่ AI ต้องแก้ (AI จะแก้ด้วยการสลับลำดับ) รอบตรวจแนวทางของ AI ยังเห็นจากตารางว่าแนวทางนั้นไม่เกิด"""
     from app.gems import simulate
 
     flow = {"start": "w", "steps": [{"id": "w", "kind": "item", "pick": "main"}, {"id": "h", "kind": "hint", "level": "auto"},
@@ -926,9 +957,9 @@ def test_dead_edges_are_moved_up_by_rule():
                       {"from": "walk", "to": "back", "when": ""}]}
     checked = flowspec.validate(flow)
     assert any(w.startswith(simulate.DEAD) for w in checked["warnings"])
-    fixed, problems = flowspec._checked(flow, None, [])
-    assert not problems and [e["label"] for e in fixed["spec"]["edges"] if e["from"] == "w"][1] == "ถามแชตเกิน 3 ครั้ง"
-    assert any("ระบบย้ายเส้น" in w for w in fixed["warnings"])
+    kept, problems = flowspec._checked(flow, None, [])
+    assert not problems and [e["label"] for e in kept["spec"]["edges"] if e["from"] == "w"][1] == "ผิด ให้คำใบ้"
+    assert any(w.startswith(simulate.DEAD) and "ถามแชตเกิน 3 ครั้ง" in w and "ไม่สลับลำดับ" in w for w in kept["warnings"])
 
 
 def test_asking_too_many_times_in_chat_needs_chat_help():

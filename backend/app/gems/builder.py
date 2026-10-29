@@ -270,6 +270,7 @@ def listing(payload, key: str) -> list:
 
 # Provider มักตอบ "มีผู้ใช้มากชั่วคราว" หรือส่ง JSON ไม่ครบเป็นครั้งคราว จึงลองใหม่ก่อนยอมแพ้
 RETRY_DELAYS = (5.0, 15.0)
+LESS_THINKING = {"high": "medium", "medium": "low", "low": "minimal"}
 GEMINI_BACKUPS = providers.GEMINI_BACKUPS
 
 
@@ -285,6 +286,9 @@ async def ask_json(step: str, user: str, max_tokens: int = 12000, thinking: str 
         service._log(None, f"gem_{step}", frames, None, result, result.text[:4000] if result else "", None, errors)
         if result is None:
             problem = "; ".join(errors) or problem
+            if providers.TRUNCATED in problem or providers.TOO_SLOW in problem:
+                # คิดยาวจนคำตอบถูกตัดหรือรอนานเกิน (เจอตอนออกแบบ Flow ใหญ่ใหม่): รอบต่อไปให้คิดน้อยลง คำตอบจึงมีที่พอ
+                thinking = LESS_THINKING.get(thinking, thinking)
             continue
         try:
             return parse_json(result.text)
