@@ -32,7 +32,7 @@ def role_frame(subject: dict) -> str:
     )
     # Gem Instructions ของครูเติมเข้ากรอบ Role & Persona เท่านั้น ข้อห้ามใน constraints_frame แก้ไม่ได้ (ADR-0003)
     instructions = ((subject.get("gem") or {}).get("instructions") or "").strip()
-    return f"{base}\n\nคำสั่งจากครูผู้สร้าง Gem:\n{instructions}" if instructions else base
+    return f"{base}\n\nคำสั่งจากครูผู้สร้างติวเตอร์:\n{instructions}" if instructions else base
 
 
 def constraints_frame(sentences: int = 3, extra: list[str] | None = None) -> str:

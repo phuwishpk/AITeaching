@@ -102,7 +102,7 @@ export default function GemFlowPage() {
     <div className="page page-wide stack stack-lg">
       <header className="spread fade-in">
         <div className="row" style={{ alignItems: "flex-start" }}>
-          <Button variant="ghost" size="sm" className="btn-icon" icon={<ArrowLeft size={18} />} onClick={() => navigate(`/teacher/gems/${gemId}`)} aria-label="กลับไปหน้า Gem" />
+          <Button variant="ghost" size="sm" className="btn-icon" icon={<ArrowLeft size={18} />} onClick={() => navigate(`/teacher/gems/${gemId}`)} aria-label="กลับไปหน้าติวเตอร์" />
           <div className="stack stack-sm">
             <p className="eyebrow">{gem.data.name}</p>
             <h1 className="title-xl">Flow การสอน</h1>
@@ -182,7 +182,7 @@ export default function GemFlowPage() {
           <Sparkles size={16} />
           <span className="small">
             {detail.summary}
-            {detail.outdated && " · คำสั่งหรือเครื่องมือของ Gem เปลี่ยนหลังออกแบบ Flow นี้ กด \"ให้ AI ออกแบบใหม่\" เพื่อให้ตรงกับคำสั่งล่าสุด"}
+            {detail.outdated && " · คำสั่งหรือเครื่องมือของติวเตอร์เปลี่ยนหลังออกแบบ Flow นี้ กด \"ให้ AI ออกแบบใหม่\" เพื่อให้ตรงกับคำสั่งล่าสุด"}
           </span>
         </div>
       )}
@@ -214,7 +214,7 @@ export default function GemFlowPage() {
 
       {showReference && (
         <Card>
-          <CardHead title="แม่แบบอ้างอิง (ไม่ใช้เป็น Flow ของ Gem)" sub="ผังมาตรฐานของหัวข้อที่ 3 ที่ Stress Test และหน้ากฎ R-01–R-55 อธิบายไว้ ดูเป็นแนวทางเขียนคำสั่งเท่านั้น" />
+          <CardHead title="แม่แบบอ้างอิง (ไม่ใช้เป็น Flow ของติวเตอร์)" sub="ผังมาตรฐานของหัวข้อที่ 3 ที่ Stress Test และหน้ากฎ R-01–R-55 อธิบายไว้ ดูเป็นแนวทางเขียนคำสั่งเท่านั้น" />
           <div className="card-body">
             <SpecFlowMap nodes={detail.reference_map.nodes} edges={detail.reference_map.edges} compact />
           </div>
@@ -223,10 +223,10 @@ export default function GemFlowPage() {
 
       {!draft ? (
         <Card>
-          <CardHead title="Gem นี้ยังไม่มี Flow การสอน" sub="นักเรียนยังเริ่มเรียน Gem นี้ไม่ได้จนกว่าจะมี Flow ที่ออกแบบจากคำสั่งของครู" />
+          <CardHead title="ติวเตอร์นี้ยังไม่มี Flow การสอน" sub="นักเรียนยังเริ่มเรียนติวเตอร์นี้ไม่ได้จนกว่าจะมี Flow ที่ออกแบบจากคำสั่งของครู" />
           <div className="card-body stack">
             <p className="small">
-              กด "ให้ AI ออกแบบใหม่จากคำสั่ง" AI จะอ่านคำสั่งและเอกสารของ Gem แล้วออกแบบทุกขั้นจากสิ่งที่ครูเขียน ถ้าออกแบบไม่ผ่าน
+              กด "ให้ AI ออกแบบใหม่จากคำสั่ง" AI จะอ่านคำสั่งและเอกสารของติวเตอร์แล้วออกแบบทุกขั้นจากสิ่งที่ครูเขียน ถ้าออกแบบไม่ผ่าน
               ลองเขียนลำดับการสอนในคำสั่งให้ชัดขึ้น เช่น "ผิด 2 ครั้งให้ดูตัวอย่างก่อน" หรือ "ทุกข้อที่ถูกให้อธิบายวิธีคิด"
             </p>
             {detail.warnings.map((w) => (
@@ -839,11 +839,11 @@ function ChatEditor({
     return (
       <div className="stack">
         <p className="small">
-          <strong>แบบอัตโนมัติ</strong> คำสั่งของครูไม่ได้พูดถึงการตอบแชต AI ตอบแบบโสเครตีสไม่เกิน 3 ประโยค ใช้คำสั่งทั้งหมดของ Gem เป็นบุคลิก
+          <strong>แบบอัตโนมัติ</strong> คำสั่งของครูไม่ได้พูดถึงการตอบแชต AI ตอบแบบโสเครตีสไม่เกิน 3 ประโยค ใช้คำสั่งทั้งหมดของติวเตอร์เป็นบุคลิก
           และการถามเรื่องโจทย์ในแชตนับเป็นการขอคำใบ้ระดับ 1
         </p>
         <p className="xsmall muted">
-          เขียนเรื่องแชตใน prompt ของ Gem แล้วกดออกแบบใหม่ หรือกำหนดเองที่นี่ เช่น บุคลิก ความยาว กฎกันหลอกล่อ หรือสิ่งที่ให้ทำเมื่อนักเรียนพิมพ์ขอเฉลย
+          เขียนเรื่องแชตใน prompt ของติวเตอร์แล้วกดออกแบบใหม่ หรือกำหนดเองที่นี่ เช่น บุคลิก ความยาว กฎกันหลอกล่อ หรือสิ่งที่ให้ทำเมื่อนักเรียนพิมพ์ขอเฉลย
         </p>
         <Button size="sm" icon={<Plus size={14} />} onClick={() => set({})} style={{ alignSelf: "flex-start" }}>
           กำหนดแนวทางแชตเอง
@@ -867,7 +867,7 @@ function ChatEditor({
           {missing.length > 0 && <span className="xsmall warning-text">ยังไม่ถูกจับ: {missing.join(", ")} เพิ่มในรายการด้านล่างหรือกดออกแบบใหม่</span>}
         </div>
       )}
-      <Field label="บุคลิกและวิธีอธิบาย" hint="แทนการใช้คำสั่งทั้งก้อนของ Gem ในแชต">
+      <Field label="บุคลิกและวิธีอธิบาย" hint="แทนการใช้คำสั่งทั้งก้อนของติวเตอร์ในแชต">
         <textarea className="input" rows={3} maxLength={600} value={chat.style} onChange={(e) => set({ style: e.target.value })} />
       </Field>
       <div className="grid grid-2">

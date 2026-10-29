@@ -80,7 +80,7 @@ def save(gem_id: str, raw: dict, actor: str) -> dict:
 def approve(gem_id: str, actor: str) -> dict:
     gem = manage.get(gem_id)
     if (gem.get("flow") or {}).get("mode") != "custom":
-        raise manage.GemError("Gem นี้ใช้ผังมาตรฐาน อยู่แล้ว")
+        raise manage.GemError("ติวเตอร์นี้ใช้ผังมาตรฐานอยู่แล้ว")
     gem["flow"]["reviewed"] = True
     return _store(gem, actor, "ครูตรวจ Flow การสอนแล้ว")
 

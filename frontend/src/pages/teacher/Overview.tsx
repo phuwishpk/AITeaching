@@ -165,7 +165,7 @@ export default function Overview() {
         <div key={g.id} className="flag-banner fade-in">
           <Flag size={18} />
           <span className="grow small">
-            Gem <span className="strong">{g.name}</span> มีโจทย์รอครูตรวจ {review(g)} ข้อ
+            ติวเตอร์ <span className="strong">{g.name}</span> มีโจทย์รอครูตรวจ {review(g)} ข้อ
             <span className="muted">
               {" "}
               (ติดธง {g.stats!.flagged} · รออนุมัติ {g.stats!.pending} · สร้างสดระหว่างเรียน {g.stats!.check})

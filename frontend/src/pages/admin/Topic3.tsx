@@ -113,12 +113,12 @@ export default function Topic3() {
       >
         <div className="row">
           <label className="row row-sm small">
-            <span className="muted">ผังของ Gem</span>
+            <span className="muted">ผังของติวเตอร์</span>
             <select
               className="select"
               value={gemId ?? ""}
               onChange={(e) => setParams({ gem: e.target.value }, { replace: true })}
-              aria-label="เลือก Gem ที่จะดูผัง"
+              aria-label="เลือกติวเตอร์ที่จะดูผัง"
             >
               {(gems.data ?? []).map((g) => (
                 <option key={g.id} value={g.id}>

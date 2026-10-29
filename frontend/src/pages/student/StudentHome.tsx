@@ -74,7 +74,7 @@ function Home({ code, onLogout }: { code: string; onLogout: () => void }) {
               <article key={set.id} className="card card-hover set-card fade-in">
                 <div className="spread">
                   {/* Gem ตั้งชื่อวิชาเป็นชื่อเดียวกับ Gem จึงแสดงระดับชั้นแทน */}
-                  <span className="eyebrow">{set.gem ? set.grade || "Gem" : set.subject}</span>
+                  <span className="eyebrow">{set.gem ? set.grade || "ติวเตอร์" : set.subject}</span>
                   <Badge tone={status.tone} dot>
                     {status.label}
                   </Badge>

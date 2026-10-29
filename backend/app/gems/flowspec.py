@@ -714,7 +714,7 @@ def design_prompt(gem: dict, errors: list[str] | None = None, previous: dict | N
     keywords = teacher_keywords(gem.get("instructions", ""))
     text = (
         "คุณออกแบบ Flow การสอนของติวเตอร์ภาษาไทยจากคำสั่งของครู Flow คือกราฟของขั้นที่ engine รันได้จริง\n\n"
-        f"ชื่อ Gem: {gem.get('name', '')}\nคำอธิบาย: {gem.get('description', '')}\n"
+        f"ชื่อติวเตอร์: {gem.get('name', '')}\nคำอธิบาย: {gem.get('description', '')}\n"
         f"คำสั่งของครู:\n\"\"\"\n{gem.get('instructions', '')}\n\"\"\"\n"
         + ("คำที่ครูกำหนดให้จับในแชต (ต้องอยู่ใน keywords ของ chat intents ครบทุกคำ แยก intent ตามที่ครูสั่ง): "
            + ", ".join(f"\"{k}\"" for k in keywords) + "\n" if keywords else "")
@@ -839,7 +839,7 @@ FORMAT_EXAMPLE = {
 def widget_prompt(gem: dict, step: dict, memory: dict | None = None, avoid: list[str] | None = None) -> str:
     return (
         "เขียน Widget เล็ก ๆ ให้นักเรียนลงมือทำ เป็นหน้าเว็บ HTML ไฟล์เดียว ใช้ในบทเรียนของติวเตอร์ภาษาไทย\n\n"
-        f"ชื่อ Gem: {gem.get('name', '')}\nคำสั่งของครู:\n\"\"\"\n{gem.get('instructions', '')[:4000]}\n\"\"\"\n"
+        f"ชื่อติวเตอร์: {gem.get('name', '')}\nคำสั่งของครู:\n\"\"\"\n{gem.get('instructions', '')[:4000]}\n\"\"\"\n"
         + (f"สิ่งที่ AI จดจากเอกสารของครู:\n{json.dumps(memory, ensure_ascii=False)[:4000]}\n" if memory else "")
         + f"\nWidget ที่ต้องการ (ขั้น \"{step.get('label', '')}\"): {step.get('goal', '')}\n"
         + (f"คำสั่งถึงนักเรียน: {step['prompt']}\n" if step.get("prompt") else "")

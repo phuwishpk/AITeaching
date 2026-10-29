@@ -49,7 +49,7 @@ def clean_fields(data: dict) -> dict:
 def create(data: dict, actor: str, owner: str | None = None) -> dict:
     fields = clean_fields(data)
     if not fields.get("name"):
-        raise GemError("Gem ต้องมีชื่อ")
+        raise GemError("ติวเตอร์ต้องมีชื่อ")
     now = time.time()
     gem = {
         "id": f"gem-{secrets.token_hex(3)}",
@@ -62,7 +62,7 @@ def create(data: dict, actor: str, owner: str | None = None) -> dict:
     }
     gem.update(fields)
     db.save_gem(gem)
-    versions.record(gem, actor, "สร้าง Gem")
+    versions.record(gem, actor, "สร้างติวเตอร์")
     return gem
 
 
@@ -70,7 +70,7 @@ def update(gem_id: str, data: dict, actor: str = "teacher") -> dict:
     gem = get(gem_id)
     fields = clean_fields(data)
     if "name" in fields and not fields["name"]:
-        raise GemError("Gem ต้องมีชื่อ")
+        raise GemError("ติวเตอร์ต้องมีชื่อ")
     before = {**gem, "alert_rules": alerts.normalize(gem.get("alert_rules"))}
     gem.update(fields)
     db.save_gem(gem)
@@ -121,7 +121,7 @@ def _sync_bank(gem: dict) -> None:
 def get(gem_id: str) -> dict:
     gem = db.get_gem(gem_id)
     if gem is None:
-        raise GemError("ไม่พบ Gem นี้")
+        raise GemError("ไม่พบติวเตอร์นี้")
     build = gem.get("build") or {}
     if build.get("status") == "building" and not builder.is_running(gem_id):
         # server เริ่มใหม่ระหว่างสร้าง งานเบื้องหลังหายไปแล้ว
@@ -144,7 +144,7 @@ def can_build() -> str | None:
     """คืนเหตุผลถ้ายังเรียก AI ไม่ได้"""
     ai = settings_store.ai_settings()
     if ai["active"] == "offline":
-        return "ระบบอยู่ใน Offline Mode สร้าง Gem ไม่ได้ ให้ Admin เปิด Provider ก่อน"
+        return "ระบบอยู่ใน Offline Mode สร้างติวเตอร์ไม่ได้ ให้ Admin เปิด Provider ก่อน"
     if not any(settings_store.api_key(p)[0] for p in ("gemini", "claude")):
         return "ยังไม่มี API key ให้ Admin ใส่ Gemini API key ในหน้าตั้งค่าก่อน"
     return None

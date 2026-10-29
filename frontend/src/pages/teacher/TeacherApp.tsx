@@ -1,6 +1,6 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
 import { Link, Route, Routes, useNavigate } from "react-router";
-import { Bell, BellOff, BellRing, Bot, Gem, LayoutDashboard, ListChecks, MessagesSquare, Network, Sparkles, UsersRound } from "lucide-react";
+import { Bell, BellOff, BellRing, Bot, GraduationCap, LayoutDashboard, ListChecks, MessagesSquare, Network, Sparkles, UsersRound } from "lucide-react";
 import { api, clearAuth, getAuth, staffLogout } from "../../lib/api";
 import { useLive } from "../../lib/hooks";
 import { notifyAlert, notifyEnabled, setNotify } from "../../lib/notify";
@@ -208,7 +208,7 @@ function TeacherShell({ onLogout, onExpired }: { onLogout: () => void; onExpired
             sections={[
               {
                 title: "สร้างบทเรียน",
-                items: [{ to: "/teacher/gems", label: "Gem ของฉัน", icon: <Gem size={17} /> }],
+                items: [{ to: "/teacher/gems", label: "ติวเตอร์ของฉัน", icon: <GraduationCap size={17} /> }],
               },
               {
                 title: "ติดตามนักเรียน",

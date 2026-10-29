@@ -141,7 +141,7 @@ function SignedIn({ name, onLogout }: { name: string; onLogout: () => void }) {
       <div className="stack stack-sm">
         <p className="eyebrow">เข้าสู่ระบบอยู่</p>
         <h2 className="title-lg">{name || "บัญชีของคุณ"}</h2>
-        <p className="small muted">เห็นเฉพาะ Gem นักเรียน และ API key ของบัญชีนี้</p>
+        <p className="small muted">เห็นเฉพาะติวเตอร์ นักเรียน และ API key ของบัญชีนี้</p>
       </div>
       <div className="stack stack-sm">
         <Button variant="primary" size="lg" block icon={<UsersRound size={18} />} onClick={() => navigate("/teacher")}>
@@ -210,7 +210,7 @@ function StaffForm({ next }: { next: string | null }) {
         เข้าสู่ระบบ
       </Button>
       <p className="small muted">
-        บัญชีเดียวใช้ได้ทั้งหน้าครูและหน้าผู้ดูแลระบบ เข้าจากเครื่องไหนก็ได้ แต่ละบัญชีเห็นเฉพาะ Gem นักเรียน และ API key ของตัวเอง
+        บัญชีเดียวใช้ได้ทั้งหน้าครูและหน้าผู้ดูแลระบบ เข้าจากเครื่องไหนก็ได้ แต่ละบัญชีเห็นเฉพาะติวเตอร์ นักเรียน และ API key ของตัวเอง
       </p>
     </form>
   );

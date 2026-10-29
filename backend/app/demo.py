@@ -43,7 +43,7 @@ def demo_content(standard: bool = False, owner: str | None = None):
     """
     gem = demo_gem(owner)
     if gem is None:
-        raise services.NotFound("ยังไม่มี Gem ที่พร้อมสาธิต ให้ครูสร้าง Gem ก่อน")
+        raise services.NotFound("ยังไม่มีติวเตอร์ที่พร้อมสาธิต ให้ครูสร้างติวเตอร์ก่อน")
     content = services.content_for(gem["subject_id"], gem["set_id"])
     if standard and content.spec:
         subject = {**content.subject, "gem": {**content.subject["gem"], "flow": {"mode": "standard"}}}
@@ -502,7 +502,7 @@ def test_cross_format(content):
     if len(mcqs) < 2 or len(numerics) < 2:
         return _result("cross_format", "ปรนัยได้เต็มแต่เติมคำทำไม่ได้", "ตอบปรนัยถูก 2 ข้อ แล้วตอบเติมคำผิด 2 ข้อ",
                        "Cross-Format Check ลด Mastery",
-                       f"Gem นี้มีโจทย์หลักแบบปรนัย {len(mcqs)} ข้อ แบบเติมคำ {len(numerics)} ข้อ ต้องมีอย่างละ 2 ข้อจึงทดสอบได้",
+                       f"ติวเตอร์นี้มีโจทย์หลักแบบปรนัย {len(mcqs)} ข้อ แบบเติมคำ {len(numerics)} ข้อ ต้องมีอย่างละ 2 ข้อจึงทดสอบได้",
                        False, [])
     t = 1000.0
     for it in mcqs:

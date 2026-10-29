@@ -59,7 +59,7 @@ def _demo_subject(auth: dict) -> dict:
     """คลังโจทย์รุ่นปัจจุบันของ Gem ที่ใช้สาธิตหัวข้อ 2–6"""
     gem = demo.demo_gem(scope.of(auth))
     if gem is None:
-        raise HTTPException(404, "ยังไม่มี Gem ที่พร้อมสาธิต ให้ครูสร้าง Gem ก่อน")
+        raise HTTPException(404, "ยังไม่มีติวเตอร์ที่พร้อมสาธิต ให้ครูสร้างติวเตอร์ก่อน")
     return db.get_subject(gem["subject_id"])
 
 
@@ -349,7 +349,7 @@ def set_demo_gem(body: DemoGem, auth: dict = Depends(admin)):
     """เลือก Gem ที่ใช้สาธิตหัวข้อ 2–6 แล้วสร้างนักเรียนจำลองใหม่บน Gem นั้น"""
     gem = scope.gem(auth, body.gem_id)
     if not gem or not gem.get("set_id"):
-        raise HTTPException(400, "Gem นี้ยังไม่มีคลังโจทย์")
+        raise HTTPException(400, "ติวเตอร์นี้ยังไม่มีคลังโจทย์")
     user = scope.of(auth)
     db.set_setting(demo.demo_key(user), body.gem_id)
     return {"gem_id": body.gem_id, "students": _reset_cohort(user)}

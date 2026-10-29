@@ -49,10 +49,10 @@ export default function AdminGems() {
     setSwitching(true);
     try {
       const result = await api<{ students: number }>("admin", "/api/admin/demo-gem", { method: "PUT", body: { gem_id: gemId } });
-      toast(`ใช้ Gem นี้สาธิตหัวข้อ 2–6 แล้ว สร้างนักเรียนจำลองใหม่ ${result.students} คน`, "success");
+      toast(`ใช้ติวเตอร์นี้สาธิตหัวข้อ 2–6 แล้ว สร้างนักเรียนจำลองใหม่ ${result.students} คน`, "success");
       demoGem.reload();
     } catch (err) {
-      toast(err instanceof Error ? err.message : "เปลี่ยน Gem ที่ใช้สาธิตไม่สำเร็จ", "warning");
+      toast(err instanceof Error ? err.message : "เปลี่ยนติวเตอร์ที่ใช้สาธิตไม่สำเร็จ", "warning");
     } finally {
       setSwitching(false);
     }
@@ -70,15 +70,15 @@ export default function AdminGems() {
     <div className="page page-wide topic stack stack-lg">
       <header className="stack stack-sm fade-in">
         <p className="eyebrow">สิ่งที่ครูออกแบบ</p>
-        <h1 className="title-xl">Flow ที่ครูออกแบบใน Gem</h1>
+        <h1 className="title-xl">Flow ที่ครูออกแบบในติวเตอร์</h1>
         <p className="lead">
-          ผังไม่ตายตัว: ถ้าคำสั่งของครูกำหนดลำดับการสอน AI จะออกแบบ Flow ของ Gem นั้นเอง (ขั้น เส้น เงื่อนไข และตัวเลข) ไม่อย่างนั้นใช้ผังมาตรฐาน
-          ที่ตัดขั้นของเครื่องมือที่ครูปิดออก Admin ดูได้อย่างเดียว ครูตรวจและแก้ได้ที่แท็บ Flow ของ Gem
+          ผังไม่ตายตัว: ถ้าคำสั่งของครูกำหนดลำดับการสอน AI จะออกแบบ Flow ของติวเตอร์นั้นเอง (ขั้น เส้น เงื่อนไข และตัวเลข) ไม่อย่างนั้นใช้ผังมาตรฐาน
+          ที่ตัดขั้นของเครื่องมือที่ครูปิดออก Admin ดูได้อย่างเดียว ครูตรวจและแก้ได้ที่แท็บ Flow ของติวเตอร์
         </p>
       </header>
 
-      {gems.data?.length === 0 && <Empty>ครูยังไม่ได้สร้าง Gem</Empty>}
-      <div className="gem-picker" role="tablist" aria-label="เลือก Gem">
+      {gems.data?.length === 0 && <Empty>ครูยังไม่ได้สร้างติวเตอร์</Empty>}
+      <div className="gem-picker" role="tablist" aria-label="เลือกติวเตอร์">
         {gems.data?.map((g) => (
           <button
             key={g.id}
@@ -111,7 +111,7 @@ export default function AdminGems() {
                 ) : (
                   d.bank && (
                     <Button size="sm" variant="soft" loading={switching} onClick={() => chooseForDemo(d.id)}>
-                      ใช้ Gem นี้สาธิตหัวข้อ 2–6
+                      ใช้ติวเตอร์นี้สาธิตหัวข้อ 2–6
                     </Button>
                   )
                 )}
@@ -128,7 +128,7 @@ export default function AdminGems() {
             </div>
             {!d.flow.custom && (
               <p className="small callout callout-warning">
-                Gem นี้ยังไม่มี Flow ที่ออกแบบจากคำสั่ง นักเรียนยังเรียนไม่ได้ ผังด้านล่างเป็นแม่แบบอ้างอิงเท่านั้น
+                ติวเตอร์นี้ยังไม่มี Flow ที่ออกแบบจากคำสั่ง นักเรียนยังเรียนไม่ได้ ผังด้านล่างเป็นแม่แบบอ้างอิงเท่านั้น
               </p>
             )}
             <GemFlowMap
@@ -157,7 +157,7 @@ export default function AdminGems() {
 
             <div className="stack">
               <Card>
-                <CardHead title="เครื่องมือของ Gem" sub="ฟีเจอร์การสอนมาจาก Flow ที่ AI ออกแบบตามคำสั่งของครู" />
+                <CardHead title="เครื่องมือของติวเตอร์" sub="ฟีเจอร์การสอนมาจาก Flow ที่ AI ออกแบบตามคำสั่งของครู" />
                 <div className="card-body stack stack-sm">
                   <ul className="tool-state">
                     <li className={d.tools?.chat !== false ? "" : "is-off"}>
@@ -264,7 +264,7 @@ export default function AdminGems() {
                 </ol>
               </Card>
               <Card>
-                <CardHead title={`นักเรียนที่เรียน Gem นี้ (${d.students.length})`} sub="ดูไทม์ไลน์ของครูและนักเรียนรายคนได้ที่หน้ากิจกรรมสด โหมดรายคน" />
+                <CardHead title={`นักเรียนที่เรียนติวเตอร์นี้ (${d.students.length})`} sub="ดูไทม์ไลน์ของครูและนักเรียนรายคนได้ที่หน้ากิจกรรมสด โหมดรายคน" />
                 <div className="card-body pill-list" style={{ paddingTop: 0 }}>
                   {d.students.map((code) => (
                     <span key={code} className="mono small gem-student-code">

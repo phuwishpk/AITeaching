@@ -699,7 +699,7 @@ def _submit(state: dict, ctx: Ctx, raw) -> Fx:
             feedback = "ไม่เป็นไรนะ ลองทบทวนพื้นฐานก่อนแล้วค่อยกลับมาข้อนี้"
         else:
             move(state, ctx, fx, F.ANSWERING, edges + ["e_g3_nohint"],
-                 f"ผิดครั้งที่ {count} ครูปิดบันไดคำใบ้ใน Gem นี้ ให้ลองใหม่เอง", detail)
+                 f"ผิดครั้งที่ {count} ครูปิดบันไดคำใบ้ในติวเตอร์นี้ ให้ลองใหม่เอง", detail)
         fx.result = {"kind": "wrong", "message": feedback, "diagnosis": diag["class"]}
         return fx
     if count == 1:
@@ -950,7 +950,7 @@ def start_round(state: dict, ctx: Ctx, fx: Fx, suspended: str, tag: str | None, 
     remedial_off = not ctx.content.tool("remedial")
     if rounds >= ctx.p("remedial_max_rounds") or remedial_off:
         state["remedial"] = None
-        rule = ("ครูปิดการทบทวนพื้นฐานใน Gem นี้ จึงส่งต่อครูทันที" if remedial_off
+        rule = ("ครูปิดการทบทวนพื้นฐานในติวเตอร์นี้ จึงส่งต่อครูทันที" if remedial_off
                 else f"ส่งซ่อมเสริมข้อนี้ครบ {rounds} รอบแล้วยังติด หยุดลูปและแจ้งครู")
         move(state, ctx, fx, F.DEADLOCK, edges + ["e_rounds_full"], rule, {"suspended": suspended})
         alert(fx, state, "normal", "deadlock", f"ติด Stagnation Deadlock ที่ข้อ {suspended} ต้องให้ครูช่วย", dedupe=False)
@@ -988,7 +988,7 @@ def start_round(state: dict, ctx: Ctx, fx: Fx, suspended: str, tag: str | None, 
 def skip_walk_if_off(state: dict, ctx: Ctx, fx: Fx):
     """ครูปิด Walkthrough ใน Gem: ผ่านกล่องนี้ไปทันทีโดยไม่แสดงตัวอย่าง (Decision Trace ยังบอกว่าข้ามเพราะอะไร)"""
     if state["position"] == F.WALK and not ctx.content.tool("walkthrough"):
-        finish_walk(state, ctx, fx, "ครูปิด Walkthrough ใน Gem นี้ ข้ามตัวอย่างทีละขั้น")
+        finish_walk(state, ctx, fx, "ครูปิด Walkthrough ในติวเตอร์นี้ ข้ามตัวอย่างทีละขั้น")
 
 
 def walkthrough_done(state: dict, ctx: Ctx) -> Fx:

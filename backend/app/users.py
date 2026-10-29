@@ -96,7 +96,7 @@ def main(argv: list[str]) -> int:
         print(f"{args[0].lower()}\t{set_password(args[0].lower())}")
     elif command == "claim" and args:
         count, moved = claim(args[0].lower())
-        print(f"Gem ที่ยังไม่มีเจ้าของ {count} ตัว และ API key กลาง {', '.join(moved) or '-'} เป็นของ {args[0].lower()} แล้ว")
+        print(f"ติวเตอร์ที่ยังไม่มีเจ้าของ {count} ตัว และ API key กลาง {', '.join(moved) or '-'} เป็นของ {args[0].lower()} แล้ว")
     elif command == "list":
         for row in listing():
             print(f"{row['username']}\t{row['name']}")

@@ -314,7 +314,7 @@ def begin(state: dict, ctx: C.Ctx) -> C.Fx:
     fs(state)
     state["ended"] = False
     state["end_reason"] = None
-    enter(state, ctx, fx, spec(ctx)["start"], ["g_start"], ["เริ่ม Flow ที่ครูออกแบบใน Gem"])
+    enter(state, ctx, fx, spec(ctx)["start"], ["g_start"], ["เริ่ม Flow ที่ครูออกแบบในติวเตอร์"])
     return fx
 
 

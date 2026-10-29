@@ -84,8 +84,8 @@ _Avoid_: File, Material, ไฟล์แนบ
 **Readiness Check** (การตรวจความพร้อม):
 การตรวจ Question Set ก่อนเปิดใช้ว่ามีองค์ประกอบครบตามที่ตรรกะของระบบต้องใช้
 
-**Gem** (เจม):
-บทเรียนที่ครูสร้างแบบ Gemini Gem จากชื่อ คำอธิบาย Gem Instructions, Starter Tools และ Knowledge File แล้ว LLM สร้าง Item Bank ให้ ข้างในระบบ Gem หนึ่งตัวคือ Subject หนึ่งวิชากับ Question Set หนึ่งชุด
+**Gem** (เจม · หน้าเว็บเรียกว่า "ติวเตอร์"):
+บทเรียนที่ครูสร้างแบบ Gemini Gem จากชื่อ คำอธิบาย Gem Instructions, Starter Tools และ Knowledge File แล้ว LLM สร้าง Item Bank ให้ ข้างในระบบ Gem หนึ่งตัวคือ Subject หนึ่งวิชากับ Question Set หนึ่งชุด ข้อความที่ครู นักเรียน และ Admin เห็นใช้คำว่า "ติวเตอร์" ส่วนโค้ด API และฐานข้อมูลยังใช้ชื่อ gem
 _Avoid_: Bot, Assistant, AI Draft
 
 **Gem Instructions** (คำสั่งของ Gem):

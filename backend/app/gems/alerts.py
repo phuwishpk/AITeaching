@@ -35,9 +35,9 @@ SITUATIONS = [
     {"key": "cap", "label": "ครบเพดานข้อแล้วยังไม่ผ่านเกณฑ์", "kinds": ["cap"],
      "default": {"enabled": True, "level": "silent", "mode": "notify"}},
     # ขั้นใน Flow ที่ AI ออกแบบจากคำสั่งของครู (ADR-0004) ระดับของขั้นแจ้งครูมาจาก Flow เอง
-    {"key": "flow_notify", "label": "ขั้น \"แจ้งครู\" ใน Flow ของ Gem", "kinds": ["flow_notify"],
+    {"key": "flow_notify", "label": "ขั้น \"แจ้งครู\" ใน Flow ของติวเตอร์", "kinds": ["flow_notify"],
      "default": {"enabled": True, "level": "normal", "mode": "notify"}},
-    {"key": "flow_teacher", "label": "ขั้น \"หยุดรอครู\" ใน Flow ของ Gem", "kinds": ["flow_teacher"],
+    {"key": "flow_teacher", "label": "ขั้น \"หยุดรอครู\" ใน Flow ของติวเตอร์", "kinds": ["flow_teacher"],
      "default": {"enabled": True, "level": "normal", "mode": "pause"}},
 ]
 

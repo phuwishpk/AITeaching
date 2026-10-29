@@ -112,7 +112,7 @@ def flow_of_set(set_id: str, auth: dict = Depends(viewer)):
     subject = next((s for s in db.list_subjects() if any(q["id"] == set_id for q in s.get("question_sets", []))), None)
     gem = db.get_gem((subject or {}).get("gem", {}).get("id", "")) if subject else None
     if gem is None or not scope.owns(scope.of(auth), gem):
-        raise HTTPException(404, "ชุดคำถามนี้ไม่ใช่ Gem")
+        raise HTTPException(404, "ชุดคำถามนี้ไม่ใช่ติวเตอร์")
     return {"gem_id": gem["id"], "name": gem["name"], **design.flow_marks(gem)}
 
 
@@ -174,13 +174,13 @@ async def refine_instructions(body: RefineBody, auth: dict = Depends(teacher)):
     if reason:
         raise HTTPException(400, reason)
     system = (
-        "คุณช่วยครูเขียนคำสั่งของ Gem ซึ่งเป็นติวเตอร์ AI ภาษาไทย ให้ชัดเจนและนำไปใช้ได้ทันที "
+        "คุณช่วยครูเขียนคำสั่งของติวเตอร์ AI ภาษาไทย ให้ชัดเจนและนำไปใช้ได้ทันที "
         "ระบุบทบาท กลุ่มผู้เรียนและระดับชั้น เนื้อหาที่สอน และน้ำเสียงในการสอน คงเจตนาเดิมของครูทุกข้อ "
         "ห้ามเพิ่มคำสั่งให้เฉลยคำตอบ เพราะระบบห้ามเฉลยอยู่แล้ว ตอบเฉพาะคำสั่งที่เกลาแล้ว ไม่ต้องมีคำนำ "
         "คำในเครื่องหมายคำพูดและรายการ keyword ที่ครูให้จับในแชต ต้องคงไว้ทุกคำตามตัวอักษรในเครื่องหมายคำพูดเดิม "
         "เขียนเป็นย่อหน้าข้อความธรรมดาที่ขึ้นต้นด้วย \"คุณคือ\" ไม่ใช้สัญลักษณ์ markdown เช่น ** # หรือ ---"
     )
-    user = f"ชื่อ Gem: {body.name}\nคำอธิบาย: {body.description}\nคำสั่งเดิมของครู:\n{body.instructions or '(ยังไม่มี เขียนร่างจากชื่อและคำอธิบาย)'}"
+    user = f"ชื่อติวเตอร์: {body.name}\nคำอธิบาย: {body.description}\nคำสั่งเดิมของครู:\n{body.instructions or '(ยังไม่มี เขียนร่างจากชื่อและคำอธิบาย)'}"
     result, errors = await service._call(system, user, max_tokens=1500, timeout=60.0, backup_models=builder.GEMINI_BACKUPS,
                                          task="design")
     service._log(None, "gem_refine", {"role": system, "task": user}, None, result, result.text if result else "", None, errors)

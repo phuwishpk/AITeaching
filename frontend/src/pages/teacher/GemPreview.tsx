@@ -108,7 +108,7 @@ export function PreviewTry({ gem }: { gem: GemDetail }) {
   if (!view) {
     return (
       <div className="gem-try-empty">
-        <p className="small muted">ลองเรียน Gem นี้เป็นนักเรียนผ่าน engine จริง ไม่นับเข้าสถิติห้องและไม่ส่งแจ้งเตือนถึงครู ทุกครั้งที่ AI ทำงานจะเห็น prompt ที่ส่งไปจริง</p>
+        <p className="small muted">ลองเรียนติวเตอร์นี้เป็นนักเรียนผ่าน engine จริง ไม่นับเข้าสถิติห้องและไม่ส่งแจ้งเตือนถึงครู ทุกครั้งที่ AI ทำงานจะเห็น prompt ที่ส่งไปจริง</p>
         <Button variant="primary" icon={<Play size={16} />} loading={busy} onClick={start}>
           เริ่มลองเรียน
         </Button>

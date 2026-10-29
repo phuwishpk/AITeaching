@@ -22,7 +22,7 @@ export default function GemList() {
   const remove = async () => {
     if (!removing) return;
     await api("teacher", `/api/gems/${removing.id}`, { method: "DELETE" });
-    toast(`ลบ Gem ${removing.name} แล้ว`, "success");
+    toast(`ลบติวเตอร์ ${removing.name} แล้ว`, "success");
     setRemoving(null);
     gems.reload();
   };
@@ -31,11 +31,11 @@ export default function GemList() {
     <div className="page stack stack-lg">
       <header className="spread fade-in">
         <div className="stack stack-sm">
-          <h1 className="title-xl">Gem ของฉัน</h1>
+          <h1 className="title-xl">ติวเตอร์ของฉัน</h1>
           <p className="lead">สร้างติวเตอร์ให้นักเรียนด้วยคำสั่งและไฟล์ความรู้ AI จะสร้างโจทย์ คำใบ้ และคลังข้อผิดพลาดให้ทั้งหมด</p>
         </div>
         <Button variant="primary" icon={<Plus size={18} />} onClick={() => navigate("/teacher/gems/new")}>
-          Gem ใหม่
+          ติวเตอร์ใหม่
         </Button>
       </header>
 
@@ -43,7 +43,7 @@ export default function GemList() {
       {gems.data?.length === 0 && (
         <button className="gem-empty" onClick={() => navigate("/teacher/gems/new")}>
           <GemIcon size={56} />
-          <span className="subtitle">สร้าง Gem แรก</span>
+          <span className="subtitle">สร้างติวเตอร์แรก</span>
           <span className="small muted">ตั้งชื่อ เขียนคำสั่ง แนบไฟล์ แล้วกดบันทึก</span>
         </button>
       )}
@@ -89,22 +89,22 @@ export default function GemList() {
           );
         })}
       </div>
-      {gems.data && gems.data.length > 0 && <Empty>นักเรียนเห็น Gem ที่สร้างคลังโจทย์เสร็จแล้วเป็นการ์ดในหน้าเลือกบทเรียน</Empty>}
+      {gems.data && gems.data.length > 0 && <Empty>นักเรียนเห็นติวเตอร์ที่สร้างคลังโจทย์เสร็จแล้วเป็นการ์ดในหน้าเลือกบทเรียน</Empty>}
 
       <Modal
         open={!!removing}
         onClose={() => setRemoving(null)}
-        title={`ลบ Gem ${removing?.name ?? ""}`}
+        title={`ลบติวเตอร์ ${removing?.name ?? ""}`}
         footer={
           <>
             <Button onClick={() => setRemoving(null)}>ยกเลิก</Button>
             <Button variant="danger" onClick={remove}>
-              ลบ Gem
+              ลบติวเตอร์
             </Button>
           </>
         }
       >
-        <p className="small">ลบ Gem คลังโจทย์ทุกรุ่น และไฟล์ความรู้ นักเรียนที่กำลังเรียนกับ Gem นี้จะเรียนต่อไม่ได้</p>
+        <p className="small">ลบติวเตอร์ คลังโจทย์ทุกรุ่น และไฟล์ความรู้ นักเรียนที่กำลังเรียนกับติวเตอร์นี้จะเรียนต่อไม่ได้</p>
       </Modal>
     </div>
   );

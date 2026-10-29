@@ -47,7 +47,7 @@ export function HiddenNote({ disabled, allNodes }: { disabled: Record<string, st
   const name = new Map(allNodes.map((n) => [n.id, n.label.replace("\n", " ")]));
   const groups = new Map<string, string[]>();
   for (const [node, reason] of Object.entries(disabled)) groups.set(reason, [...(groups.get(reason) ?? []), name.get(node) ?? node]);
-  if (!groups.size) return <p className="xsmall muted">Gem นี้เปิดเครื่องมือการสอนครบ ผังจึงมีทุกขั้น</p>;
+  if (!groups.size) return <p className="xsmall muted">ติวเตอร์นี้เปิดเครื่องมือการสอนครบ ผังจึงมีทุกขั้น</p>;
   return (
     <ul className="hidden-note">
       {[...groups].map(([reason, nodes]) => (

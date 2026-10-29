@@ -87,7 +87,7 @@ export default function SubjectEditor() {
         <div className="stack stack-sm">
           {/* เปิดมาจากแท็บคลังโจทย์ของ Gem: กลับไปที่ Gem นั้น */}
           <Link to={gemId ? `/teacher/gems/${gemId}` : base} className="row row-sm small muted">
-            <ArrowLeft size={14} /> {gemId ? "กลับไปที่ Gem" : "วิชาทั้งหมด"}
+            <ArrowLeft size={14} /> {gemId ? "กลับไปที่ติวเตอร์" : "วิชาทั้งหมด"}
           </Link>
           <h1 className="title-xl">{draft.name}</h1>
           <p className="small muted">

@@ -33,7 +33,7 @@ def _bank(gem_id: str) -> tuple[dict, dict]:
     gem = manage.get(gem_id)
     subject = db.get_subject(gem.get("subject_id") or "")
     if subject is None:
-        raise ItemError("Gem นี้ยังไม่มีคลังโจทย์")
+        raise ItemError("ติวเตอร์นี้ยังไม่มีคลังโจทย์")
     return gem, subject
 
 

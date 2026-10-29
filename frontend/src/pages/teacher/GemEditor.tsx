@@ -111,7 +111,7 @@ export default function GemEditor() {
     setLoading(true);
     load()
       .then((detail) => detail && setForm(toForm(detail)))
-      .catch((err) => toast(err instanceof Error ? err.message : "โหลด Gem ไม่สำเร็จ", "warning"))
+      .catch((err) => toast(err instanceof Error ? err.message : "โหลดติวเตอร์ไม่สำเร็จ", "warning"))
       .finally(() => setLoading(false));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [gemId]);
@@ -209,17 +209,17 @@ export default function GemEditor() {
         <div className="callout callout-info gem-owner-note">
           <Lock size={16} />
           <span className="small">
-            Gem นี้เป็นของ {gem?.owner_name} ดู ลองเรียน และติดตามนักเรียนได้ตามปกติ ส่วนการแก้ไข สร้างคลังใหม่ และลบทำได้เฉพาะเจ้าของ
-            เพราะ AI ของ Gem นี้ใช้ API key ของเจ้าของ
+            ติวเตอร์นี้เป็นของ {gem?.owner_name} ดู ลองเรียน และติดตามนักเรียนได้ตามปกติ ส่วนการแก้ไข สร้างคลังใหม่ และลบทำได้เฉพาะเจ้าของ
+            เพราะ AI ของติวเตอร์นี้ใช้ API key ของเจ้าของ
           </span>
         </div>
       )}
       <header className="gem-editor-head">
-        <Button variant="ghost" size="sm" className="btn-icon" icon={<ArrowLeft size={18} />} onClick={() => navigate("/teacher/gems")} aria-label="กลับไปรายการ Gem" />
+        <Button variant="ghost" size="sm" className="btn-icon" icon={<ArrowLeft size={18} />} onClick={() => navigate("/teacher/gems")} aria-label="กลับไปรายการติวเตอร์" />
         <GemIcon icon={form.icon} color={form.color} size={36} />
-        <span className="subtitle grow gem-editor-title">{isNew ? "Gem ใหม่" : form.name || "Gem"}</span>
+        <span className="subtitle grow gem-editor-title">{isNew ? "ติวเตอร์ใหม่" : form.name || "ติวเตอร์"}</span>
         {gem?.owner_name && (
-          <span className="xsmall muted" title="AI ของ Gem นี้คิดกับ API key ของเจ้าของ Gem">
+          <span className="xsmall muted" title="AI ของติวเตอร์นี้คิดกับ API key ของเจ้าของติวเตอร์">
             ของ {gem.owner_name} · ใช้ API key ของ {gem.owner_name}
           </span>
         )}
@@ -234,19 +234,19 @@ export default function GemEditor() {
           <GemField label="ชื่อ">
             <input
               className="input input-lg"
-              placeholder="ตั้งชื่อให้ Gem ของคุณ"
+              placeholder="ตั้งชื่อให้ติวเตอร์ของคุณ"
               value={form.name}
               onChange={(e) => set("name", e.target.value)}
               aria-invalid={!form.name.trim()}
             />
-            {!form.name.trim() && <span className="gem-hint-warn">Gem ต้องมีชื่อจึงจะเริ่มการทดสอบได้</span>}
+            {!form.name.trim() && <span className="gem-hint-warn">ติวเตอร์ต้องมีชื่อจึงจะเริ่มการทดสอบได้</span>}
           </GemField>
 
           <GemField label="คำอธิบาย">
             <textarea
               className="textarea"
               rows={2}
-              placeholder="อธิบายลักษณะและสิ่งที่ Gem ของคุณทำได้"
+              placeholder="อธิบายลักษณะและสิ่งที่ติวเตอร์ของคุณทำได้"
               value={form.description}
               onChange={(e) => set("description", e.target.value)}
             />
@@ -406,7 +406,7 @@ function Instructions({
   };
 
   return (
-    <GemField label="คำสั่ง" info="บอกว่า Gem เป็นใคร สอนใคร สอนเรื่องอะไร และพูดแบบไหน ระบบนำไปใช้เป็นกรอบ Role & Persona ของ prompt">
+    <GemField label="คำสั่ง" info="บอกว่าติวเตอร์เป็นใคร สอนใคร สอนเรื่องอะไร และพูดแบบไหน ระบบนำไปใช้เป็นกรอบ Role & Persona ของ prompt">
       <div className="gem-instructions">
         <textarea className="textarea" rows={10} placeholder={PLACEHOLDER} value={value} onChange={(e) => onChange(e.target.value)} />
         <div className="gem-instructions-tools">
@@ -514,7 +514,7 @@ function StarterTools({
     setDraft("");
   };
   return (
-    <GemField label="เครื่องมือของ Gem" info="ฟีเจอร์การสอนมาจาก Flow ที่ AI ออกแบบตามคำสั่ง ฟีเจอร์ที่คำสั่งไม่ได้พูดถึงจะไม่แสดงให้นักเรียน">
+    <GemField label="เครื่องมือของติวเตอร์" info="ฟีเจอร์การสอนมาจาก Flow ที่ AI ออกแบบตามคำสั่ง ฟีเจอร์ที่คำสั่งไม่ได้พูดถึงจะไม่แสดงให้นักเรียน">
       <div className="gem-tools">
         <label className="gem-tool">
           <input type="checkbox" checked={form.tools.chat} onChange={(e) => onTools({ ...form.tools, chat: e.target.checked })} />
@@ -673,7 +673,7 @@ function Knowledge({
         }}
       />
       <button type="button" className="gem-add-file" onClick={() => input.current?.click()}>
-        <span>เพิ่มไฟล์ให้ Gem ใช้อ้างอิง (PDF รวมภาพสแกน, รูปภาพ, DOCX, TXT, MD)</span>
+        <span>เพิ่มไฟล์ให้ติวเตอร์ใช้อ้างอิง (PDF รวมภาพสแกน, รูปภาพ, DOCX, TXT, MD)</span>
         <Plus size={20} />
       </button>
       {reading.map((name) => (
@@ -721,7 +721,7 @@ function Preview({
     return (
       <div className="gem-preview-empty">
         <GemIcon icon={form.icon} color={form.color} size={64} />
-        <span>หากจะดูตัวอย่าง Gem ให้ตั้งชื่อก่อน</span>
+        <span>หากจะดูตัวอย่างติวเตอร์ให้ตั้งชื่อก่อน</span>
       </div>
     );
   }
@@ -978,7 +978,7 @@ function FlowTab({ gem }: { gem: GemDetail }) {
       <p className="small">
         {f.summary ||
           (f.mode !== "custom"
-            ? "ยังไม่มี Flow ที่ออกแบบจากคำสั่ง นักเรียนจึงยังเริ่มเรียน Gem นี้ไม่ได้ กดตรวจและปรับ Flow แล้วให้ AI ออกแบบจากคำสั่ง"
+            ? "ยังไม่มี Flow ที่ออกแบบจากคำสั่ง นักเรียนจึงยังเริ่มเรียนติวเตอร์นี้ไม่ได้ กดตรวจและปรับ Flow แล้วให้ AI ออกแบบจากคำสั่ง"
             : "")}
       </p>
       {f.outdated && <p className="small callout callout-warning">คำสั่งเปลี่ยนหลังออกแบบ Flow นี้ ให้ AI ออกแบบใหม่ได้ในหน้า Flow</p>}

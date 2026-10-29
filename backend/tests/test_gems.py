@@ -286,7 +286,7 @@ def test_versions_record_and_restore(monkeypatch):
     manage.update(gem["id"], {"name": "รุ่นสอง", "instructions": "สอนเร็ว"}, "teacher")
     asyncio.run(builder.build(gem["id"]))
     notes = [v["note"] for v in manage.versions.history(gem["id"])]
-    assert notes == ["สร้างคลังโจทย์รุ่นที่ 2", "แก้ชื่อ คำสั่ง", "สร้างคลังโจทย์รุ่นที่ 1", "สร้าง Gem"]
+    assert notes == ["สร้างคลังโจทย์รุ่นที่ 2", "แก้ชื่อ คำสั่ง", "สร้างคลังโจทย์รุ่นที่ 1", "สร้างติวเตอร์"]
 
     restored = manage.restore(gem["id"], 2, "teacher")  # เวอร์ชัน 2 = หลังสร้างคลังรุ่นที่ 1
     assert restored["name"] == "รุ่นแรก" and restored["subject_id"] == first_bank
@@ -624,7 +624,7 @@ def test_admin_map_follows_the_student_into_chat_and_back(monkeypatch):
     assert staff["step"] == "work" and staff["position"] == "ANSWERING" and not staff["thinking"]
     where = staff["where"]
     assert where["status"]["key"] == "chat" and where["status"]["box"] == "chat" and where["status"]["label"] == "คุยกับ AI"
-    assert where["came"]["label"].startswith("เริ่ม Flow ที่ครูออกแบบใน Gem") and where["brief"].startswith("ข้อ 1/")
+    assert where["came"]["label"].startswith("เริ่ม Flow ที่ครูออกแบบในติวเตอร์") and where["brief"].startswith("ข้อ 1/")
     assert where["next"]["step"] == "work" and where["next"]["correct"]["to"] == "why", "ตอบถูกตอนนี้ไปอธิบายความคิด"
 
     from app import demo
@@ -817,7 +817,7 @@ def test_tutor_prompts_carry_the_whole_gem_document(monkeypatch):
     result = asyncio.run(service.chat_reply(subject, item, "PEMDAS", {}, "ทำอะไรก่อน", None, [], "ลองคิดดู", "S-1"))
     assert "ศักดิ์ศรีเท่ากัน" in seen["system"] and result["source"] == "gemini"
     log = db.query_one("SELECT frames FROM ai_logs ORDER BY id DESC LIMIT 1")
-    assert "ส่งเอกสารของ Gem ทั้งหมด" in db.loads(log["frames"])["knowledge"]
+    assert "ส่งเอกสารของติวเตอร์ทั้งหมด" in db.loads(log["frames"])["knowledge"]
 
 
 def test_staff_password_when_the_server_sets_one(monkeypatch):

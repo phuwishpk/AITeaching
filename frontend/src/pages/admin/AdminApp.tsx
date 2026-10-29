@@ -1,6 +1,6 @@
 import { createContext, useCallback, useContext, useEffect, useRef, useState, type ReactNode } from "react";
 import { Link, Navigate, Route, Routes, useLocation, useNavigate } from "react-router";
-import { Activity as ActivityIcon, ArrowLeft, ArrowRight, Gem, ListChecks, Presentation, Settings as SettingsIcon, UsersRound } from "lucide-react";
+import { Activity as ActivityIcon, ArrowLeft, ArrowRight, GraduationCap, ListChecks, Presentation, Settings as SettingsIcon, UsersRound } from "lucide-react";
 import { api, clearAuth, getAuth, staffLogout } from "../../lib/api";
 import { useLive } from "../../lib/hooks";
 import type { StaffView } from "../../lib/types";
@@ -239,7 +239,7 @@ function AdminShell({ onLogout, onExpired }: { onLogout: () => void; onExpired: 
               },
               {
                 title: "สิ่งที่ครูออกแบบ",
-                items: [{ to: "/admin/gems", label: "Gem ที่ครูออกแบบ", icon: <Gem size={17} /> }],
+                items: [{ to: "/admin/gems", label: "ติวเตอร์ที่ครูออกแบบ", icon: <GraduationCap size={17} /> }],
               },
               {
                 title: "ระบบ",

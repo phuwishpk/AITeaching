@@ -103,11 +103,11 @@ def _with_memory(built: dict, memory: str) -> dict:
         return built
     frames = built["frames"]
     built["system"] = (
-        f"{frames['role']}\n\n<knowledge>\nเอกสารประกอบการสอนทั้งหมดที่ครูแนบไว้ใน Gem นี้ ใช้อ้างอิงเนื้อหา คำอธิบาย ตัวอย่าง "
+        f"{frames['role']}\n\n<knowledge>\nเอกสารประกอบการสอนทั้งหมดที่ครูแนบไว้ในติวเตอร์นี้ ใช้อ้างอิงเนื้อหา คำอธิบาย ตัวอย่าง "
         f"และแนวทางการสอนของครู\n{memory}\n</knowledge>\n\n{frames['constraints']}"
     )
     # บันทึกใน ai_logs แค่ขนาด ไม่เก็บเอกสารเต็มซ้ำทุกครั้ง
-    frames["knowledge"] = f"ส่งเอกสารของ Gem ทั้งหมด {len(memory):,} ตัวอักษรไปใน system prompt"
+    frames["knowledge"] = f"ส่งเอกสารของติวเตอร์ทั้งหมด {len(memory):,} ตัวอักษรไปใน system prompt"
     return built
 
 
@@ -292,7 +292,7 @@ async def judge_reflection(subject: dict, item: dict | None, step: dict, answer:
     if memory:
         # ประเมินโดยเห็นเอกสารของครูทั้งหมด เช่น นิยามและลำดับขั้นที่ครูใช้สอน
         system = f"{system}\n\n<knowledge>\n{memory}\n</knowledge>"
-        frames["knowledge"] = f"ส่งเอกสารของ Gem ทั้งหมด {len(memory):,} ตัวอักษรไปใน system prompt"
+        frames["knowledge"] = f"ส่งเอกสารของติวเตอร์ทั้งหมด {len(memory):,} ตัวอักษรไปใน system prompt"
     result, errors = await _call(system, user, max_tokens=400, json_mode=True, timeout=40.0)
     if result is None:
         _log(code, "judge_reflect", frames, None, None, "", None, errors)

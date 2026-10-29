@@ -333,7 +333,7 @@ export default function Activity() {
               title="เส้นทางของการกระทำนี้ในผัง"
               sub="เส้นสีเข้มคือเส้นทางที่การกระทำที่เลือกเดินผ่าน กล่องที่เน้นคือที่ที่นักเรียนไปอยู่ต่อ กดกล่องเพื่อดูรายละเอียดและปรับแต่ง"
             />
-            {gemFlow.data && <p className="xsmall muted flow-of">ผังของ Gem: {gemFlow.data.name}</p>}
+            {gemFlow.data && <p className="xsmall muted flow-of">ผังของติวเตอร์: {gemFlow.data.name}</p>}
             <GemFlowMap
               flow={gemFlow.data ?? { nodes: flow.nodes, edges: flow.edges, disabled: {}, alerts: {} }}
               allNodes={flow.nodes}
@@ -425,7 +425,7 @@ function JourneyCard({
           )}
           {trip.run.gem && (
             <span className="xsmall muted">
-              เรียนกับ Gem เวอร์ชัน {trip.run.gem.version ?? "–"} · คลังโจทย์รุ่นที่ {trip.run.gem.bank_version ?? "–"}
+              เรียนกับติวเตอร์เวอร์ชัน {trip.run.gem.version ?? "–"} · คลังโจทย์รุ่นที่ {trip.run.gem.bank_version ?? "–"}
             </span>
           )}
           <dl className="journey-stats">

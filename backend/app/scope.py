@@ -60,7 +60,7 @@ def gem(auth: dict, gem_id: str) -> dict | None:
     """Gem ของคนอื่นตอบเหมือนไม่มี Gem นี้"""
     found = db.get_gem(gem_id)
     if found and not owns(of(auth), found):
-        raise HTTPException(404, "ไม่พบ Gem นี้")
+        raise HTTPException(404, "ไม่พบติวเตอร์นี้")
     return found
 
 

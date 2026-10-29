@@ -64,7 +64,7 @@ SYSTEM = (
     "ตอบเป็น JSON ตามโครงสร้างที่กำหนดเท่านั้น ห้ามมีข้อความอื่นนอก JSON\n"
     "ใช้ภาษาไทยที่นักเรียนระดับนั้นอ่านเข้าใจ คำใบ้ทุกระดับต้องเป็นคำถามนำแบบโสเครตีสและห้ามบอกคำตอบสุดท้าย "
     "คำใบ้ระดับ 3 แสดงได้แค่ขั้นแรกของวิธีทำ\n"
-    "ทำตามคำสั่งของครูผู้สร้าง Gem เมื่อมี <knowledge> (เอกสารที่ครูแนบ) ทุกอย่างต้องมาจากเอกสารนั้น: มโนทัศน์ "
+    "ทำตามคำสั่งของครูผู้สร้างติวเตอร์เมื่อมี <knowledge> (เอกสารที่ครูแนบ) ทุกอย่างต้องมาจากเอกสารนั้น: มโนทัศน์ "
     "ความรู้พื้นฐาน ข้อผิดพลาด โจทย์ และคำใบ้ ใช้คำศัพท์ วิธีคิด และลำดับขั้นแบบที่เอกสารใช้ ห้ามใช้ความรู้นอกเอกสารที่ขัดกับเอกสาร "
     "ใช้ <memory> (สิ่งที่จดจากเอกสารก่อนสร้าง) เป็นรายการตรวจว่าใช้ครบ"
 )
@@ -132,7 +132,7 @@ def knowledge_text(gem_id: str, limit: int | None = None) -> str:
 
 def digest_prompt(filename: str, segment: str, index: int, total: int) -> str:
     return (
-        f"นี่คือส่วนที่ {index} จาก {total} ของไฟล์ความรู้ที่ครูแนบให้ Gem ({filename}) ระบบจะใช้บันทึกของคุณแทนต้นฉบับตอนสร้างบทเรียน "
+        f"นี่คือส่วนที่ {index} จาก {total} ของไฟล์ความรู้ที่ครูแนบให้ติวเตอร์ ({filename}) ระบบจะใช้บันทึกของคุณแทนต้นฉบับตอนสร้างบทเรียน "
         "จดทุกประเด็นที่ใช้สอนให้ครบ: มโนทัศน์ นิยาม กฎ ลำดับขั้นวิธีทำ ตัวอย่าง ความรู้พื้นฐานที่ต้องรู้ก่อน "
         "ข้อผิดพลาดที่พบบ่อยและสาเหตุ และแนวทางการสอนหรือคำใบ้ของครู "
         "โจทย์ เฉลย ตาราง คำตอบผิด และแนวทางคำใบ้ที่ครูเขียนไว้ ให้คัดลอกตรงตัวทุกตัวอักษร ห้ามสรุปย่อ\n"
@@ -204,11 +204,11 @@ def reading_note(reading: dict) -> str | None:
     if reading["mode"] == "full":
         return f"AI อ่านไฟล์ความรู้ครบ {reading['files']} ไฟล์ {reading['chars']:,} ตัวอักษร (100%)"
     return (f"ไฟล์ความรู้ยาว {reading['chars']:,} ตัวอักษร AI สรุปทีละส่วน {reading['segments']} ส่วนก่อนสร้างบทเรียน "
-            f"อ่านครอบคลุม {share}%" + ("" if share >= 100 else " ส่วนท้ายที่เกินไม่ได้อ่าน แยกเป็นหลาย Gem จะอ่านได้ครบ"))
+            f"อ่านครอบคลุม {share}%" + ("" if share >= 100 else " ส่วนท้ายที่เกินไม่ได้อ่าน แยกเป็นหลายติวเตอร์จะอ่านได้ครบ"))
 
 
 def gem_brief(gem: dict, knowledge: str) -> str:
-    lines = [f"ชื่อ Gem: {gem['name']}"]
+    lines = [f"ชื่อติวเตอร์: {gem['name']}"]
     if gem.get("description"):
         lines.append(f"คำอธิบาย: {gem['description']}")
     lines.append(f"คำสั่งของครู:\n{gem.get('instructions') or '(ไม่มี)'}")
@@ -857,7 +857,7 @@ async def generate_items(subject_id: str, request: dict, review: str) -> list[st
     """
     subject = db.get_subject(subject_id)
     if not subject or not subject.get("gem"):
-        raise BuildError("ชุดคำถามนี้ไม่ใช่ Gem สร้างโจทย์สดไม่ได้")
+        raise BuildError("ชุดคำถามนี้ไม่ใช่ติวเตอร์ จึงสร้างโจทย์สดไม่ได้")
     gem = subject["gem"]
     concepts = {c["id"]: c for c in subject["concepts"]}
     target = concepts[subject["question_sets"][0]["target_concept"]]

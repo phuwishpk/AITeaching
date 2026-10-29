@@ -405,7 +405,7 @@ export default function SpecFlowMap({
           // ไม่ย่อจนอ่านป้ายไม่ออก จอแคบให้เลื่อนดูด้านข้างแทน
           style={{ maxWidth: layout.width, minWidth: Math.min(layout.width, compact ? 420 : 760) }}
           role="img"
-          aria-label="ผัง Flow ที่ครูออกแบบใน Gem"
+          aria-label="ผัง Flow ที่ครูออกแบบในติวเตอร์"
         >
           <defs>
             <marker id="sf-arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">

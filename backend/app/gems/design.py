@@ -123,7 +123,7 @@ def frames(gem: dict) -> dict:
     return {
         "role": prompt.role_frame({**base, "gem": {"instructions": gem.get("instructions", "")}}),
         "context": "เติมตอนสอนจาก Student Model: โจทย์ปัจจุบัน ครั้งที่ผิด เวลาคิด ผลวินิจฉัย Bug Library "
-                   "และย่อหน้าที่ RAG ค้นได้จาก Knowledge File ของ Gem",
+                   "และย่อหน้าที่ RAG ค้นได้จาก Knowledge File ของติวเตอร์",
         "task": "เติมตอนสอน: " + " · ".join(prompt.LEVEL_TASK.values()) + " หรือคำถามนำแบบ Socratic เมื่อนักเรียนพิมพ์แชต",
         "constraints": prompt.constraints_frame(),
     }
