@@ -185,6 +185,10 @@ function AdminShell({ onLogout, onExpired }: { onLogout: () => void; onExpired: 
         };
       });
       setLiveVersion((v) => v + 1);
+    } else if (message.type === "removed") {
+      // ครูลบนักเรียนออกจากระบบ: เอาชิปออกจากผัง
+      setFlow((current) => (current ? { ...current, positions: current.positions.filter((p) => p.code !== message.code) } : current));
+      setLiveVersion((v) => v + 1);
     } else if (message.type === "scenario") {
       setScenarios((list) => [{ ...(message as ScenarioEvent), ts: Date.now() / 1000 }, ...list].slice(0, 80));
     } else {

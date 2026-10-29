@@ -11,6 +11,11 @@ from .ml import kmeans
 _cluster_cache: dict[str | None, dict] = {}
 
 
+def forget_clusters(owner: str | None) -> None:
+    """นักเรียนของบัญชีนี้เปลี่ยน (เช่น ลบนักเรียน) จัดกลุ่มใหม่ครั้งหน้าที่ขอ"""
+    _cluster_cache.pop(owner, None)
+
+
 def student_rows(owner: str | None = None) -> list[dict]:
     clause, params = scope.where(owner)
     return db.query(f"SELECT code, kind, persona FROM students WHERE {clause} ORDER BY code", params)

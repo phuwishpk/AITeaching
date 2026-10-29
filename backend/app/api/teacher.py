@@ -259,6 +259,20 @@ def remove_roster(code: str, auth: dict = Depends(teacher)):
     return {"ok": True}
 
 
+@router.delete("/students/{code}")
+async def delete_student(code: str, auth: dict = Depends(teacher)):
+    """ลบนักเรียนของครูคนนี้ออกจากระบบถาวร พร้อมข้อมูลการเรียน แชต และร่องรอยทั้งหมด (กู้คืนไม่ได้)
+    ลบได้เฉพาะนักเรียนจริงใน Roster นักเรียนจำลอง สาธิต และพรีวิวของ Gem ระบบสร้างและล้างเอง"""
+    scope.student(auth, code)
+    row = db.query_one("SELECT kind FROM students WHERE code = ?", (code,))
+    if row is None:
+        raise HTTPException(404, "ไม่พบนักเรียนรหัสนี้")
+    if row["kind"] != "real":
+        raise HTTPException(400, "ลบได้เฉพาะนักเรียนจริงใน Roster")
+    await services.delete_student(code)
+    return {"ok": True}
+
+
 # ---------------------------------------------------------------- เนื้อหา
 
 def summary(subject: dict) -> dict:

@@ -248,6 +248,27 @@ def delete_gem(gem_id: str) -> None:
     execute("DELETE FROM gem_versions WHERE gem_id = ?", (gem_id,))
 
 
+# ---------- students ----------
+
+# ทุกตารางที่เก็บข้อมูลตามรหัสนักเรียน เพิ่มตารางใหม่ที่มีคอลัมน์ code ต้องเพิ่มที่นี่ด้วย ไม่อย่างนั้นลบนักเรียนแล้วข้อมูลค้าง
+STUDENT_TABLES = ("states", "sessions", "traces", "decisions", "alerts", "overrides", "ai_logs", "suggested_tags",
+                  "messages", "chat_modes", "teacher_actions", "tokens", "roster", "students")
+
+
+def delete_student(code: str) -> None:
+    """ลบนักเรียนออกจากระบบถาวร พร้อมข้อมูลการเรียน แชต ร่องรอย และ token (ออกจากระบบทันที) ในครั้งเดียว"""
+    with _lock:
+        conn = connect()
+        conn.execute("BEGIN")
+        try:
+            for table in STUDENT_TABLES:
+                conn.execute(f"DELETE FROM {table} WHERE code = ?", (code,))
+            conn.execute("COMMIT")
+        except Exception:
+            conn.execute("ROLLBACK")
+            raise
+
+
 # ---------- student states ----------
 
 def load_state(code: str, set_id: str) -> dict | None:

@@ -783,6 +783,17 @@ WATCH_TIMEOUT = 45.0
 _watching: dict[str, float] = {}
 
 
+async def delete_student(code: str) -> None:
+    """ลบนักเรียนจริงออกจากระบบถาวร (ครูเจ้าของสั่ง) ผังสดของ Admin เอาชิปออก แล้วล้างสิ่งที่จำไว้ในหน่วยความจำ"""
+    owner = scope.student_owner(code)
+    # ส่งก่อนลบ: hub หาเจ้าของนักเรียนจากฐานข้อมูล
+    await hub.to_staff({"type": "removed", "code": code})
+    async with lock(code):
+        db.delete_student(code)
+    _watching.pop(code, None)
+    analytics.forget_clusters(owner)
+
+
 def mark_watching(code: str) -> None:
     _watching[code] = time.time()
 

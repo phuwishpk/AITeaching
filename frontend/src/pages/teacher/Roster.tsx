@@ -1,5 +1,5 @@
 import { useState, type FormEvent } from "react";
-import { Copy, Lock, Trash2, UserPlus } from "lucide-react";
+import { Copy, Lock, Trash2, UserPlus, UserX } from "lucide-react";
 import { api } from "../../lib/api";
 import { useLoad } from "../../lib/hooks";
 import { Button, Card, CardHead, Empty, Field, Modal, Spinner, useToast } from "../../components/ui";
@@ -19,6 +19,10 @@ export default function Roster() {
   const [code, setCode] = useState("");
   const [busy, setBusy] = useState(false);
   const [removing, setRemoving] = useState<Entry | null>(null);
+  // ลบนักเรียนออกจากระบบถาวร: ต้องพิมพ์รหัสให้ตรงก่อน กันกดผิดคน
+  const [deleting, setDeleting] = useState<Entry | null>(null);
+  const [typed, setTyped] = useState("");
+  const [busyDelete, setBusyDelete] = useState(false);
 
   const add = async (event: FormEvent) => {
     event.preventDefault();
@@ -46,6 +50,22 @@ export default function Roster() {
     setRemoving(null);
     roster.reload();
     reloadOverview();
+  };
+
+  const destroy = async () => {
+    if (!deleting) return;
+    setBusyDelete(true);
+    try {
+      await api("teacher", `/api/teacher/students/${deleting.code}`, { method: "DELETE" });
+      toast(`ลบ ${deleting.code} และข้อมูลทั้งหมดออกจากระบบแล้ว`, "success");
+      setDeleting(null);
+      roster.reload();
+      reloadOverview();
+    } catch (err) {
+      toast(err instanceof Error ? err.message : "ลบไม่สำเร็จ", "warning");
+    } finally {
+      setBusyDelete(false);
+    }
   };
 
   return (
@@ -106,6 +126,16 @@ export default function Roster() {
                         {entry.name && (
                           <Button size="sm" variant="ghost" icon={<Trash2 size={15} />} onClick={() => setRemoving(entry)} aria-label={`ลบชื่อของ ${entry.code}`} />
                         )}
+                        <Button
+                          size="sm"
+                          variant="ghost"
+                          icon={<UserX size={15} />}
+                          onClick={() => {
+                            setTyped("");
+                            setDeleting(entry);
+                          }}
+                          aria-label={`ลบนักเรียน ${entry.code} และข้อมูลทั้งหมด`}
+                        />
                       </span>
                     </td>
                   </tr>
@@ -132,6 +162,31 @@ export default function Roster() {
         <p className="small">
           ลบชื่อของ <span className="mono">{removing?.code}</span> ออกจาก Roster ข้อมูลการเรียนยังอยู่ครบภายใต้รหัสเดิม แต่ครูจะไม่เห็นชื่อจริงอีก
         </p>
+      </Modal>
+
+      <Modal
+        open={!!deleting}
+        onClose={() => setDeleting(null)}
+        title="ลบนักเรียนและข้อมูลทั้งหมด"
+        footer={
+          <>
+            <Button onClick={() => setDeleting(null)}>ยกเลิก</Button>
+            <Button variant="danger" onClick={destroy} loading={busyDelete} disabled={typed.trim().toUpperCase() !== deleting?.code}>
+              ลบถาวร
+            </Button>
+          </>
+        }
+      >
+        <div className="stack stack-sm">
+          <p className="small">
+            ลบ <span className="mono strong">{deleting?.code}</span>
+            {deleting?.name ? ` (${deleting.name})` : ""} ออกจากระบบถาวร พร้อมข้อมูลการเรียน แชต ร่องรอย และแจ้งเตือนทั้งหมด
+            นักเรียนคนนี้ถูกออกจากระบบทันที และกู้คืนไม่ได้
+          </p>
+          <Field label={`พิมพ์ ${deleting?.code ?? ""} เพื่อยืนยัน`}>
+            <input className="input mono" value={typed} onChange={(e) => setTyped(e.target.value)} autoFocus />
+          </Field>
+        </div>
       </Modal>
     </div>
   );

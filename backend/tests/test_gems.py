@@ -1050,3 +1050,37 @@ def test_chat_history_marks_messages_from_earlier_items():
                                   {"sender": "student", "text": "ข้อนี้เริ่มยังไง", "earlier": False}])
     assert block.index("ข้อก่อน") < block.index("4x") < block.index("(คุยกันในโจทย์ปัจจุบัน)") < block.index("ข้อนี้เริ่มยังไง")
     assert "ข้อก่อน" not in prompt.history_block([{"sender": "student", "text": "สวัสดี"}])
+
+
+def test_teacher_deletes_a_student_and_all_their_data():
+    """ครูลบนักเรียนจริงของตัวเองออกถาวร: ข้อมูลทุกตารางหาย นักเรียนออกจากระบบ คนอื่นและบัญชีอื่นไม่กระทบ"""
+    from app.api.deps import issue_token
+
+    client, a, b = _two_staff()
+    gone = client.post("/api/teacher/roster", headers=a["teacher"], json={"name": "ทดสอบ"}).json()["code"]
+    kept = client.post("/api/teacher/roster", headers=a["teacher"], json={"name": "ตัวจริง"}).json()["code"]
+    student = {"Authorization": f"Bearer {issue_token('student', gone)}"}
+    for code in (gone, kept):
+        db.execute("INSERT INTO traces (ts, code, action, target, data) VALUES (1, ?, 'chat', NULL, '{}')", (code,))
+        db.execute("INSERT INTO decisions (ts, code, set_id, from_pos, to_pos, edges, rule, detail) "
+                   "VALUES (1, ?, 'QS', 'A', 'B', '[]', 'r', '{}')", (code,))
+        db.execute("INSERT INTO messages (ts, code, set_id, sender, text) VALUES (1, ?, 'QS', 'student', 'hi')", (code,))
+    assert client.get("/api/student/sets", headers=student).status_code == 200
+
+    assert client.delete(f"/api/teacher/students/{gone}", headers=b["teacher"]).status_code == 404, "บัญชีอื่นลบไม่ได้"
+    assert client.delete(f"/api/teacher/students/{gone}", headers=a["teacher"]).json() == {"ok": True}
+    for table in db.STUDENT_TABLES:
+        assert not db.query(f"SELECT 1 FROM {table} WHERE code = ?", (gone,)), f"ยังมีข้อมูลค้างใน {table}"
+    assert client.get("/api/student/sets", headers=student).status_code == 401, "นักเรียนที่ลบออกจากระบบทันที"
+    assert [r["code"] for r in client.get("/api/teacher/roster", headers=a["teacher"]).json()] == [kept]
+    assert db.query("SELECT 1 FROM traces WHERE code = ?", (kept,)), "นักเรียนคนอื่นไม่กระทบ"
+    assert client.delete(f"/api/teacher/students/{gone}", headers=a["teacher"]).status_code == 404
+
+    db.execute("INSERT INTO students (code, kind, persona, created_at, owner) VALUES ('SIM-99', 'sim', NULL, 0, 'alice')")
+    assert client.delete("/api/teacher/students/SIM-99", headers=a["teacher"]).status_code == 400, "ลบได้เฉพาะนักเรียนจริง"
+
+
+def test_deleting_a_student_covers_every_table_keyed_by_student_code():
+    tables = [r["name"] for r in db.query("SELECT name FROM sqlite_master WHERE type = 'table' AND name NOT LIKE 'sqlite_%'")]
+    keyed = {t for t in tables if any(c["name"] == "code" for c in db.query(f"PRAGMA table_info({t})"))}
+    assert keyed == set(db.STUDENT_TABLES), "ตารางที่มีคอลัมน์ code ต้องอยู่ใน db.STUDENT_TABLES"
