@@ -154,6 +154,16 @@ def demo(owner: str | None = None) -> dict:
     return {"enabled": stored.get("enabled", False), "time_scale": stored.get("time_scale", 0.2)}
 
 
+def cohort(owner: str | None = None) -> dict:
+    """นักเรียนจำลอง (Simulated Cohort) ของผู้ใช้: ปิดแล้วระบบไม่สร้างให้อีก ทั้งตอนเริ่มเซิร์ฟเวอร์และตอนสร้างคลังโจทย์"""
+    return {"enabled": _stored("cohort", owner).get("enabled", True)}
+
+
+def save_cohort(enabled: bool) -> dict:
+    db.set_setting(_setting_key("cohort"), {"enabled": bool(enabled)})
+    return cohort()
+
+
 def time_scale() -> float:
     d = demo()
     return float(d["time_scale"]) if d["enabled"] else 1.0

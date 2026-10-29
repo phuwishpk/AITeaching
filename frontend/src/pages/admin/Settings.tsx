@@ -19,6 +19,8 @@ interface SettingsData {
   params: Record<string, number>;
   param_labels: Record<string, string>;
   demo: { enabled: boolean; time_scale: number };
+  // นักเรียนจำลองของบัญชีนี้: ปิดแล้วลบทิ้งและระบบไม่สร้างให้อีก
+  cohort: { enabled: boolean; students: number };
   // บัญชีที่ค่าในหน้านี้เป็นของ (null = เซิร์ฟเวอร์ยังไม่มีบัญชีผู้ใช้ ค่าใช้ร่วมกันทั้งระบบ)
   account: { username: string; name: string } | null;
 }
@@ -70,6 +72,12 @@ export default function Settings() {
     settings.setData(result);
   };
 
+  const saveCohort = async (enabled: boolean) => {
+    const result = await api<SettingsData>("admin", "/api/admin/settings", { method: "PUT", body: { cohort: { enabled } } });
+    settings.setData(result);
+    toast(enabled ? `เปิดนักเรียนจำลองแล้ว (${result.cohort.students} คน)` : "ลบนักเรียนจำลองทั้งหมดแล้ว ระบบจะไม่สร้างให้อีก", "success");
+  };
+
   return (
     <div className="page page-narrow stack stack-lg">
       <header className="stack stack-sm fade-in">
@@ -80,7 +88,7 @@ export default function Settings() {
         </p>
         {s.account && (
           <p className="small muted">
-            ทุกค่าในหน้านี้ (API key, โมเดล, พารามิเตอร์ และ Demo Mode) เป็นของบัญชี <strong>{s.account.name}</strong> เท่านั้น
+            ทุกค่าในหน้านี้ (API key, โมเดล, พารามิเตอร์, Demo Mode และนักเรียนจำลอง) เป็นของบัญชี <strong>{s.account.name}</strong> เท่านั้น
             ใช้กับ Gem และนักเรียนของบัญชีนี้ บัญชีอื่นไม่เห็นและไม่ได้รับผลกระทบ
           </p>
         )}
@@ -153,6 +161,20 @@ export default function Settings() {
             />
           </Field>
           <span className="xsmall muted">เช่น × 0.2 ทำให้ Deliberate Delay 15 วินาทีเหลือ {num(15 * s.demo.time_scale, 0)} วินาที</span>
+        </div>
+      </Card>
+
+      <Card>
+        <CardHead
+          title="นักเรียนจำลอง (Simulated Cohort)"
+          sub="นักเรียนสมมติที่ระบบสร้างให้ ใช้ทำสถิติห้องและจัดกลุ่ม K-Means ตอนสาธิต ปิดแล้วลบทิ้งทั้งหมดพร้อมข้อมูล และระบบจะไม่สร้างให้อีก นักเรียนจริงไม่กระทบ"
+        />
+        <div className="card-body row" style={{ paddingTop: 0 }}>
+          <label className="check">
+            <input type="checkbox" checked={s.cohort.enabled} onChange={(e) => saveCohort(e.target.checked)} />
+            ใช้นักเรียนจำลอง
+          </label>
+          <span className="xsmall muted">ตอนนี้มี {s.cohort.students} คน</span>
         </div>
       </Card>
 

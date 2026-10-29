@@ -38,6 +38,7 @@ class SettingsBody(BaseModel):
     ai: dict | None = None
     params: dict | None = None
     demo: dict | None = None
+    cohort: dict | None = None
 
 
 class SecretBody(BaseModel):
@@ -321,11 +322,9 @@ def cohort_reset(auth: dict = Depends(admin)):
 
 def _reset_cohort(owner: str | None) -> int:
     """สร้างนักเรียนจำลองของผู้ใช้คนนี้ใหม่ (ของคนอื่นไม่เปลี่ยน)"""
-    clause, params = scope.where(owner)
-    codes = [r["code"] for r in db.query(f"SELECT code FROM students WHERE kind = 'sim' AND {clause}", params)]
-    for code in codes:
-        for table in ("states", "decisions", "alerts", "traces", "sessions", "students"):
-            db.execute(f"DELETE FROM {table} WHERE code = ?", (code,))
+    if not settings_store.cohort(owner)["enabled"]:
+        raise HTTPException(400, "บัญชีนี้ปิดนักเรียนจำลองไว้ เปิดในหน้าตั้งค่าก่อน")
+    demo.remove_cohort(owner)
     try:
         count = demo.seed_cohort(seed=int(time.time()) % 10_000, owner=owner)
     except services.NotFound as error:
@@ -420,6 +419,7 @@ def get_settings(auth: dict = Depends(admin)):
         "params": settings_store.params(),
         "param_labels": PARAM_LABELS,
         "demo": settings_store.demo(),
+        "cohort": {**settings_store.cohort(), "students": _cohort_size(scope.of(auth))},
         "usage": model_usage(auth),
         # ค่าในหน้านี้เป็นของบัญชีนี้เท่านั้น (มีผู้ใช้หลายคน) หน้าเว็บบอกให้รู้ว่าไม่กระทบคนอื่น
         "account": users.get(scope.of(auth)),
@@ -460,7 +460,27 @@ def put_settings(body: SettingsBody, auth: dict = Depends(admin)):
         settings_store.save_params(body.params)
     if body.demo:
         settings_store.save_demo(body.demo)
+    if body.cohort and "enabled" in body.cohort:
+        _switch_cohort(scope.of(auth), bool(body.cohort["enabled"]))
     return get_settings(auth)
+
+
+def _cohort_size(owner: str | None) -> int:
+    clause, params = scope.where(owner)
+    return db.query_one(f"SELECT COUNT(*) AS n FROM students WHERE kind = 'sim' AND {clause}", params)["n"]
+
+
+def _switch_cohort(owner: str | None, enabled: bool) -> None:
+    """ปิด: ลบนักเรียนจำลองของบัญชีนี้ทั้งหมดและไม่สร้างให้อีก เปิด: สร้างชุดใหม่ (ถ้ามี Gem ที่พร้อมสาธิตแล้ว)"""
+    settings_store.save_cohort(enabled)
+    if not enabled:
+        demo.remove_cohort(owner)
+    elif not _cohort_size(owner):
+        try:
+            demo.seed_cohort(seed=int(time.time()) % 10_000, owner=owner)
+        except services.NotFound:
+            pass  # ยังไม่มี Gem ที่พร้อมสาธิต ระบบสร้างให้เองเมื่อมี
+    analytics.forget_clusters(owner)
 
 
 @router.put("/secrets")

@@ -1084,3 +1084,26 @@ def test_deleting_a_student_covers_every_table_keyed_by_student_code():
     tables = [r["name"] for r in db.query("SELECT name FROM sqlite_master WHERE type = 'table' AND name NOT LIKE 'sqlite_%'")]
     keyed = {t for t in tables if any(c["name"] == "code" for c in db.query(f"PRAGMA table_info({t})"))}
     assert keyed == set(db.STUDENT_TABLES), "ตารางที่มีคอลัมน์ code ต้องอยู่ใน db.STUDENT_TABLES"
+
+
+def test_turning_off_the_simulated_cohort_removes_it_for_good(monkeypatch):
+    """ปิดนักเรียนจำลองในหน้าตั้งค่า: ของบัญชีนี้ถูกลบพร้อมข้อมูล ระบบไม่สร้างกลับมาตอนเริ่มเซิร์ฟเวอร์ ของบัญชีอื่นไม่กระทบ"""
+    from app import demo, seed
+
+    client, a, b = _two_staff()
+    for code, owner in (("SIM-01-ALICE", "alice"), ("SIM-02-ALICE", "alice"), ("SIM-01-BOB", "bob")):
+        db.execute("INSERT INTO students (code, kind, persona, created_at, owner) VALUES (?, 'sim', 'fast', 0, ?)", (code, owner))
+        db.execute("INSERT INTO traces (ts, code, action, target, data) VALUES (1, ?, 'answer', NULL, '{}')", (code,))
+    assert client.get("/api/admin/settings", headers=a["admin"]).json()["cohort"] == {"enabled": True, "students": 2}
+
+    result = client.put("/api/admin/settings", headers=a["admin"], json={"cohort": {"enabled": False}}).json()
+    assert result["cohort"] == {"enabled": False, "students": 0}
+    assert not db.query("SELECT 1 FROM traces WHERE code LIKE 'SIM-%-ALICE'"), "ข้อมูลของนักเรียนจำลองหายด้วย"
+    assert db.query_one("SELECT 1 FROM students WHERE code = 'SIM-01-BOB'"), "ของบัญชีอื่นไม่กระทบ"
+
+    seeded = []
+    monkeypatch.setattr(demo, "seed_cohort", lambda **kw: seeded.append(kw["owner"]) or 0)
+    db.execute("DELETE FROM students WHERE code = 'SIM-01-BOB'")
+    seed.ensure_cohort()
+    assert seeded == ["bob"], "บัญชีที่ปิดไว้ไม่ถูกสร้างกลับมา บัญชีที่เปิดและยังไม่มีถูกสร้างตามเดิม"
+    assert client.post("/api/admin/cohort/reset", headers=a["admin"]).status_code == 400

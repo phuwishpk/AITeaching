@@ -232,6 +232,15 @@ def seed_cohort(per_persona: int = 8, seed: int = 2026, owner: str | None = None
     return index - 1
 
 
+def remove_cohort(owner: str | None = None) -> int:
+    """ลบนักเรียนจำลองของผู้ใช้คนนี้พร้อมข้อมูลทั้งหมด (ของคนอื่นไม่เปลี่ยน)"""
+    clause, params = scope.where(owner)
+    codes = [r["code"] for r in db.query(f"SELECT code FROM students WHERE kind = 'sim' AND {clause}", params)]
+    for code in codes:
+        db.delete_student(code)
+    return len(codes)
+
+
 async def cohort_tick(max_students: int = 10, owner: str | None = None) -> int:
     """ขยับนักเรียนจำลองคนละหนึ่งก้าว ให้ผังในหน้า Admin เคลื่อนไหว"""
     clause, params = scope.where(owner)

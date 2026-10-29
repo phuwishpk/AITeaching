@@ -53,7 +53,8 @@ def ensure_cohort():
     """นักเรียนจำลองสำหรับ K-Means และสถิติห้อง สร้างเมื่อมี Gem ที่พร้อมสาธิตแล้ว (ผู้ใช้แต่ละคนมีชุดของตัวเอง)"""
     for owner in [u["username"] for u in users.listing()] or [None]:
         clause, params = scope.where(owner)
-        if db.query_one(f"SELECT code FROM students WHERE kind = 'sim' AND {clause}", params):
+        if not settings_store.cohort(owner)["enabled"] or db.query_one(
+                f"SELECT code FROM students WHERE kind = 'sim' AND {clause}", params):
             continue
         settings_store.use_keys_of(owner)  # พารามิเตอร์ของกลไกเป็นของเจ้าของนักเรียนจำลอง
         try:
