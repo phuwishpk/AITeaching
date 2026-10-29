@@ -763,7 +763,7 @@ def test_simulation_finds_dead_edges_and_shows_where_students_go():
 
 def test_simulation_cache_keeps_only_which_edge_won():
     """เจอบนเซิร์ฟเวอร์จริง: แคชเก็บค่าตัวแปรของทุกกรณี (ราว 17 MB ต่อขั้น) ครูแก้ Flow และ AI ออกแบบใหม่หลายรอบ
-    จนแอปใช้ RAM เต็ม 700 MB แล้วเว็บค้าง แคชต้องเก็บแค่เลขเส้นที่ชนะ และให้ผลเหมือนเดิม"""
+    จนแอปใช้ RAM เต็ม 700 MB แล้วเว็บค้าง แคชต้องเก็บแค่เลขเส้นที่ชนะ"""
     import tracemalloc
 
     from app.gems import simulate
@@ -780,15 +780,33 @@ def test_simulation_cache_keeps_only_which_edge_won():
     tracemalloc.start()
     try:
         before = tracemalloc.get_traced_memory()[0]
-        for _ in simulate.cases(flow, step):
-            pass
+        dead = simulate.dead_in(flow, step)
         held = tracemalloc.get_traced_memory()[0] - before
     finally:
         tracemalloc.stop()
     assert held < 1_000_000, f"แคชของขั้นเดียวใช้ {held / 1e6:.1f} MB"
-    reached = {e["to"] for _, e in simulate.cases(flow, step)}
-    assert [e["to"] for e in simulate.dead_in(flow, step)] == sorted(set("abcdef") - reached)
-    assert "f" in reached
+    assert dead == []
+
+
+def test_many_variables_do_not_hide_reachable_edges():
+    """เจอใน Flow จริงบนเซิร์ฟเวอร์ (ขั้นเดียวมีได้ถึง 1,152,000 กรณี): เดิมลองแค่ 20,000 กรณีโดยตัดค่าท้ายทิ้ง
+    เส้นแรกของขั้นจึงถูกรายงานว่า "ไม่มีวันถูกใช้" (AI เสียรอบแก้สิ่งที่ไม่ผิด) และมองไม่เห็นเส้นที่ตอบผิดแล้วจบชุดได้
+    ตอนนี้ลองเฉพาะตัวแปรที่เงื่อนไขใช้ และค่าที่ให้ผลเหมือนกันลองค่าเดียว จึงไม่ต้องตัด"""
+    from app.gems import simulate
+
+    step = {"id": "q", "kind": "item", "label": "ทำโจทย์"}
+    flow = {"steps": [step, {"id": "h", "kind": "hint", "label": "คำใบ้", "level": "auto"},
+                      {"id": "e", "kind": "end", "label": "จบ", "result": "completed"}],
+            "edges": [
+                {"from": "q", "to": "e", "when": "items_done >= 6 or (correct and mastery >= 0.8 and streak >= 3)", "label": "จบชุด"},
+                {"from": "q", "to": "h", "when": "wrong and impasse > 60 and rt_ratio > 1.5 and visits >= 2 and target_visits < 2"},
+                {"from": "q", "to": "h", "when": "wrong and concept_mastery < 0.4 and solved_here < 2 and widget_tries >= 2"},
+                {"from": "q", "to": "h", "when": "wrong and chat_help >= 2 and rounds >= 1 and judge_score < 50"},
+                {"from": "q", "to": "q", "when": ""}]}
+    assert simulate.dead_in(flow, step) == []
+    assert flowspec.ending_on_wrong(flow), "items_done >= 6 จบชุดได้แม้ตอบผิด ต้องจับได้"
+    rows = [r["case"] for t in simulate.table(flow) for r in t["rows"]]
+    assert rows[-3:] == [text for text, _ in simulate.COMBOS], "แถวเข้าเกณฑ์จบชุดอยู่ท้ายตารางเสมอแม้แถวเกินเพดาน"
 
 
 def test_unreachable_extra_steps_are_pruned_not_fatal(monkeypatch):

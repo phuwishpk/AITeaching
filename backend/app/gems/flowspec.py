@@ -936,9 +936,10 @@ def ending_on_wrong(flow_spec: dict) -> list[str]:
     for step in flow_spec["steps"]:
         if step["kind"] != "item":
             continue
-        for values, edge in simulate.cases(flow_spec, step):
+        wrong = [edge for fixed, edges in simulate.reached(flow_spec, step) if fixed.get("wrong") for edge in edges]
+        for edge in wrong:
             target = steps.get((edge or {}).get("to"))
-            if values.get("wrong") and target and target["kind"] == "end" and target.get("result") == "completed":
+            if target and target["kind"] == "end" and target.get("result") == "completed":
                 notes.append(f"เส้น \"{edge.get('label') or edge['when']}\" จบชุดได้แม้นักเรียนตอบผิด "
                              f"({edge['when']}) ให้ทุกเกณฑ์จบอยู่ใต้ correct and (...)")
                 break
